@@ -1,0 +1,78 @@
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+.Python
+build/
+dist/
+develop-eggs/
+downloads/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+MANIFEST
+
+# ── Virtual envs ────────────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+.virtualenv
+
+# ── Test / coverage ─────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+
+# ── IDE / OS ────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Secrets / runtime ───────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+backend/.env
+*.pem
+*.key
+
+# ── App data ────────────────────────────────────────────────────────────────
+backend/insta.db
+backend/insta.db-journal
+backend/insta.db-wal
+backend/insta.db-shm
+backend/uploads/
+backend/static/uploads/
+
+# ── Logs ────────────────────────────────────────────────────────────────────
+*.log
+InstaContentEngine_error.log
+
+# ── Distribution archive (stays on disk for client delivery, not in git) ────
+InstaContentEngine.zip
+*.zip
+
+# ── Editor / scratch ────────────────────────────────────────────────────────
+*.bak
+*.tmp
+*~
