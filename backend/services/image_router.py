@@ -1,0 +1,99 @@
+import httpx
+from dataclasses import dataclass
+from typing import Optional, Protocol
+
+from models.schemas import ImageSource
+
+
+class ImageFetchError(Exception):
+    pass
+
+
+# Imported lazily to avoid circular imports; used only in _fetch_stock
+def _stock_error_cls():
+    from services.stock import StockError
+    return StockError
+
+
+class CanvaClientProtocol(Protocol):
+    async def export_design(self, design_id: str, format: str = "png") -> bytes: ...
+
+
+@dataclass
+class SlideImageConfig:
+    slide_number: int
+    image_source: ImageSource
+    # stock
+    search_query: Optional[str] = None
+    stock_source: str = "unsplash"       # "unsplash" | "pexels"
+    # ai gen
+    gen_prompt: Optional[str] = None
+    gen_model: Optional[str] = None
+    # canva
+    canva_template_id: Optional[str] = None
+    # carousel
+    page_number: Optional[int] = None    # manual page number for branded card
+
+
+class ImageRouter:
+    def __init__(
+        self,
+        openrouter=None,       # OpenRouterClient
+        stock_client=None,     # StockClient
+        canva_client=None,     # CanvaClient (optional)
+    ):
+        self.openrouter = openrouter
+        self.stock = stock_client
+        self.canva = canva_client
+
+    async def fetch_image(self, config: SlideImageConfig) -> bytes:
+        match config.image_source:
+            case ImageSource.STOCK:
+                return await self._fetch_stock(config)
+            case ImageSource.AI_GEN:
+                return await self._fetch_ai(config)
+            case ImageSource.CANVA:
+                return await self._fetch_canva(config)
+            case _:
+                raise ImageFetchError(f"Unknown image source: {config.image_source}")
+
+    async def _fetch_stock(self, config: SlideImageConfig) -> bytes:
+        if not self.stock:
+            raise ImageFetchError("No stock client configured")
+        StockError = _stock_error_cls()
+        query    = config.search_query or "abstract background"
+        source   = config.stock_source or "auto"   # "auto" | "unsplash" | "pexels"
+        fallbacks = [query, "abstract background", "nature landscape", "minimal texture"]
+        last_exc: Exception = ImageFetchError("stock fetch failed")
+        for q in dict.fromkeys(fallbacks):
+            try:
+                return await self.stock.search_and_download(
+                    query=q, orientation="squarish", source=source
+                )
+            except StockError as e:
+                last_exc = e
+                continue
+        raise ImageFetchError(f"Stock photo search exhausted all fallbacks. Last error: {last_exc}")
+
+    async def _fetch_ai(self, config: SlideImageConfig) -> bytes:
+        if not self.openrouter:
+            raise ImageFetchError("No OpenRouter client configured")
+        prompt = config.gen_prompt or "A beautiful abstract image"
+        model = config.gen_model or ""
+        if not model:
+            raise ImageFetchError("No image model configured. Set DEFAULT_IMAGE_MODEL in .env")
+        return await self.openrouter.generate_image(model=model, prompt=prompt)
+
+    async def _fetch_canva(self, config: SlideImageConfig) -> bytes:
+        if not self.canva:
+            raise ImageFetchError("No Canva client configured")
+        if not config.canva_template_id:
+            raise ImageFetchError("canva_template_id is required for Canva image source")
+        return await self.canva.export_design(config.canva_template_id, format="png")
+
+    @staticmethod
+    async def _download_url(url: str) -> bytes:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.content
