@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>InstaContentEngine</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .slide-img { transition: opacity .3s; }
+    .spinner { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .step-dot { transition: background .2s; }
+  </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen font-sans">
+
+<!-- ===== HEADER ===== -->
+<header class="bg-gradient-to-r from-purple-900 to-pink-900 shadow-lg">
+  <div class="max-w-4xl mx-auto px-6 py-4 flex items-center gap-3">
+    <span class="text-2xl">📸</span>
+    <h1 class="text-xl font-bold tracking-wide cursor-pointer hover:text-purple-200 transition" onclick="goStep(1)" title="New post">InstaContentEngine</h1>
+    <span id="status-dot" class="ml-auto w-3 h-3 rounded-full bg-green-400" title="API connected"></span>
+    <span id="status-label" class="text-xs text-gray-300">connecting…</span>
+  </div>
+</header>
+
+<main class="max-w-4xl mx-auto px-4 py-8 space-y-6">
+
+  <!-- ===== TOP-LEVEL VIEW SWITCH ===== -->
+  <div class="flex justify-center gap-2 select-none">
+    <button id="nav-create" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-purple-500 bg-purple-900 text-white" onclick="setView('create')">📝 Create</button>
+    <button id="nav-trends" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('trends')">🔥 Trends</button>
+  </div>
+
+  <!-- ===== CREATE VIEW (wizard) ===== -->
+  <div id="view-create" class="space-y-8">
+
+  <!-- ===== STEP INDICATOR ===== -->
+  <div class="flex items-center justify-center gap-2 select-none">
+    <template id="step-tpl">
+      <div class="flex items-center gap-1">
+        <div class="step-dot w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2"></div>
+        <span class="text-xs hidden sm:inline"></span>
+      </div>
+    </template>
+    <div id="steps" class="flex items-center gap-1"></div>
+  </div>
+
+  <!-- ===== STEP 1: TOPIC ===== -->
+  <section id="step-1" class="step-section bg-gray-900 rounded-2xl p-6 space-y-5">
+    <h2 class="text-lg font-semibold text-purple-300">✏️ What should the post be about?</h2>
+
+    <div>
+      <label class="block text-sm text-gray-400 mb-1">Topic</label>
+      <input id="topic" type="text" placeholder="e.g. 5 AI tools every marketer needs in 2026"
+        class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Niche (optional)</label>
+        <input id="niche" type="text" placeholder="Marketing, Health, Tech…"
+          class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+      </div>
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Target audience (optional)</label>
+        <input id="audience" type="text" placeholder="Entrepreneurs, Gen Z…"
+          class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Tone</label>
+        <select id="tone" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+          <option value="professional">Professional</option>
+          <option value="casual">Casual</option>
+          <option value="educational">Educational</option>
+          <option value="inspirational">Inspirational</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Additional instructions</label>
+        <input id="instructions" type="text" placeholder="e.g. Include emojis, keep it short"
+          class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500" />
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm text-gray-400 mb-2">Platform</label>
+        <div class="flex gap-2" id="platform-btns">
+          <button data-val="instagram" class="plt-btn">📸 Instagram</button>
+          <button data-val="linkedin"  class="plt-btn">💼 LinkedIn</button>
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm text-gray-400 mb-1">Caption length</label>
+        <select id="length-tier" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+          <option value="hook_zone">Hook Zone (~125)</option>
+          <option value="sweet_spot" selected>Sweet Spot (125–150+)</option>
+          <option value="deep_dive">Deep Dive (300–900+)</option>
+        </select>
+      </div>
+    </div>
+
+    <button onclick="goStep(2)" class="w-full bg-purple-600 hover:bg-purple-500 transition rounded-xl py-3 font-semibold text-white">
+      Next →
+    </button>
+  </section>
+
+  <!-- ===== STEP 2: FORMAT + SOURCE ===== -->
+  <section id="step-2" class="step-section hidden bg-gray-900 rounded-2xl p-6 space-y-5">
+    <h2 class="text-lg font-semibold text-purple-300">⚙️ Format & images</h2>
+
+    <div>
+      <label class="block text-sm text-gray-400 mb-2">Post format</label>
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-2" id="format-btns">
+        <button data-val="single"       class="fmt-btn">🖼 Single image</button>
+        <button data-val="carousel_3"   class="fmt-btn">🎠 Carousel 3</button>
+        <button data-val="carousel_5"   class="fmt-btn">🎠 Carousel 5</button>
+        <button data-val="carousel_10"  class="fmt-btn">🎠 Carousel 10</button>
+        <button data-val="infographic"  class="fmt-btn">📊 Infographic</button>
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm text-gray-400 mb-2">Image source</label>
+      <div class="flex flex-wrap gap-2" id="source-btns">
+        <button data-val="stock"  class="src-btn">📷 Stock photos</button>
+        <button data-val="ai_gen" class="src-btn">🎨 AI generated</button>
+        <button data-val="canva"  class="src-btn">🎯 Canva template</button>
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm text-gray-400 mb-2">Template style</label>
+      <div class="flex flex-wrap gap-2" id="template-btns">
+        <button data-val="branded_card" class="tpl-btn">🪪 Branded card (portrait)</button>
+        <button data-val="square"       class="tpl-btn">⬜ Square (legacy)</button>
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm text-gray-400 mb-2">Niche box color</label>
+      <div class="flex flex-wrap gap-2" id="niche-color-swatches"></div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <input type="checkbox" id="apply-brand" checked class="w-4 h-4 accent-purple-500" />
+      <label for="apply-brand" class="text-sm text-gray-300">Apply branding (boxes + text overlay)</label>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <input type="checkbox" id="show-logo" checked class="w-4 h-4 accent-purple-500" />
+      <label for="show-logo" class="text-sm text-gray-300">Show logo on slides</label>
+    </div>
+
+    <div class="flex gap-3">
+      <button onclick="goStep(1)" class="flex-1 bg-gray-700 hover:bg-gray-600 transition rounded-xl py-3 font-semibold">
+        ← Back
+      </button>
+      <button onclick="generatePost()" class="flex-1 bg-purple-600 hover:bg-purple-500 transition rounded-xl py-3 font-semibold text-white">
+        ✨ Generate
+      </button>
+    </div>
+  </section>
+
+  <!-- ===== STEP 3: GENERATING (loading) ===== -->
+  <section id="step-3" class="step-section hidden bg-gray-900 rounded-2xl p-10 flex flex-col items-center gap-6">
+    <svg id="loading-spinner" class="spinner w-16 h-16 text-purple-400" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+    </svg>
+    <p class="text-gray-400 text-center text-sm" id="loading-msg">Starting…</p>
+    <ul id="progress-list" class="w-full max-w-xs space-y-1 text-sm text-gray-300"></ul>
+    <div id="gen-error" class="hidden w-full bg-red-950 border border-red-700 rounded-xl p-4 text-sm text-red-300 text-center space-y-3">
+      <p id="gen-error-msg"></p>
+      <button onclick="goStep(2)" class="bg-gray-700 hover:bg-gray-600 transition rounded-lg px-4 py-2 text-white text-xs">← Back to settings</button>
+    </div>
+  </section>
+
+  <!-- ===== STEP 4: PREVIEW + EDIT ===== -->
+  <section id="step-4" class="step-section hidden bg-gray-900 rounded-2xl p-6 space-y-6">
+    <div class="flex items-center justify-between">
+      <h2 class="text-lg font-semibold text-purple-300">👀 Preview & Edit</h2>
+      <button onclick="generatePost()" class="text-sm bg-gray-700 hover:bg-gray-600 rounded-lg px-3 py-1.5 transition">🔄 Regenerate</button>
+    </div>
+
+    <!-- Slide carousel -->
+    <div class="relative">
+      <div id="slides-container" class="flex gap-3 overflow-x-auto snap-x pb-2"></div>
+    </div>
+
+    <!-- From-trend badge -->
+    <div id="trend-badge" class="hidden text-xs text-pink-300 bg-pink-950 border border-pink-800 rounded-lg px-3 py-2"></div>
+
+    <!-- Caption editor -->
+    <div>
+      <label class="block text-sm text-gray-400 mb-1">Caption</label>
+      <textarea id="caption-edit" rows="5"
+        class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none text-sm"></textarea>
+    </div>
+
+    <!-- Hashtag editor -->
+    <div>
+      <label class="block text-sm text-gray-400 mb-2">Hashtags</label>
+      <div id="hashtag-container" class="flex flex-wrap gap-2 p-3 bg-gray-800 rounded-xl min-h-[44px]"></div>
+      <div class="flex gap-2 mt-2">
+        <input id="hashtag-input" type="text" placeholder="#addhashtag"
+          class="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500" />
+        <button onclick="addHashtag()" class="bg-gray-700 hover:bg-gray-600 rounded-lg px-3 py-1.5 text-sm transition">+ Add</button>
+      </div>
+    </div>
+
+    <!-- SEO keywords (separate from hashtags) -->
+    <div>
+      <label class="block text-sm text-gray-400 mb-2">🔍 SEO keywords <span class="text-gray-600">(Instagram search)</span></label>
+      <div id="seo-container" class="flex flex-wrap gap-2 p-3 bg-gray-800 rounded-xl min-h-[44px]"></div>
+    </div>
+
+    <button onclick="saveCaption()" class="w-full bg-gray-700 hover:bg-gray-600 transition rounded-xl py-2.5 text-sm font-semibold">
+      💾 Save edits
+    </button>
+
+    <!-- Output buttons -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+      <button onclick="exportPost()" class="bg-gradient-to-r from-blue-700 to-blue-500 hover:from-blue-600 hover:to-blue-400 transition rounded-xl py-4 font-semibold text-white flex items-center justify-center gap-2 text-lg shadow-lg">
+        📦 Download ZIP
+      </button>
+      <button onclick="publishPost()" class="bg-gradient-to-r from-pink-700 to-rose-500 hover:from-pink-600 hover:to-rose-400 transition rounded-xl py-4 font-semibold text-white flex items-center justify-center gap-2 text-lg shadow-lg">
+        📤 Publish to Instagram
+      </button>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="hidden fixed bottom-6 right-6 bg-gray-800 border border-gray-700 rounded-xl px-5 py-3 shadow-xl text-sm"></div>
+  </section>
+
+  </div><!-- /#view-create -->
+
+  <!-- ===== TRENDS VIEW ===== -->
+  <div id="view-trends" class="hidden space-y-6">
+
+    <!-- Subtabs -->
+    <div class="flex flex-wrap justify-center gap-2 select-none">
+      <button data-trend-tab="competitors" class="trend-tab px-3 py-2 rounded-xl text-sm font-semibold border-2 border-purple-500 bg-purple-900 text-white">👥 Competitors</button>
+      <button data-trend-tab="trending"    class="trend-tab px-3 py-2 rounded-xl text-sm font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300">🔥 Trending</button>
+      <button data-trend-tab="ideas"       class="trend-tab px-3 py-2 rounded-xl text-sm font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300">💡 Ideas</button>
+    </div>
+
+    <!-- ===== Tab: Competitors ===== -->
+    <section id="trend-tab-competitors" class="trend-section bg-gray-900 rounded-2xl p-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-purple-300">👥 Competitor accounts</h2>
+        <button onclick="refreshTrends()" class="bg-pink-700 hover:bg-pink-600 transition rounded-lg px-4 py-2 text-sm font-semibold">🔄 Refresh trends</button>
+      </div>
+      <div class="grid grid-cols-3 gap-2">
+        <input id="comp-handle" placeholder="@handle" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+        <input id="comp-niche"  placeholder="Niche (running, fitness…)" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+        <button onclick="addCompetitor()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-3 py-2 text-sm font-semibold">+ Add</button>
+      </div>
+      <div id="competitors-list" class="space-y-2"></div>
+      <ul id="refresh-progress" class="text-xs text-gray-400 space-y-0.5 hidden"></ul>
+    </section>
+
+    <!-- ===== Tab: Trending ===== -->
+    <section id="trend-tab-trending" class="trend-section bg-gray-900 rounded-2xl p-6 space-y-4 hidden">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-purple-300">🔥 Trending media</h2>
+        <div class="flex gap-2 text-sm">
+          <select id="trend-sort" onchange="loadMedia()" class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs">
+            <option value="engagement">Sort: engagement</option>
+            <option value="recency">Sort: recency</option>
+          </select>
+          <select id="trend-type" onchange="loadMedia()" class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs">
+            <option value="">All types</option>
+            <option value="reel">Reels</option>
+            <option value="video">Videos</option>
+            <option value="image">Images</option>
+            <option value="carousel">Carousels</option>
+          </select>
+        </div>
+      </div>
+      <div id="media-list" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+      <p id="media-empty" class="text-sm text-gray-500 text-center hidden">No trending media yet — add competitors and hit <b>Refresh trends</b>.</p>
+    </section>
+
+    <!-- ===== Tab: Ideas ===== -->
+    <section id="trend-tab-ideas" class="trend-section bg-gray-900 rounded-2xl p-6 space-y-4 hidden">
+      <h2 class="text-lg font-semibold text-purple-300">💡 Adapted ideas</h2>
+      <div id="ideas-list" class="space-y-3"></div>
+      <p id="ideas-empty" class="text-sm text-gray-500 text-center hidden">No ideas yet — pick a trending media and click <b>Adapt to MLMG</b>.</p>
+    </section>
+
+  </div><!-- /#view-trends -->
+
+  <!-- ===== Adapt Modal ===== -->
+  <div id="adapt-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4">
+    <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+      <h3 class="text-lg font-semibold text-purple-300">✨ Adapt to MLMG</h3>
+      <p id="adapt-source" class="text-xs text-gray-500"></p>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Platform</label>
+          <select id="adapt-platform" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+            <option value="instagram">Instagram</option>
+            <option value="linkedin">LinkedIn</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Length</label>
+          <select id="adapt-length" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+            <option value="hook_zone">Hook Zone</option>
+            <option value="sweet_spot" selected>Sweet Spot</option>
+            <option value="deep_dive">Deep Dive</option>
+          </select>
+        </div>
+      </div>
+      <textarea id="adapt-instructions" rows="2" placeholder="Additional instructions (optional)" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm"></textarea>
+      <div class="flex gap-3">
+        <button onclick="closeAdaptModal()" class="flex-1 bg-gray-700 hover:bg-gray-600 transition rounded-lg py-2 text-sm">Cancel</button>
+        <button id="adapt-submit" onclick="submitAdapt()" class="flex-1 bg-purple-600 hover:bg-purple-500 transition rounded-lg py-2 text-sm font-semibold">Adapt</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ===== STATE =====
+const NICHE_BOX_PALETTE = ['#ffbf00','#0076cb','#5e17eb','#00bf63','#000000','#ff751f'];
+
+const S = {
+  step: 1,
+  view: 'create',          // 'create' | 'trends'
+  trendTab: 'competitors', // 'competitors' | 'trending' | 'ideas'
+  format: 'single',
+  source: 'stock',
+  platform: 'instagram',
+  templateStyle: 'branded_card',
+  nicheBoxColor: null,
+  postId: null,
+  hashtags: [],
+  seoKeywords: [],
+  trendIdeaId: null,       // set when wizard is opened from an idea
+  adaptMediaId: null,      // media being adapted in modal
+};
+
+const API = window.location.origin;
+
+// ===== AUTH =====
+function authHeader() {
+  const t = localStorage.getItem('api_token');
+  return t ? { 'Authorization': `Bearer ${t}` } : {};
+}
+
+function showAuthModal(onSuccess) {
+  let modal = document.getElementById('auth-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'auth-modal';
+    modal.className = 'fixed inset-0 bg-black/70 flex items-center justify-center z-50';
+    modal.innerHTML = `
+      <div class="bg-gray-900 border border-gray-700 rounded-2xl p-8 max-w-sm w-full space-y-4 shadow-2xl">
+        <h2 class="text-lg font-bold text-purple-300">🔐 Enter access token</h2>
+        <input id="auth-input" type="password" placeholder="Bearer token…"
+          class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500" />
+        <p id="auth-error" class="hidden text-red-400 text-xs">Wrong token — try again.</p>
+        <button id="auth-submit" class="w-full bg-purple-600 hover:bg-purple-500 transition rounded-xl py-3 font-semibold text-white">
+          Unlock
+        </button>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+  modal.classList.remove('hidden');
+  const input = document.getElementById('auth-input');
+  const errEl = document.getElementById('auth-error');
+  input.value = ''; errEl.classList.add('hidden'); input.focus();
+  const submit = () => {
+    const val = input.value.trim();
+    if (!val) return;
+    localStorage.setItem('api_token', val);
+    modal.classList.add('hidden');
+    if (onSuccess) onSuccess();
+  };
+  document.getElementById('auth-submit').onclick = submit;
+  input.onkeydown = e => { if (e.key === 'Enter') submit(); };
+}
+
+async function apiFetch(url, opts = {}) {
+  const res = await fetch(url, {
+    ...opts,
+    headers: { ...authHeader(), ...(opts.headers || {}) },
+  });
+  if (res.status === 401) {
+    showAuthModal(() => apiFetch(url, opts));
+    throw new Error('Unauthorized — enter your access token.');
+  }
+  return res;
+}
+
+// ===== STEP LOGIC =====
+const STEP_LABELS = ['Topic', 'Settings', 'Generating', 'Preview'];
+
+function renderSteps() {
+  const el = document.getElementById('steps');
+  el.innerHTML = '';
+  STEP_LABELS.forEach((label, i) => {
+    const n = i + 1;
+    const active = n === S.step;
+    const done = n < S.step;
+    const div = document.createElement('div');
+    div.className = 'flex items-center gap-1';
+    div.innerHTML = `
+      <div class="step-dot w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border-2
+        ${active ? 'bg-purple-600 border-purple-400 text-white' : done ? 'bg-green-700 border-green-500 text-white' : 'bg-gray-800 border-gray-600 text-gray-400'}">
+        ${done ? '✓' : n}
+      </div>
+      <span class="text-xs hidden sm:inline ${active ? 'text-purple-300' : 'text-gray-500'}">${label}</span>
+    `;
+    el.appendChild(div);
+    if (i < STEP_LABELS.length - 1) {
+      const sep = document.createElement('div');
+      sep.className = 'w-6 h-0.5 ' + (done ? 'bg-green-700' : 'bg-gray-700');
+      el.appendChild(sep);
+    }
+  });
+}
+
+function showStep(n) {
+  document.querySelectorAll('.step-section').forEach(s => s.classList.add('hidden'));
+  const el = document.getElementById(`step-${n}`);
+  if (el) { el.classList.remove('hidden'); el.scrollIntoView({behavior:'smooth', block:'start'}); }
+  S.step = n;
+  renderSteps();
+}
+
+function goStep(n) {
+  if (n === 2) {
+    const topic = document.getElementById('topic').value.trim();
+    if (topic.length < 3) { toast('⚠️ Please enter a topic (at least 3 characters).', 'warn'); return; }
+  }
+  showStep(n);
+}
+
+// ===== TOGGLE BUTTON GROUPS =====
+function initToggleGroup(selector, stateKey, defaultVal) {
+  document.querySelectorAll(selector).forEach(btn => {
+    const val = btn.dataset.val;
+    btn.className += ' px-3 py-2 rounded-xl text-sm font-medium border-2 transition ';
+    if (val === defaultVal) btn.classList.add('border-purple-500','bg-purple-900','text-white');
+    else btn.classList.add('border-gray-700','bg-gray-800','text-gray-300');
+
+    btn.addEventListener('click', () => {
+      document.querySelectorAll(selector).forEach(b => {
+        b.className = b.className.replace(/border-purple-500|bg-purple-900|text-white|border-gray-700|bg-gray-800|text-gray-300/g,'');
+        b.classList.add('border-gray-700','bg-gray-800','text-gray-300');
+      });
+      btn.className = btn.className.replace(/border-gray-700|bg-gray-800|text-gray-300/g,'');
+      btn.classList.add('border-purple-500','bg-purple-900','text-white');
+      S[stateKey] = val;
+    });
+  });
+  S[stateKey] = defaultVal;
+}
+
+// ===== GENERATE =====
+function addProgress(msg) {
+  const li = document.createElement('li');
+  li.className = 'flex items-center gap-2';
+  li.innerHTML = `<span class="text-green-400">✓</span> ${msg}`;
+  document.getElementById('progress-list').appendChild(li);
+  document.getElementById('loading-msg').textContent = msg;
+}
+
+async function generatePost() {
+  const topic = document.getElementById('topic').value.trim();
+  if (!topic) { goStep(1); return; }
+
+  showStep(3);
+  document.getElementById('loading-spinner').classList.remove('hidden');
+  document.getElementById('loading-msg').textContent = 'Starting…';
+  document.getElementById('progress-list').innerHTML = '';
+  document.getElementById('gen-error').classList.add('hidden');
+
+  const body = {
+    topic,
+    format: S.format,
+    tone: document.getElementById('tone').value,
+    niche: document.getElementById('niche').value || null,
+    target_audience: document.getElementById('audience').value || null,
+    additional_instructions: document.getElementById('instructions').value || null,
+    apply_branding: document.getElementById('apply-brand').checked,
+    default_image_source: S.source,
+    platform: S.platform,
+    length_tier: document.getElementById('length-tier').value,
+    template_style: S.templateStyle,
+    niche_box_color: S.nicheBoxColor,
+    show_logo: document.getElementById('show-logo').checked,
+    trend_idea_id: S.trendIdeaId,
+  };
+
+  try {
+    const res = await apiFetch(`${API}/api/posts/generate`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Server error ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const ev = JSON.parse(line.slice(6));
+        if (ev.type === 'progress') addProgress(ev.message);
+        if (ev.type === 'complete') {
+          S.postId = ev.post.id;
+          renderPreview(ev.post);
+          showStep(4);
+        }
+        if (ev.type === 'error') throw new Error(ev.message);
+      }
+    }
+  } catch(e) {
+    document.getElementById('loading-spinner').classList.add('hidden');
+    const errEl = document.getElementById('gen-error');
+    document.getElementById('gen-error-msg').textContent = '❌ ' + e.message;
+    errEl.classList.remove('hidden');
+  }
+}
+
+// ===== PREVIEW =====
+function renderPreview(post) {
+  // Slides
+  const container = document.getElementById('slides-container');
+  container.innerHTML = '';
+  post.slides.forEach(slide => {
+    const portrait = (slide.height || 1080) > (slide.width || 1080);
+    const imgCls = portrait ? 'slide-img w-56 h-72 object-contain bg-black' : 'slide-img w-64 h-64 object-cover';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'flex-shrink-0 snap-start';
+    wrapper.innerHTML = `
+      <div class="relative">
+        <img src="${API}${slide.image_url}" alt="Slide ${slide.slide_number}"
+          class="${imgCls} rounded-xl border border-gray-700 shadow-lg" />
+        <span class="absolute top-2 left-2 bg-black/60 text-xs text-white px-2 py-0.5 rounded-full">${slide.slide_number}/${post.slides.length}</span>
+        <span class="absolute bottom-2 left-2 bg-black/60 text-xs text-gray-300 px-2 py-0.5 rounded-full">${slide.image_source}</span>
+      </div>
+    `;
+    container.appendChild(wrapper);
+  });
+
+  // From-trend badge
+  const trendBadge = document.getElementById('trend-badge');
+  if (post.trend_idea_id && post.trend_source_handle) {
+    const linkHtml = post.trend_source_permalink
+      ? `<a href="${post.trend_source_permalink}" target="_blank" class="underline hover:text-pink-300">@${post.trend_source_handle}</a>`
+      : `@${post.trend_source_handle}`;
+    trendBadge.innerHTML = `🔥 From trend: ${linkHtml}`;
+    trendBadge.classList.remove('hidden');
+  } else if (trendBadge) {
+    trendBadge.classList.add('hidden');
+    trendBadge.innerHTML = '';
+  }
+
+  // Caption
+  document.getElementById('caption-edit').value = post.caption;
+
+  // Hashtags
+  S.hashtags = [...post.hashtags];
+  renderHashtags();
+
+  // SEO keywords
+  S.seoKeywords = [...(post.seo_keywords || [])];
+  renderSeoKeywords();
+}
+
+function renderSeoKeywords() {
+  const c = document.getElementById('seo-container');
+  if (!c) return;
+  c.innerHTML = '';
+  if (!S.seoKeywords.length) {
+    c.innerHTML = '<span class="text-xs text-gray-600">No SEO keywords generated.</span>';
+    return;
+  }
+  S.seoKeywords.forEach(kw => {
+    const chip = document.createElement('span');
+    chip.className = 'inline-flex items-center bg-blue-900 border border-blue-700 text-blue-200 text-xs px-2 py-1 rounded-full';
+    chip.textContent = kw;
+    c.appendChild(chip);
+  });
+}
+
+function renderHashtags() {
+  const c = document.getElementById('hashtag-container');
+  c.innerHTML = '';
+  S.hashtags.forEach((tag, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'inline-flex items-center gap-1 bg-purple-900 border border-purple-700 text-purple-200 text-xs px-2 py-1 rounded-full';
+    chip.innerHTML = `${tag} <button onclick="removeHashtag(${i})" class="text-purple-400 hover:text-white ml-1 text-xs">×</button>`;
+    c.appendChild(chip);
+  });
+}
+
+function addHashtag() {
+  let val = document.getElementById('hashtag-input').value.trim();
+  if (!val) return;
+  if (!val.startsWith('#')) val = '#' + val;
+  if (!S.hashtags.includes(val)) { S.hashtags.push(val); renderHashtags(); }
+  document.getElementById('hashtag-input').value = '';
+}
+
+function removeHashtag(i) {
+  S.hashtags.splice(i, 1);
+  renderHashtags();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.target.id === 'hashtag-input' && e.key === 'Enter') addHashtag();
+});
+
+// ===== SAVE CAPTION =====
+async function saveCaption() {
+  if (!S.postId) return;
+  const caption = document.getElementById('caption-edit').value;
+  try {
+    const res = await apiFetch(`${API}/api/posts/${S.postId}/caption`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ caption, hashtags: S.hashtags, seo_keywords: S.seoKeywords }),
+    });
+    if (!res.ok) throw new Error('Save failed');
+    toast('✅ Caption saved!', 'success');
+  } catch(e) {
+    toast('❌ ' + e.message, 'error');
+  }
+}
+
+// ===== EXPORT =====
+async function exportPost() {
+  if (!S.postId) return;
+  toast('📦 Packing ZIP…', 'info');
+  try {
+    const res = await apiFetch(`${API}/api/posts/${S.postId}/export`, { method: 'POST' });
+    if (!res.ok) throw new Error('Export failed');
+    const blob = await res.blob();
+    const cd = res.headers.get('content-disposition') || '';
+    const match = cd.match(/filename="?([^"]+)"?/);
+    const filename = match ? match[1] : 'post_template.zip';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+    toast('✅ ZIP downloaded!', 'success');
+  } catch(e) {
+    toast('❌ ' + e.message, 'error');
+  }
+}
+
+// ===== PUBLISH =====
+async function publishPost() {
+  if (!S.postId) return;
+  if (!confirm('Publish this post to Instagram now?')) return;
+  toast('📤 Publishing…', 'info');
+  try {
+    const res = await apiFetch(`${API}/api/posts/${S.postId}/publish`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Publish failed');
+    toast('✅ Published! Media ID: ' + data.instagram_media_id, 'success');
+  } catch(e) {
+    toast('❌ ' + e.message, 'error');
+  }
+}
+
+// ===== TOAST =====
+let toastTimer;
+function toast(msg, type = 'info') {
+  const el = document.getElementById('toast');
+  const colors = { success: 'text-green-400', error: 'text-red-400', warn: 'text-yellow-400', info: 'text-blue-300' };
+  el.className = `fixed bottom-6 right-6 bg-gray-800 border border-gray-700 rounded-xl px-5 py-3 shadow-xl text-sm ${colors[type] || ''}`;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.add('hidden'), 4000);
+}
+
+// ===== API STATUS =====
+async function checkStatus() {
+  try {
+    const res = await fetch(`${API}/health`);
+    const ok = res.ok;
+    document.getElementById('status-dot').className = `ml-auto w-3 h-3 rounded-full ${ok ? 'bg-green-400' : 'bg-red-500'}`;
+    document.getElementById('status-label').textContent = ok ? 'connected' : 'offline';
+  } catch {
+    document.getElementById('status-dot').className = 'ml-auto w-3 h-3 rounded-full bg-red-500';
+    document.getElementById('status-label').textContent = 'offline';
+  }
+}
+
+// ===== NICHE COLOR SWATCHES =====
+function initNicheSwatches() {
+  const wrap = document.getElementById('niche-color-swatches');
+  if (!wrap) return;
+  const render = () => {
+    wrap.querySelectorAll('button').forEach(b => {
+      b.style.outline = (b.dataset.color === S.nicheBoxColor) ? '2px solid #fff' : 'none';
+    });
+  };
+  // "Brand default" option
+  const def = document.createElement('button');
+  def.dataset.color = '';
+  def.className = 'px-3 py-2 rounded-xl text-xs font-medium border-2 border-gray-700 bg-gray-800 text-gray-300';
+  def.textContent = 'Brand default';
+  def.onclick = () => { S.nicheBoxColor = null; render(); };
+  wrap.appendChild(def);
+  NICHE_BOX_PALETTE.forEach(hex => {
+    const b = document.createElement('button');
+    b.dataset.color = hex;
+    b.title = hex;
+    b.className = 'w-9 h-9 rounded-lg border-2 border-gray-700';
+    b.style.background = hex;
+    b.onclick = () => { S.nicheBoxColor = hex; render(); };
+    wrap.appendChild(b);
+  });
+  render();
+}
+
+// ===== VIEW SWITCH =====
+function setView(view) {
+  S.view = view;
+  document.getElementById('view-create').classList.toggle('hidden', view !== 'create');
+  document.getElementById('view-trends').classList.toggle('hidden', view !== 'trends');
+  for (const id of ['nav-create','nav-trends']) {
+    const btn = document.getElementById(id);
+    const active = id === ('nav-' + view);
+    btn.classList.toggle('border-purple-500', active);
+    btn.classList.toggle('bg-purple-900', active);
+    btn.classList.toggle('text-white', active);
+    btn.classList.toggle('border-gray-700', !active);
+    btn.classList.toggle('bg-gray-800', !active);
+    btn.classList.toggle('text-gray-300', !active);
+  }
+  if (view === 'trends') {
+    setTrendTab(S.trendTab);
+  }
+}
+
+function setTrendTab(tab) {
+  S.trendTab = tab;
+  document.querySelectorAll('.trend-tab').forEach(b => {
+    const active = b.dataset.trendTab === tab;
+    b.classList.toggle('border-purple-500', active);
+    b.classList.toggle('bg-purple-900', active);
+    b.classList.toggle('text-white', active);
+    b.classList.toggle('border-gray-700', !active);
+    b.classList.toggle('bg-gray-800', !active);
+    b.classList.toggle('text-gray-300', !active);
+  });
+  document.querySelectorAll('.trend-section').forEach(s => s.classList.add('hidden'));
+  document.getElementById('trend-tab-' + tab).classList.remove('hidden');
+  if (tab === 'competitors') loadCompetitors();
+  if (tab === 'trending') loadMedia();
+  if (tab === 'ideas') loadIdeas();
+}
+
+// ===== TRENDS: Competitors =====
+async function loadCompetitors() {
+  try {
+    const res = await apiFetch(`${API}/api/trends/competitors`);
+    if (!res.ok) throw new Error('Failed to load competitors');
+    const list = await res.json();
+    const wrap = document.getElementById('competitors-list');
+    wrap.innerHTML = '';
+    if (!list.length) {
+      wrap.innerHTML = '<p class="text-sm text-gray-500">No competitors yet. Add some handles above.</p>';
+      return;
+    }
+    list.forEach(c => {
+      const row = document.createElement('div');
+      row.className = 'flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2';
+      row.innerHTML = `
+        <div>
+          <div class="font-semibold">@${c.handle}</div>
+          <div class="text-xs text-gray-500">${c.niche || '—'}</div>
+        </div>
+        <div class="flex items-center gap-2 text-xs">
+          <label class="flex items-center gap-1"><input type="checkbox" ${c.active ? 'checked' : ''} onchange="toggleCompetitor('${c.id}', this.checked)" class="accent-purple-500" /> active</label>
+          <button onclick="deleteCompetitor('${c.id}')" class="text-red-400 hover:text-red-300">🗑</button>
+        </div>`;
+      wrap.appendChild(row);
+    });
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+async function addCompetitor() {
+  const handle = document.getElementById('comp-handle').value.trim();
+  const niche  = document.getElementById('comp-niche').value.trim();
+  if (!handle) return;
+  try {
+    const res = await apiFetch(`${API}/api/trends/competitors`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ handle, niche: niche || null, active: true }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Failed to add');
+    }
+    document.getElementById('comp-handle').value = '';
+    document.getElementById('comp-niche').value = '';
+    loadCompetitors();
+    toast('✅ Added @' + handle, 'success');
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+async function toggleCompetitor(id, active) {
+  try {
+    await apiFetch(`${API}/api/trends/competitors/${id}`, {
+      method: 'PUT', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ active }),
+    });
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+async function deleteCompetitor(id) {
+  if (!confirm('Remove this competitor?')) return;
+  try {
+    await apiFetch(`${API}/api/trends/competitors/${id}`, { method: 'DELETE' });
+    loadCompetitors();
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+async function refreshTrends() {
+  const progress = document.getElementById('refresh-progress');
+  progress.classList.remove('hidden');
+  progress.innerHTML = '<li>⏳ Starting…</li>';
+  try {
+    const res = await apiFetch(`${API}/api/trends/refresh`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ source: 'business_discovery', limit_per_account: 10 }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Refresh failed');
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const ev = JSON.parse(line.slice(6));
+        const li = document.createElement('li');
+        if (ev.type === 'progress') li.innerHTML = `▸ ${ev.message}`;
+        if (ev.type === 'error') { li.innerHTML = `<span class="text-red-400">✗ ${ev.handle || ''} ${ev.message}</span>`; }
+        if (ev.type === 'complete') { li.innerHTML = `<span class="text-green-400">✓ Done. Total fetched: ${ev.fetched}</span>`; }
+        progress.appendChild(li);
+      }
+    }
+    toast('✅ Trends refreshed', 'success');
+  } catch (e) {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="text-red-400">❌ ${e.message}</span>`;
+    progress.appendChild(li);
+  }
+}
+
+// ===== TRENDS: Trending media =====
+async function loadMedia() {
+  const sort = document.getElementById('trend-sort').value;
+  const type = document.getElementById('trend-type').value;
+  const params = new URLSearchParams({ sort, limit: 50 });
+  if (type) params.set('media_type', type);
+  try {
+    const res = await apiFetch(`${API}/api/trends/media?` + params);
+    if (!res.ok) throw new Error('Failed to load media');
+    const list = await res.json();
+    const wrap = document.getElementById('media-list');
+    document.getElementById('media-empty').classList.toggle('hidden', list.length > 0);
+    wrap.innerHTML = '';
+    list.forEach(m => {
+      const card = document.createElement('div');
+      card.className = 'bg-gray-800 rounded-xl p-3 border border-gray-700 hover:border-purple-500 transition';
+      card.innerHTML = `
+        <div class="flex items-start gap-3">
+          ${m.thumbnail_url ? `<img src="${m.thumbnail_url}" class="w-20 h-20 object-cover rounded-lg flex-shrink-0" referrerpolicy="no-referrer" />` : '<div class="w-20 h-20 bg-gray-700 rounded-lg"></div>'}
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between gap-2 text-xs text-gray-400">
+              <span class="truncate">@${m.source_handle}</span>
+              <span class="uppercase">${m.media_type}</span>
+            </div>
+            <p class="text-sm font-semibold mt-1 line-clamp-2">${m.extracted_hook || '(no hook)'}</p>
+            <div class="text-xs text-gray-500 mt-1">❤️ ${m.likes} · 💬 ${m.comments}${m.views ? ' · ▶️ ' + m.views : ''} · score ${Math.round(m.engagement_score)}</div>
+            <div class="flex gap-2 mt-2">
+              ${m.permalink ? `<a href="${m.permalink}" target="_blank" class="text-xs text-blue-400 hover:underline">View</a>` : ''}
+              <button onclick="openAdaptModal('${m.id}', '@${m.source_handle}')" class="ml-auto bg-purple-600 hover:bg-purple-500 transition rounded-lg px-3 py-1 text-xs font-semibold">✨ Adapt</button>
+            </div>
+          </div>
+        </div>`;
+      wrap.appendChild(card);
+    });
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+function openAdaptModal(mediaId, label) {
+  S.adaptMediaId = mediaId;
+  document.getElementById('adapt-source').textContent = 'Source: ' + label;
+  document.getElementById('adapt-instructions').value = '';
+  document.getElementById('adapt-modal').classList.remove('hidden');
+}
+function closeAdaptModal() {
+  document.getElementById('adapt-modal').classList.add('hidden');
+  S.adaptMediaId = null;
+}
+
+async function submitAdapt() {
+  if (!S.adaptMediaId) return;
+  const btn = document.getElementById('adapt-submit');
+  btn.disabled = true; btn.textContent = '⏳ Adapting…';
+  try {
+    const body = {
+      platform: document.getElementById('adapt-platform').value,
+      length_tier: document.getElementById('adapt-length').value,
+      additional_instructions: document.getElementById('adapt-instructions').value || null,
+    };
+    const res = await apiFetch(`${API}/api/trends/media/${S.adaptMediaId}/adapt`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Adapt failed');
+    }
+    closeAdaptModal();
+    setTrendTab('ideas');
+    toast('✅ Idea created', 'success');
+  } catch (e) {
+    toast('❌ ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Adapt';
+  }
+}
+
+// ===== TRENDS: Ideas =====
+async function loadIdeas() {
+  try {
+    const res = await apiFetch(`${API}/api/trends/ideas`);
+    if (!res.ok) throw new Error('Failed to load ideas');
+    const list = await res.json();
+    const wrap = document.getElementById('ideas-list');
+    document.getElementById('ideas-empty').classList.toggle('hidden', list.length > 0);
+    wrap.innerHTML = '';
+    list.forEach(idea => {
+      const card = document.createElement('div');
+      card.className = 'bg-gray-800 rounded-xl p-4 border border-gray-700 space-y-2';
+      const sourceLink = idea.source_permalink
+        ? `<a href="${idea.source_permalink}" target="_blank" class="hover:underline">@${idea.source_handle}</a>`
+        : '@' + (idea.source_handle || '');
+      card.innerHTML = `
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex-1">
+            <p class="text-sm font-semibold">${idea.hook}</p>
+            <p class="text-xs text-gray-500 mt-1">From ${sourceLink} · ${idea.platform} · ${idea.length_tier}</p>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="useIdea('${idea.id}')" class="bg-purple-600 hover:bg-purple-500 rounded-lg px-3 py-1.5 text-xs font-semibold">📝 Use</button>
+            <button onclick="deleteIdea('${idea.id}')" class="text-red-400 hover:text-red-300 text-sm">🗑</button>
+          </div>
+        </div>
+        <details class="text-xs text-gray-300">
+          <summary class="cursor-pointer text-gray-400">Show script + shots + caption</summary>
+          <div class="mt-2 space-y-2">
+            ${idea.short_script ? `<div><b class="text-purple-300">Script:</b><pre class="whitespace-pre-wrap font-sans text-gray-300">${idea.short_script}</pre></div>` : ''}
+            ${idea.shot_list && idea.shot_list.length ? `<div><b class="text-purple-300">Shots:</b><ul class="list-disc list-inside text-gray-300">${idea.shot_list.map(s => `<li>${s}</li>`).join('')}</ul></div>` : ''}
+            ${idea.caption ? `<div><b class="text-purple-300">Caption:</b><p class="text-gray-300 whitespace-pre-wrap">${idea.caption}</p></div>` : ''}
+            ${idea.hashtags && idea.hashtags.length ? `<div><b class="text-purple-300">Hashtags:</b> <span class="text-gray-400">${idea.hashtags.join(' ')}</span></div>` : ''}
+          </div>
+        </details>`;
+      wrap.appendChild(card);
+    });
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+async function useIdea(ideaId) {
+  // Fetch full idea, prefill wizard, jump to Step 2 (settings).
+  try {
+    const res = await apiFetch(`${API}/api/trends/ideas/${ideaId}`);
+    if (!res.ok) throw new Error('Failed to load idea');
+    const idea = await res.json();
+    setView('create');
+    document.getElementById('topic').value = idea.hook;
+    if (idea.source_handle) document.getElementById('niche').value = idea.source_handle;
+    const extra = [];
+    if (idea.short_script) extra.push('Script outline:\n' + idea.short_script);
+    if (idea.shot_list && idea.shot_list.length) extra.push('Shots:\n- ' + idea.shot_list.join('\n- '));
+    document.getElementById('instructions').value = extra.join('\n\n');
+    S.platform = idea.platform || 'instagram';
+    document.getElementById('length-tier').value = idea.length_tier || 'sweet_spot';
+    S.trendIdeaId = idea.id;
+    goStep(2);
+    toast('✅ Idea loaded — review settings then Generate', 'success');
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+async function deleteIdea(id) {
+  if (!confirm('Delete this idea?')) return;
+  try {
+    await apiFetch(`${API}/api/trends/ideas/${id}`, { method: 'DELETE' });
+    loadIdeas();
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+// Wire trend-tab buttons
+document.addEventListener('click', e => {
+  const btn = e.target.closest('[data-trend-tab]');
+  if (btn) setTrendTab(btn.dataset.trendTab);
+});
+
+// ===== INIT =====
+initToggleGroup('.fmt-btn', 'format', 'single');
+initToggleGroup('.src-btn', 'source', 'stock');
+initToggleGroup('.plt-btn', 'platform', 'instagram');
+initToggleGroup('.tpl-btn', 'templateStyle', 'branded_card');
+initNicheSwatches();
+showStep(1);
+checkStatus();
+setInterval(checkStatus, 10000);
+</script>
+</body>
+</html>
