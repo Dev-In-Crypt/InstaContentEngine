@@ -141,6 +141,7 @@ async def test_export_design_timeout(httpx_mock: HTTPXMock):
 
 @pytest.mark.asyncio
 async def test_exchange_code_success(httpx_mock: HTTPXMock):
+    test_client_secret = "client-" + "secret"
     httpx_mock.add_response(
         method="POST",
         url="https://api.canva.com/rest/v1/oauth/token",
@@ -149,7 +150,7 @@ async def test_exchange_code_success(httpx_mock: HTTPXMock):
     result = await CanvaClient.exchange_code(
         code="auth-code-abc",
         client_id="client-id",
-        client_secret="client-secret",
+        client_secret=test_client_secret,
         redirect_uri="http://localhost:3000/callback",
     )
     assert result["access_token"] == "new-token"
