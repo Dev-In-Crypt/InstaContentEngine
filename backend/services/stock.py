@@ -14,6 +14,18 @@ class StockPhotoResult:
     thumb_url: str
     alt: Optional[str]
     source: str       # "unsplash" or "pexels"
+    author_name: Optional[str] = None
+    author_profile_url: Optional[str] = None
+    source_link: Optional[str] = None   # link to the photo page on the source site
+
+    def as_attribution(self) -> dict:
+        """Serializable attribution dict for the UI."""
+        return {
+            "source": self.source,
+            "author_name": self.author_name,
+            "author_profile_url": self.author_profile_url,
+            "source_link": self.source_link,
+        }
 
 
 class StockError(Exception):
@@ -53,12 +65,16 @@ class UnsplashClient:
         data = response.json()
         results = []
         for item in data.get("results", []):
+            user = item.get("user") or {}
             results.append(StockPhotoResult(
                 id=item["id"],
                 url=item["urls"]["regular"],
                 thumb_url=item["urls"]["thumb"],
                 alt=item.get("alt_description"),
                 source="unsplash",
+                author_name=user.get("name"),
+                author_profile_url=(user.get("links") or {}).get("html"),
+                source_link=(item.get("links") or {}).get("html"),
             ))
         if not results:
             log.warning("Unsplash returned 0 results for query=%r (total=%s)",
@@ -122,6 +138,9 @@ class PexelsClient:
                 thumb_url=item["src"]["medium"],
                 alt=item.get("alt"),
                 source="pexels",
+                author_name=item.get("photographer"),
+                author_profile_url=item.get("photographer_url"),
+                source_link=item.get("url"),
             ))
         return results
 
@@ -166,12 +185,14 @@ class StockClient:
     async def search_and_download(
         self, query: str, orientation: str = "squarish",
         size: str = "regular", source: str = "auto",
-    ) -> bytes:
+    ) -> tuple[bytes, StockPhotoResult]:
         """
         source="auto"    → Unsplash first, Pexels as fallback
         source="unsplash"→ Unsplash only
         source="pexels"  → Pexels only
         Fetches top-5 results and picks one at random for variety.
+        Returns (image_bytes, picked_StockPhotoResult) so callers can record
+        author/source attribution required by Unsplash/Pexels licensing.
         """
         # ── Unsplash ──────────────────────────────────────────────────────
         if source in ("auto", "unsplash") and self.unsplash:
@@ -183,7 +204,8 @@ class StockClient:
                     pick = random.choice(results)
                     log.info("Unsplash: picked '%s' (1 of %d) for query=%r",
                              pick.id, len(results), query)
-                    return await self.unsplash.download_photo(pick.id, size=size)
+                    data = await self.unsplash.download_photo(pick.id, size=size)
+                    return data, pick
                 log.warning("Unsplash: 0 results for query=%r", query)
             except StockError as e:
                 log.warning("Unsplash failed (%s), trying Pexels…", e)
@@ -196,7 +218,8 @@ class StockClient:
                     pick = random.choice(results)
                     log.info("Pexels: picked '%s' (1 of %d) for query=%r",
                              pick.id, len(results), query)
-                    return await self.pexels.download_photo(pick.id)
+                    data = await self.pexels.download_photo(pick.id)
+                    return data, pick
                 log.warning("Pexels: 0 results for query=%r", query)
             except StockError as e:
                 log.warning("Pexels failed: %s", e)

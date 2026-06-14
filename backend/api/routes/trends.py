@@ -499,6 +499,7 @@ async def _persist_post(
             image_path=str(path),
             search_query=slide.search_query,
             gen_prompt=slide.gen_prompt,
+            attribution=slide.attribution,
         ))
     await db.commit()
     result = await db.execute(
@@ -519,6 +520,7 @@ def _post_to_preview(post: PostModel) -> PostPreview:
             image_source=s.image_source,
             width=1080,
             height=height,
+            attribution=s.attribution,
         )
         for s in sorted(post.slides, key=lambda s: s.slide_number)
     ]

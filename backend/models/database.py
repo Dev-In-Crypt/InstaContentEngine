@@ -50,6 +50,7 @@ class Slide(Base):
     image_url = Column(Text)
     search_query = Column(Text)
     gen_prompt = Column(Text)
+    attribution = Column(JSON)        # {source, author_name, author_profile_url, source_link}
     gen_model = Column(String(100))
     canva_template_id = Column(String(100))
     created_at = Column(DateTime(timezone=True), server_default=func.now())

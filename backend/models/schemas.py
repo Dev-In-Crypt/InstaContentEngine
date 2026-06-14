@@ -129,6 +129,7 @@ class SlidePreview(BaseModel):
     image_source: ImageSource
     width: int
     height: int
+    attribution: Optional[dict] = None     # stock credits, see services.stock
 
 
 class PostPreview(BaseModel):

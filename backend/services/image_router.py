@@ -46,30 +46,40 @@ class ImageRouter:
         self.stock = stock_client
         self.canva = canva_client
 
-    async def fetch_image(self, config: SlideImageConfig) -> bytes:
+    async def fetch_image(
+        self, config: SlideImageConfig
+    ) -> tuple[bytes, Optional[dict]]:
+        """Returns (image_bytes, attribution_dict_or_None).
+
+        attribution is only populated for stock sources (Unsplash/Pexels
+        licensing requires it).
+        """
         match config.image_source:
             case ImageSource.STOCK:
                 return await self._fetch_stock(config)
             case ImageSource.AI_GEN:
-                return await self._fetch_ai(config)
+                return await self._fetch_ai(config), None
             case ImageSource.CANVA:
-                return await self._fetch_canva(config)
+                return await self._fetch_canva(config), None
             case _:
                 raise ImageFetchError(f"Unknown image source: {config.image_source}")
 
-    async def _fetch_stock(self, config: SlideImageConfig) -> bytes:
+    async def _fetch_stock(
+        self, config: SlideImageConfig
+    ) -> tuple[bytes, Optional[dict]]:
         if not self.stock:
             raise ImageFetchError("No stock client configured")
         StockError = _stock_error_cls()
         query    = config.search_query or "abstract background"
-        source   = config.stock_source or "auto"   # "auto" | "unsplash" | "pexels"
+        source   = config.stock_source or "auto"
         fallbacks = [query, "abstract background", "nature landscape", "minimal texture"]
         last_exc: Exception = ImageFetchError("stock fetch failed")
         for q in dict.fromkeys(fallbacks):
             try:
-                return await self.stock.search_and_download(
+                data, picked = await self.stock.search_and_download(
                     query=q, orientation="squarish", source=source
                 )
+                return data, picked.as_attribution()
             except StockError as e:
                 last_exc = e
                 continue

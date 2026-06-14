@@ -11,6 +11,8 @@ UNSPLASH_SEARCH_RESP = {
             "id": "abc123",
             "urls": {"regular": "https://images.unsplash.com/photo-abc?w=1080", "thumb": "https://images.unsplash.com/photo-abc?w=200"},
             "alt_description": "A tech photo",
+            "links": {"html": "https://unsplash.com/photos/abc123"},
+            "user": {"name": "Jane Doe", "links": {"html": "https://unsplash.com/@janedoe"}},
         }
     ]
 }
@@ -30,6 +32,9 @@ PEXELS_SEARCH_RESP = {
                 "original": "https://images.pexels.com/photos/999/orig.jpg",
             },
             "alt": "A pexels photo",
+            "photographer": "John Smith",
+            "photographer_url": "https://pexels.com/@johnsmith",
+            "url": "https://pexels.com/photo/999/",
         }
     ]
 }
@@ -47,6 +52,11 @@ async def test_unsplash_search(httpx_mock: HTTPXMock):
     assert results[0].id == "abc123"
     assert results[0].source == "unsplash"
     assert results[0].alt == "A tech photo"
+    # Attribution fields required by Unsplash licensing
+    assert results[0].author_name == "Jane Doe"
+    assert results[0].author_profile_url == "https://unsplash.com/@janedoe"
+    assert results[0].source_link == "https://unsplash.com/photos/abc123"
+    assert results[0].as_attribution()["source"] == "unsplash"
     await client.close()
 
 
@@ -90,6 +100,10 @@ async def test_pexels_search(httpx_mock: HTTPXMock):
     assert len(results) == 1
     assert results[0].id == "999"
     assert results[0].source == "pexels"
+    # Attribution
+    assert results[0].author_name == "John Smith"
+    assert results[0].author_profile_url == "https://pexels.com/@johnsmith"
+    assert results[0].source_link == "https://pexels.com/photo/999/"
     await client.close()
 
 
