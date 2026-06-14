@@ -305,6 +305,46 @@
 
   </div><!-- /#view-trends -->
 
+  <!-- ===== Edit Slide Modal ===== -->
+  <div id="edit-slide-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4">
+    <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+      <h3 class="text-lg font-semibold text-purple-300">🖼 Replace this slide</h3>
+      <p id="edit-slide-label" class="text-xs text-gray-500"></p>
+
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Image source</label>
+        <div class="flex gap-2">
+          <button data-edit-src="stock"  class="edit-src-btn px-3 py-1.5 rounded-lg text-xs border-2">📷 Stock</button>
+          <button data-edit-src="ai_gen" class="edit-src-btn px-3 py-1.5 rounded-lg text-xs border-2">🤖 AI gen</button>
+        </div>
+      </div>
+
+      <div id="edit-stock-fields">
+        <label class="block text-xs text-gray-400 mb-1">Search query</label>
+        <input id="edit-search-query" type="text" placeholder="e.g. trail running marathon"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
+        <p class="text-[10px] text-gray-600 mt-1">Empty = reuse the original query, just pick a different photo.</p>
+      </div>
+
+      <div id="edit-ai-fields" class="hidden">
+        <label class="block text-xs text-gray-400 mb-1">AI prompt</label>
+        <textarea id="edit-gen-prompt" rows="2" placeholder="e.g. A runner at sunrise on a bridge"
+          class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm"></textarea>
+      </div>
+
+      <div class="flex flex-col gap-2 pt-1">
+        <button id="edit-replace-btn" onclick="submitReplaceSlide()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg py-2 text-sm font-semibold">
+          🔄 Replace
+        </button>
+        <label class="bg-gray-700 hover:bg-gray-600 transition rounded-lg py-2 text-sm font-semibold text-center cursor-pointer">
+          📁 Upload custom image
+          <input id="edit-upload-input" type="file" accept="image/jpeg,image/png,image/webp" class="hidden" onchange="submitUploadSlide(event)" />
+        </label>
+        <button onclick="closeEditSlide()" class="bg-gray-800 hover:bg-gray-700 transition rounded-lg py-2 text-sm">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== Adapt Modal ===== -->
   <div id="adapt-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4">
     <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
@@ -355,6 +395,8 @@ const S = {
   seoKeywords: [],
   trendIdeaId: null,       // set when wizard is opened from an idea
   adaptMediaId: null,      // media being adapted in modal
+  editingSlide: null,      // slide number being replaced/uploaded
+  editSource: 'stock',     // chosen source in the Edit modal
 };
 
 const API = window.location.origin;
@@ -562,11 +604,16 @@ function renderPreview(post) {
     const wrapper = document.createElement('div');
     wrapper.className = 'flex-shrink-0 snap-start';
     wrapper.innerHTML = `
-      <div class="relative">
-        <img src="${API}${slide.image_url}" alt="Slide ${slide.slide_number}"
+      <div class="relative group">
+        <img data-slide-num="${slide.slide_number}" src="${API}${slide.image_url}" alt="Slide ${slide.slide_number}"
           class="${imgCls} rounded-xl border border-gray-700 shadow-lg" />
         <span class="absolute top-2 left-2 bg-black/60 text-xs text-white px-2 py-0.5 rounded-full">${slide.slide_number}/${post.slides.length}</span>
         <span class="absolute bottom-2 left-2 bg-black/60 text-xs text-gray-300 px-2 py-0.5 rounded-full">${slide.image_source}</span>
+        <button onclick="openEditSlide(${slide.slide_number}, ${JSON.stringify(slide.search_query || '').replace(/"/g, '&quot;')}, '${slide.image_source}')"
+          class="absolute top-2 right-2 bg-black/70 hover:bg-purple-700 transition text-white text-xs rounded-full px-2 py-1"
+          title="Replace this image">
+          ✏️ Edit
+        </button>
       </div>
     `;
     container.appendChild(wrapper);
@@ -585,6 +632,106 @@ function renderPreview(post) {
   // SEO keywords
   S.seoKeywords = [...(post.seo_keywords || [])];
   renderSeoKeywords();
+}
+
+// ===== EDIT SLIDE (replace / upload) =====
+function openEditSlide(slideNum, originalQuery, currentSource) {
+  S.editingSlide = slideNum;
+  document.getElementById('edit-slide-label').textContent =
+    `Slide ${slideNum}. Currently from: ${currentSource}.`;
+  document.getElementById('edit-search-query').value = '';
+  document.getElementById('edit-search-query').placeholder = originalQuery
+    ? `Original: ${originalQuery}` : 'e.g. trail running marathon';
+  document.getElementById('edit-gen-prompt').value = '';
+  setEditSource(currentSource === 'ai_gen' ? 'ai_gen' : 'stock');
+  document.getElementById('edit-slide-modal').classList.remove('hidden');
+}
+
+function closeEditSlide() {
+  document.getElementById('edit-slide-modal').classList.add('hidden');
+  S.editingSlide = null;
+}
+
+function setEditSource(src) {
+  S.editSource = src;
+  document.querySelectorAll('.edit-src-btn').forEach(b => {
+    const active = b.dataset.editSrc === src;
+    b.classList.toggle('border-purple-500', active);
+    b.classList.toggle('bg-purple-900', active);
+    b.classList.toggle('text-white', active);
+    b.classList.toggle('border-gray-700', !active);
+    b.classList.toggle('bg-gray-800', !active);
+    b.classList.toggle('text-gray-300', !active);
+  });
+  document.getElementById('edit-stock-fields').classList.toggle('hidden', src !== 'stock');
+  document.getElementById('edit-ai-fields').classList.toggle('hidden', src !== 'ai_gen');
+}
+
+document.addEventListener('click', e => {
+  const btn = e.target.closest('[data-edit-src]');
+  if (btn) setEditSource(btn.dataset.editSrc);
+});
+
+async function submitReplaceSlide() {
+  if (!S.postId || !S.editingSlide) return;
+  const btn = document.getElementById('edit-replace-btn');
+  btn.disabled = true; btn.textContent = '⏳ Replacing…';
+  try {
+    const body = { image_source: S.editSource || 'stock' };
+    const q = document.getElementById('edit-search-query').value.trim();
+    if (q) body.search_query = q;
+    if (S.editSource === 'ai_gen') {
+      body.gen_prompt = document.getElementById('edit-gen-prompt').value.trim() || null;
+    }
+    const res = await apiFetch(`${API}/api/posts/${S.postId}/slides/${S.editingSlide}/regenerate`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Replace failed');
+    }
+    const updated = await res.json();
+    refreshSlideImage(updated);
+    closeEditSlide();
+    toast('✅ Slide replaced', 'success');
+  } catch (e) {
+    toast('❌ ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '🔄 Replace';
+  }
+}
+
+async function submitUploadSlide(ev) {
+  if (!S.postId || !S.editingSlide) return;
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await apiFetch(`${API}/api/posts/${S.postId}/slides/${S.editingSlide}/upload`, {
+      method: 'POST',
+      body: form,        // browser sets multipart Content-Type with boundary
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Upload failed');
+    }
+    const updated = await res.json();
+    refreshSlideImage(updated);
+    closeEditSlide();
+    toast('✅ Custom image uploaded', 'success');
+  } catch (e) {
+    toast('❌ ' + e.message, 'error');
+  } finally {
+    ev.target.value = '';
+  }
+}
+
+function refreshSlideImage(updatedSlide) {
+  const img = document.querySelector(`#slides-container img[data-slide-num="${updatedSlide.slide_number}"]`);
+  if (img) img.src = API + updatedSlide.image_url;
 }
 
 function renderReferences(post) {
