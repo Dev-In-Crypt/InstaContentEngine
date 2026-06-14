@@ -16,6 +16,11 @@ GOOD_JSON = {
     "hook": "AI is changing everything.",
     "image_search_queries": ["futuristic AI robot", "technology abstract"],
     "image_gen_prompts": ["A glowing neural network visualization"],
+    "slide_overlays": [
+        "AI is changing everything.",
+        "Robots write code now.",
+        "Adapt or get left behind.",
+    ],
     "alt_text": "An abstract image representing artificial intelligence.",
 }
 
@@ -114,6 +119,21 @@ def test_parse_tolerates_missing_seo_keywords():
     del payload["seo_keywords"]
     result = gen._parse(json.dumps(payload))
     assert result.seo_keywords == []
+
+
+def test_parse_extracts_slide_overlays():
+    gen = CaptionGenerator(OpenRouterClient(api_key="key"))
+    result = gen._parse(json.dumps(GOOD_JSON))
+    assert result.slide_overlays == GOOD_JSON["slide_overlays"]
+
+
+def test_parse_missing_overlays_falls_back_to_hook():
+    gen = CaptionGenerator(OpenRouterClient(api_key="key"))
+    payload = dict(GOOD_JSON)
+    del payload["slide_overlays"]
+    result = gen._parse(json.dumps(payload))
+    # When the model omits overlays we keep slide 1 working with the hook.
+    assert result.slide_overlays == [payload["hook"]]
 
 
 @pytest.mark.asyncio

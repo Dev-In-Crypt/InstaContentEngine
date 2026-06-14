@@ -28,6 +28,13 @@ FAKE_CAPTION = GeneratedCaption(
     image_gen_prompts=["A neural network visualization"],
     alt_text="An abstract AI image.",
     seo_keywords=["ai trends", "tech tips"],
+    slide_overlays=[
+        "AI is changing everything.",
+        "Robots write code now.",
+        "Adapt or fall behind.",
+        "Tools that save you hours.",
+        "Start with the smallest task.",
+    ],
 )
 
 
@@ -161,6 +168,42 @@ async def test_branded_card_routes_to_create_branded_card():
         template_style=TemplateStyle.BRANDED_CARD,
     )
     engine.brand_engine.create_branded_card.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_carousel_slides_use_per_slide_overlay_and_hide_niche_box():
+    """Slide 1 shows niche box + hook; slides 2..N show ONLY their slide_overlay."""
+    engine, _, _ = make_engine()
+    engine.brand_engine = MagicMock()
+    engine.brand_engine.create_branded_card.return_value = b"card"
+    await engine.generate_post(
+        topic="AI", format=PostFormat.CAROUSEL_3,
+        template_style=TemplateStyle.BRANDED_CARD,
+        niche="Tech",
+    )
+    calls = engine.brand_engine.create_branded_card.call_args_list
+    assert len(calls) == 3
+
+    by_slide = {}
+    for c in calls:
+        # find the SlideImageConfig-related slide number — easiest via page_number kwarg
+        kwargs = c.kwargs
+        by_slide[kwargs["page_number"]] = kwargs
+
+    # Slide 1: niche box + hook (overlay[0])
+    assert by_slide[1]["show_niche_box"] is True
+    assert by_slide[1]["niche_text"] == "Tech"
+    assert by_slide[1]["description_text"] == FAKE_CAPTION.slide_overlays[0]
+
+    # Slide 2: no niche box, overlay[1]
+    assert by_slide[2]["show_niche_box"] is False
+    assert by_slide[2]["niche_text"] == ""
+    assert by_slide[2]["description_text"] == FAKE_CAPTION.slide_overlays[1]
+    assert "Slide 2" not in by_slide[2]["description_text"]
+
+    # Slide 3: no niche box, overlay[2]
+    assert by_slide[3]["show_niche_box"] is False
+    assert by_slide[3]["description_text"] == FAKE_CAPTION.slide_overlays[2]
 
 
 @pytest.mark.asyncio

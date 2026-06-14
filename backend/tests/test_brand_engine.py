@@ -195,3 +195,62 @@ def test_wrap_lines_helper():
     font = ImageFont.load_default(size=20)
     lines = PillowBrandEngine._wrap_lines(draw, "one two three four five six", font, 60)
     assert len(lines) > 1
+
+
+def test_branded_card_hides_niche_box_when_requested(engine):
+    """Carousel slides 2..N pass show_niche_box=False → no orange box.
+    Sampling rows where the niche box would normally sit must NOT contain its color."""
+    result = engine.create_branded_card(
+        background_image=make_jpeg_bytes(800, 800, "white"),
+        niche_text="Running",
+        description_text="Hello world.",
+        niche_box_color="#0076cb",
+        show_niche_box=False,
+    )
+    img = open_result(result).convert("RGB")
+    target = (0x00, 0x76, 0xcb)
+    band = {img.getpixel((x, y))
+            for y in range(int(1350 * 0.62), int(1350 * 0.72), 4)
+            for x in range(60, 400, 20)}
+    assert not any(abs(r - target[0]) < 8 and abs(g - target[1]) < 8 and abs(b - target[2]) < 8
+                   for (r, g, b) in band)
+
+
+def test_fit_two_lines_returns_complete_first_sentence():
+    from PIL import ImageDraw, Image as PILImage, ImageFont
+    img = PILImage.new("RGB", (1000, 200))
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default(size=20)
+    # First sentence fits in 2 lines, second wouldn't → only first kept.
+    text = ("Run from Asia to Europe in one morning. "
+            "Many runners cross both continents during the Bosphorus marathon every year.")
+    lines = PillowBrandEngine._fit_two_lines(draw, text, font, max_width=400)
+    assert 1 <= len(lines) <= 2
+    joined = " ".join(lines)
+    assert joined.rstrip(" ").endswith((".", "!", "?")), f"not a complete sentence: {joined!r}"
+
+
+def test_fit_two_lines_truncates_when_first_sentence_too_long():
+    from PIL import ImageDraw, Image as PILImage, ImageFont
+    img = PILImage.new("RGB", (1000, 200))
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default(size=20)
+    text = "A very long single sentence that simply will not fit in two lines no matter what"
+    lines = PillowBrandEngine._fit_two_lines(draw, text, font, max_width=120)
+    assert len(lines) <= 2
+    assert any("…" in line for line in lines)
+
+
+def test_branded_card_truncates_long_description_to_two_lines(engine):
+    long_desc = ("Run from Asia to Europe in one morning. "
+                 "Cross both continents during the Bosphorus marathon every year. "
+                 "Recover with cold water and stretching.")
+    result = engine.create_branded_card(
+        background_image=make_jpeg_bytes(800, 800),
+        niche_text="Running",
+        description_text=long_desc,
+    )
+    # We don't OCR the slide here — but the renderer must not crash and the
+    # image must be 1080x1350. The 2-line cap is enforced by _fit_two_lines
+    # which is unit-tested above.
+    assert open_result(result).size == (1080, 1350)
