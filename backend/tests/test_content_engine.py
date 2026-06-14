@@ -220,6 +220,60 @@ async def test_square_routes_to_legacy_methods():
 
 
 @pytest.mark.asyncio
+async def test_render_params_persisted_per_slide():
+    """Each slide records render_params so per-slide regenerate can re-brand it."""
+    engine, _, _ = make_engine()
+    post = await engine.generate_post(
+        topic="AI", format=PostFormat.CAROUSEL_3,
+        template_style=TemplateStyle.BRANDED_CARD,
+        niche="Tech", niche_box_color="#0076cb", show_logo=False,
+    )
+    assert all(s.render_params for s in post.slides)
+    s1 = next(s for s in post.slides if s.slide_number == 1)
+    s2 = next(s for s in post.slides if s.slide_number == 2)
+    assert s1.render_params["show_niche_box"] is True
+    assert s1.render_params["niche_text"] == "Tech"
+    assert s1.render_params["overlay_text"] == FAKE_CAPTION.slide_overlays[0]
+    assert s2.render_params["show_niche_box"] is False
+    assert s2.render_params["overlay_text"] == FAKE_CAPTION.slide_overlays[1]
+    assert s1.render_params["show_logo"] is False
+    assert s1.render_params["niche_box_color"] == "#0076cb"
+
+
+def test_rebrand_slide_bytes_passes_through_when_no_render_params():
+    """The replace helper skips re-branding when there are no stored params."""
+    from api.routes.posts import _rebrand_slide_bytes
+    from services.brand_engine import BrandConfig, PillowBrandEngine
+    engine = PillowBrandEngine(BrandConfig())
+    raw = b"raw-bytes"
+    assert _rebrand_slide_bytes(raw, None, engine) is raw
+    assert _rebrand_slide_bytes(raw, {}, engine) is raw
+    # Non-branded_card style also passes through:
+    assert _rebrand_slide_bytes(raw, {"template_style": "square"}, engine) is raw
+
+
+def test_rebrand_slide_bytes_uses_stored_params():
+    """When render_params describe a branded_card, we re-run create_branded_card."""
+    from api.routes.posts import _rebrand_slide_bytes
+    from unittest.mock import MagicMock
+    engine = MagicMock()
+    engine.create_branded_card.return_value = b"new-branded"
+    params = {
+        "template_style": "branded_card",
+        "niche_text": "Running", "overlay_text": "Run!",
+        "niche_box_color": "#ff751f", "show_logo": False,
+        "show_niche_box": True, "page_number": 1, "total_slides": 3,
+    }
+    out = _rebrand_slide_bytes(b"raw", params, engine)
+    assert out == b"new-branded"
+    engine.create_branded_card.assert_called_once()
+    kwargs = engine.create_branded_card.call_args.kwargs
+    assert kwargs["niche_text"] == "Running"
+    assert kwargs["description_text"] == "Run!"
+    assert kwargs["show_niche_box"] is True
+
+
+@pytest.mark.asyncio
 async def test_progress_callback_invoked():
     engine, _, _ = make_engine()
     messages = []

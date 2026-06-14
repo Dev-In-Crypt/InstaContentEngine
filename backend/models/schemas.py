@@ -121,6 +121,15 @@ class CaptionUpdate(BaseModel):
     seo_keywords: Optional[list[str]] = None
 
 
+class ReplaceSlideRequest(BaseModel):
+    """Body for re-fetching a single slide's image without re-running the whole post."""
+    search_query: Optional[str] = None             # override stored query
+    image_source: Optional[ImageSource] = None     # switch stock ↔ ai_gen
+    gen_prompt: Optional[str] = None               # for ai_gen
+    image_model: Optional[str] = None              # for ai_gen
+    stock_source: Optional[str] = None             # "unsplash" | "pexels" | "auto"
+
+
 # --- Response Models ---
 
 class SlidePreview(BaseModel):
