@@ -500,6 +500,7 @@ async def _persist_post(
             search_query=slide.search_query,
             gen_prompt=slide.gen_prompt,
             attribution=slide.attribution,
+            render_params=slide.render_params,
         ))
     await db.commit()
     result = await db.execute(

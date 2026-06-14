@@ -20,6 +20,7 @@ class GeneratedSlide:
     search_query: Optional[str] = None
     gen_prompt: Optional[str] = None
     attribution: Optional[dict] = None   # {source, author_name, author_profile_url, source_link}
+    render_params: Optional[dict] = None  # niche_text, overlay_text, show_niche_box, niche_box_color, show_logo, page_number, total_slides, template_style
 
 
 @dataclass
@@ -178,6 +179,7 @@ class ContentEngine:
         else:
             raw_bytes = result   # backward-compat for AI/Canva paths
 
+        render_params: Optional[dict] = None
         if not apply_branding:
             branded = raw_bytes
         elif template_style == TemplateStyle.BRANDED_CARD:
@@ -193,9 +195,19 @@ class ContentEngine:
             page_num = cfg.page_number if cfg.page_number is not None else (
                 cfg.slide_number if num > 1 else None
             )
+            render_params = {
+                "template_style": "branded_card",
+                "niche_text": (niche or topic) if is_first else "",
+                "overlay_text": overlay_text,
+                "show_niche_box": is_first,
+                "niche_box_color": niche_box_color,
+                "show_logo": show_logo,
+                "page_number": page_num,
+                "total_slides": num if num > 1 else None,
+            }
             branded = self.brand_engine.create_branded_card(
                 background_image=raw_bytes,
-                niche_text=(niche or topic) if is_first else "",
+                niche_text=render_params["niche_text"],
                 description_text=overlay_text,
                 niche_box_color=niche_box_color,
                 show_logo=show_logo,
@@ -227,6 +239,7 @@ class ContentEngine:
             search_query=cfg.search_query,
             gen_prompt=cfg.gen_prompt,
             attribution=attribution,
+            render_params=render_params,
         )
 
     async def export_template(self, post: GeneratedPost) -> bytes:

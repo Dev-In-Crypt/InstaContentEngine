@@ -31,6 +31,7 @@ _MIGRATIONS: dict[str, dict[str, str]] = {
     "slides": {
         "page_number": "INTEGER",
         "attribution": "JSON",
+        "render_params": "JSON",
     },
     "brand_configs": {
         "template_style": "VARCHAR(20) DEFAULT 'branded_card'",

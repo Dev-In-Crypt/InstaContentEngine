@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, AsyncGenerator, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,12 +16,14 @@ from services.brand_engine import PillowBrandEngine
 from config import Settings
 from models.database import Post as PostModel, Slide as SlideModel, TrendIdea as TrendIdeaModel
 from models.schemas import (
-    CaptionUpdate, GenerateRequest, Platform, PostPreview,
-    PostStatus, PostSummary, SlidePreview, PublishResult,
+    CaptionUpdate, GenerateRequest, ImageSource, Platform, PostPreview,
+    PostStatus, PostSummary, ReplaceSlideRequest, SlidePreview, PublishResult,
 )
 from services.content_engine import ContentEngine, GeneratedPost
 from services.image_router import SlideImageConfig
 from services.instagram import InstagramPublisher
+from services.openrouter import OpenRouterError
+from services.stock import StockError
 
 router = APIRouter(prefix="/api/posts", tags=["posts"])
 
@@ -105,6 +107,7 @@ async def _persist(
             search_query=slide.search_query,
             gen_prompt=slide.gen_prompt,
             attribution=slide.attribution,
+            render_params=slide.render_params,
         ))
 
     await db.commit()
@@ -357,3 +360,166 @@ async def get_slide_image(
     if not path.exists():
         raise HTTPException(status_code=404, detail="Image file not found on disk")
     return StreamingResponse(io.BytesIO(path.read_bytes()), media_type="image/jpeg")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-slide replace / upload (no need to regenerate the whole post)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_MAX_UPLOAD_BYTES = 20 * 1024 * 1024     # 20 MB
+_ACCEPTED_UPLOAD_TYPES = {"image/jpeg", "image/png", "image/webp"}
+
+
+async def _slide_with_post(db: AsyncSession, post_id: str, slide_num: int) -> tuple[PostModel, SlideModel]:
+    result = await db.execute(
+        select(PostModel).where(PostModel.id == post_id)
+        .options(selectinload(PostModel.slides))
+    )
+    post = result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    slide = next((s for s in post.slides if s.slide_number == slide_num), None)
+    if not slide:
+        raise HTTPException(status_code=404, detail="Slide not found")
+    return post, slide
+
+
+def _rebrand_slide_bytes(
+    raw_bytes: bytes,
+    render_params: Optional[dict],
+    brand_engine: PillowBrandEngine,
+) -> bytes:
+    """Re-apply the SAME branded card to a fresh image using stored render params.
+    Falls back to unbranded JPEG bytes when params are missing (e.g. apply_branding=False)."""
+    if not render_params or render_params.get("template_style") != "branded_card":
+        return raw_bytes
+    return brand_engine.create_branded_card(
+        background_image=raw_bytes,
+        niche_text=render_params.get("niche_text", ""),
+        description_text=render_params.get("overlay_text", ""),
+        niche_box_color=render_params.get("niche_box_color"),
+        show_logo=render_params.get("show_logo"),
+        show_niche_box=bool(render_params.get("show_niche_box", False)),
+        page_number=render_params.get("page_number"),
+        total_slides=render_params.get("total_slides"),
+    )
+
+
+@router.post(
+    "/{post_id}/slides/{slide_num}/regenerate",
+    response_model=SlidePreview,
+    dependencies=[Depends(require_token)],
+)
+async def regenerate_slide(
+    post_id: str,
+    slide_num: int,
+    body: ReplaceSlideRequest,
+    engine: Annotated[ContentEngine, Depends(get_content_engine)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> SlidePreview:
+    """Replace a single slide's image (stock or AI) WITHOUT touching the rest of the post."""
+    post, slide = await _slide_with_post(db, post_id, slide_num)
+
+    # Build a SlideImageConfig from the existing slide, overridden by request body.
+    image_source = body.image_source or ImageSource(slide.image_source)
+    cfg = SlideImageConfig(
+        slide_number=slide.slide_number,
+        image_source=image_source,
+        search_query=body.search_query or slide.search_query,
+        stock_source=body.stock_source or "auto",
+        gen_prompt=body.gen_prompt or slide.gen_prompt,
+        gen_model=body.image_model or settings.default_image_model,
+        page_number=slide.page_number,
+    )
+
+    try:
+        result = await engine.image_router.fetch_image(cfg)
+    except (OpenRouterError, StockError) as exc:
+        raise HTTPException(status_code=502, detail=f"Image fetch failed: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    if isinstance(result, tuple):
+        raw_bytes, attribution = result
+    else:
+        raw_bytes, attribution = result, None
+
+    # Re-apply the same branded card with stored render params.
+    brand_cfg = await load_brand_config(db, post.brand_engine if isinstance(post.brand_engine, str) and len(post.brand_engine) > 20 else None)
+    brand_engine = PillowBrandEngine(brand_cfg)
+    branded = _rebrand_slide_bytes(raw_bytes, slide.render_params, brand_engine)
+
+    # Overwrite the file and update the DB row.
+    path = Path(slide.image_path) if slide.image_path else _slide_path(post.id, slide.slide_number)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(branded)
+
+    slide.image_source = image_source.value
+    slide.search_query = cfg.search_query
+    slide.gen_prompt = cfg.gen_prompt
+    slide.attribution = attribution
+    await db.commit()
+    await db.refresh(slide)
+
+    height = 1350 if (post.template_style or "branded_card") == "branded_card" else 1080
+    return SlidePreview(
+        slide_number=slide.slide_number,
+        image_url=f"/api/posts/{post.id}/slides/{slide.slide_number}/image?t={int(datetime.now(timezone.utc).timestamp())}",
+        image_source=ImageSource(slide.image_source),
+        width=1080,
+        height=height,
+        attribution=slide.attribution,
+    )
+
+
+@router.post(
+    "/{post_id}/slides/{slide_num}/upload",
+    response_model=SlidePreview,
+    dependencies=[Depends(require_token)],
+)
+async def upload_slide(
+    post_id: str,
+    slide_num: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...),
+) -> SlidePreview:
+    """Replace a single slide with a user-uploaded image."""
+    if file.content_type not in _ACCEPTED_UPLOAD_TYPES:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file type {file.content_type!r}. Allowed: jpeg, png, webp.",
+        )
+    raw_bytes = await file.read()
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(raw_bytes) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 20 MB)")
+
+    post, slide = await _slide_with_post(db, post_id, slide_num)
+
+    brand_cfg = await load_brand_config(db, None)
+    brand_engine = PillowBrandEngine(brand_cfg)
+    branded = _rebrand_slide_bytes(raw_bytes, slide.render_params, brand_engine)
+
+    path = Path(slide.image_path) if slide.image_path else _slide_path(post.id, slide.slide_number)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(branded)
+
+    # Custom upload — no stock attribution, no search query.
+    slide.image_source = ImageSource.STOCK.value     # reuse enum; treat upload as 'stock-like' source
+    slide.search_query = None
+    slide.gen_prompt = None
+    slide.attribution = None
+    await db.commit()
+    await db.refresh(slide)
+
+    height = 1350 if (post.template_style or "branded_card") == "branded_card" else 1080
+    return SlidePreview(
+        slide_number=slide.slide_number,
+        image_url=f"/api/posts/{post.id}/slides/{slide.slide_number}/image?t={int(datetime.now(timezone.utc).timestamp())}",
+        image_source=ImageSource(slide.image_source),
+        width=1080,
+        height=height,
+        attribution=None,
+    )
