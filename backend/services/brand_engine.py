@@ -137,13 +137,22 @@ class PillowBrandEngine:
         description_text: str,
         niche_box_color: Optional[str] = None,
         show_logo: Optional[bool] = None,
+        show_niche_box: bool = True,
         page_number: Optional[int] = None,
         total_slides: Optional[int] = None,
     ) -> bytes:
-        """Render the portrait 1080x1350 branded card and return JPEG bytes."""
+        """Render the portrait 1080x1350 branded card and return JPEG bytes.
+
+        Boxes are sized to fit the text (not full canvas width). The description
+        box is capped at 2 lines, preferring a complete sentence over truncation.
+        `show_niche_box=False` is used for carousel slides 2..N where only the
+        description should appear.
+        """
         target = self.INSTAGRAM_SIZES["portrait"]
         tw, th = target
         pad = self.config.padding
+        inner_pad = 24                       # padding inside the box, around text
+        max_box_inner_w = tw - 2 * pad - 2 * inner_pad   # cap so boxes never exceed canvas
 
         img = Image.open(io.BytesIO(background_image)).convert("RGBA")
         img = self._resize_and_crop(img, target)
@@ -156,54 +165,60 @@ class PillowBrandEngine:
 
         draw = ImageDraw.Draw(img)
         box_left = pad
-        box_right = tw - pad
-        box_inner_w = box_right - box_left - 2 * pad
 
-        # --- Niche box (solid, bold) sitting in the lower third ---
+        # ── Niche box: fit width to its text content ─────────────────────────
         niche_font = self._load_font(self.config.heading_font_path, self.config.niche_box_font_size)
         niche_label = (niche_text or "").strip()
-        niche_lines = self._wrap_lines(draw, niche_label, niche_font, box_inner_w) if niche_label else []
+        niche_lines = self._wrap_lines(draw, niche_label, niche_font, max_box_inner_w) if (show_niche_box and niche_label) else []
         niche_lh = draw.textbbox((0, 0), "Ag", font=niche_font)[3] + 8
-        niche_h = niche_lh * max(len(niche_lines), 1) + pad
         niche_top = int(th * 0.62)
+        niche_h = 0
         if niche_lines:
+            niche_text_w = max(draw.textbbox((0, 0), line, font=niche_font)[2] for line in niche_lines)
+            niche_box_w = niche_text_w + 2 * inner_pad
+            niche_h = niche_lh * len(niche_lines) + inner_pad
+            niche_right = box_left + niche_box_w
             draw.rectangle(
-                [box_left, niche_top, box_right, niche_top + niche_h],
+                [box_left, niche_top, niche_right, niche_top + niche_h],
                 fill=self._hex_to_rgba(box_color, 255),
             )
-            y = niche_top + pad // 2
+            y = niche_top + inner_pad // 2
             for line in niche_lines:
-                draw.text((box_left + pad, y), line, fill="#FFFFFF", font=niche_font)
+                draw.text((box_left + inner_pad, y), line, fill="#FFFFFF", font=niche_font)
                 y += niche_lh
 
-        # --- Description box (white, semi-transparent) directly below ---
+        # ── Description box: ≤2 lines, complete sentence, width fits text ────
         desc_text = (description_text or "").strip()
         if desc_text:
             desc_font = self._load_font(self.config.body_font_path, 48)
-            desc_lines = self._wrap_lines(draw, desc_text, desc_font, box_inner_w)
-            desc_lh = draw.textbbox((0, 0), "Ag", font=desc_font)[3] + 10
-            desc_top = niche_top + niche_h + 12
-            desc_h = desc_lh * len(desc_lines) + pad
+            desc_lines = self._fit_two_lines(draw, desc_text, desc_font, max_box_inner_w)
+            if desc_lines:
+                desc_text_w = max(draw.textbbox((0, 0), line, font=desc_font)[2] for line in desc_lines)
+                desc_box_w = desc_text_w + 2 * inner_pad
+                desc_lh = draw.textbbox((0, 0), "Ag", font=desc_font)[3] + 10
+                desc_h = desc_lh * len(desc_lines) + inner_pad
+                desc_top = (niche_top + niche_h + 12) if niche_h else niche_top
+                desc_right = box_left + desc_box_w
 
-            overlay = Image.new("RGBA", target, (0, 0, 0, 0))
-            odraw = ImageDraw.Draw(overlay)
-            alpha = int(255 * self.config.description_box_alpha)
-            odraw.rectangle(
-                [box_left, desc_top, box_right, desc_top + desc_h],
-                fill=(255, 255, 255, alpha),
-            )
-            img = Image.alpha_composite(img, overlay)
-            draw = ImageDraw.Draw(img)
-            y = desc_top + pad // 2
-            for line in desc_lines:
-                draw.text((box_left + pad, y), line, fill="#000000", font=desc_font)
-                y += desc_lh
+                overlay = Image.new("RGBA", target, (0, 0, 0, 0))
+                odraw = ImageDraw.Draw(overlay)
+                alpha = int(255 * self.config.description_box_alpha)
+                odraw.rectangle(
+                    [box_left, desc_top, desc_right, desc_top + desc_h],
+                    fill=(255, 255, 255, alpha),
+                )
+                img = Image.alpha_composite(img, overlay)
+                draw = ImageDraw.Draw(img)
+                y = desc_top + inner_pad // 2
+                for line in desc_lines:
+                    draw.text((box_left + inner_pad, y), line, fill="#000000", font=desc_font)
+                    y += desc_lh
 
-        # --- Logo (top-right) ---
+        # ── Logo (top-right) ─────────────────────────────────────────────────
         if logo_on and self._logo:
             self._add_logo(img, position="top_right")
 
-        # --- Manual page number ---
+        # ── Manual page number (bottom-left) ─────────────────────────────────
         if page_number is not None:
             num_font = self._load_font(self.config.body_font_path, 28)
             label = f"{page_number}/{total_slides}" if total_slides else str(page_number)
@@ -255,6 +270,55 @@ class PillowBrandEngine:
         if current:
             lines.append(current)
         return lines
+
+    @classmethod
+    def _fit_two_lines(
+        cls,
+        draw: ImageDraw.ImageDraw,
+        text: str,
+        font: ImageFont.FreeTypeFont,
+        max_width: int,
+    ) -> list[str]:
+        """Return up to 2 wrapped lines that form a COMPLETE sentence when possible.
+
+        Strategy:
+          1. Split text into sentences by . ! ?
+          2. Accumulate sentences while the wrapped result stays ≤ 2 lines.
+          3. If even the first sentence wraps to >2 lines, truncate it word-by-word
+             with an ellipsis until it fits.
+          4. As a last resort, hard-truncate the first line to fit.
+        """
+        import re
+        text = (text or "").strip()
+        if not text:
+            return []
+
+        # Step 1+2: try whole sentences.
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+        accumulated = ""
+        for s in sentences:
+            candidate = (accumulated + " " + s).strip() if accumulated else s
+            lines = cls._wrap_lines(draw, candidate, font, max_width)
+            if len(lines) <= 2:
+                accumulated = candidate
+            else:
+                break
+        if accumulated:
+            return cls._wrap_lines(draw, accumulated, font, max_width)
+
+        # Step 3: first sentence too long → truncate words with ellipsis.
+        first = sentences[0] if sentences else text
+        words = first.split()
+        # binary-search-ish shrink: drop trailing words until it fits
+        while words:
+            candidate = " ".join(words).rstrip(" ,;:-—") + "…"
+            lines = cls._wrap_lines(draw, candidate, font, max_width)
+            if len(lines) <= 2:
+                return lines
+            words.pop()
+
+        # Step 4: last resort — return whatever fits on one line, hard-cut.
+        return cls._wrap_lines(draw, first[:40] + "…", font, max_width)
 
     def _draw_centered_text(
         self,

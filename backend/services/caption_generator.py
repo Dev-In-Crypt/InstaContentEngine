@@ -11,13 +11,14 @@ from services.openrouter import OpenRouterClient
 _JSON_FORMAT = """\
 RESPOND IN THIS EXACT JSON FORMAT (no markdown, no code fences):
 {{
-    "hook": "Scroll-stopping first line, max ~12 words. No hashtags.",
+    "hook": "Complete sentence (or two short ones), max 80 characters total. Must end with . ! or ?. Fits comfortably on 2 lines of an image overlay. No hashtags.",
     "caption": "Body text that follows the hook without repeating it...",
     "cta": "A single call-to-action sentence.",
     "hashtags": ["#hashtag1", "#hashtag2"],
     "seo_keywords": ["keyword one", "keyword two"],
     "image_search_queries": ["laptop desk productivity", "team meeting office"],
     "image_gen_prompts": ["detailed image generation prompt for slide 1"],
+    "slide_overlays": ["Short complete sentence for slide 1 (≤80 chars, ends with . ! or ?). Same idea as hook.", "Short complete sentence for slide 2 (≤80 chars).", "..."],
     "alt_text": "Accessibility description of the post"
 }}"""
 
@@ -33,6 +34,12 @@ Your goal is captions optimized for discoverability, engagement, saves, shares, 
 
 Produce, in the JSON fields below:
 - "hook": a strong first line that stops the scroll (curiosity, emotion, or clear benefit).
+  MUST be a COMPLETE sentence ending in . ! or ?, MAX 80 characters total. Never trail off.
+  It has to fit cleanly on 2 lines of an image overlay.
+- "slide_overlays": ONE short overlay sentence per slide (length == num_slides).
+  Each is a complete sentence, ≤80 characters, ending in . ! or ?. Item [0] equals the hook.
+  Items [1..] are UNIQUE short sentences for each subsequent carousel slide (NOT generic
+  placeholders like "Slide 2"). For single image / infographic, return a 1-element array.
 - "caption": SEO-optimized body. Naturally include relevant keywords in the first 2-3 lines
   (e.g. running tips, fitness motivation, healthy habits, productivity, marathon training).
   Do NOT keyword-stuff. Add a value section with practical advice in short paragraphs for
@@ -66,6 +73,11 @@ Your goal is posts that improve reach, credibility, professional engagement, and
 
 Produce, in the JSON fields below:
 - "hook": a strong opening (insight, personal experience, question, contrast, or bold observation).
+  MUST be a COMPLETE sentence ending in . ! or ?, MAX 80 characters total.
+  Never trail off; it has to fit cleanly on 2 lines of an image overlay.
+- "slide_overlays": ONE short overlay sentence per slide (length == num_slides).
+  Each is a complete sentence, ≤80 characters. Item [0] equals the hook. Items [1..] are
+  UNIQUE short sentences for each subsequent carousel slide (NOT placeholders).
 - "caption": the LinkedIn post body. Add a short story or context connected to a practical lesson.
   Share useful takeaways, lessons, or frameworks. Naturally include important keywords in the first
   half (productivity, leadership, fitness, healthy habits, marketing, career development, discipline).
@@ -125,6 +137,7 @@ class GeneratedCaption:
     image_gen_prompts: list[str]
     alt_text: str
     seo_keywords: list[str] = field(default_factory=list)
+    slide_overlays: list[str] = field(default_factory=list)
     raw_response: str = field(default="", repr=False)
 
 
@@ -198,6 +211,12 @@ class CaptionGenerator:
             if key not in data:
                 raise CaptionParseError(f"Missing required field '{key}' in model response")
 
+        # slide_overlays: soft-parse; if missing, fall back to hook for slide 1 only.
+        overlays_raw = data.get("slide_overlays") or []
+        overlays = [str(s) for s in overlays_raw if str(s).strip()]
+        if not overlays:
+            overlays = [data["hook"]]
+
         return GeneratedCaption(
             caption=data["caption"],
             hashtags=data["hashtags"],
@@ -207,5 +226,6 @@ class CaptionGenerator:
             image_gen_prompts=data.get("image_gen_prompts", []),
             alt_text=data.get("alt_text", ""),
             seo_keywords=data.get("seo_keywords", []),
+            slide_overlays=overlays,
             raw_response=raw,
         )

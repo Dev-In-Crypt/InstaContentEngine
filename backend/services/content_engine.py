@@ -19,6 +19,7 @@ class GeneratedSlide:
     image_source: ImageSource
     search_query: Optional[str] = None
     gen_prompt: Optional[str] = None
+    attribution: Optional[dict] = None   # {source, author_name, author_profile_url, source_link}
 
 
 @dataclass
@@ -159,8 +160,9 @@ class ContentEngine:
         show_logo: bool = True,
         niche: Optional[str] = None,
     ) -> GeneratedSlide:
+        attribution: Optional[dict] = None
         try:
-            raw_bytes = await self.image_router.fetch_image(cfg)
+            result = await self.image_router.fetch_image(cfg)
         except (ImageFetchError, OpenRouterError, StockError):
             fallback = SlideImageConfig(
                 slide_number=cfg.slide_number,
@@ -168,22 +170,36 @@ class ContentEngine:
                 search_query=cfg.search_query or topic,
                 page_number=cfg.page_number,
             )
-            raw_bytes = await self.image_router.fetch_image(fallback)
+            result = await self.image_router.fetch_image(fallback)
             cfg = fallback
+
+        if isinstance(result, tuple):
+            raw_bytes, attribution = result
+        else:
+            raw_bytes = result   # backward-compat for AI/Canva paths
 
         if not apply_branding:
             branded = raw_bytes
         elif template_style == TemplateStyle.BRANDED_CARD:
-            heading = caption_data.hook if cfg.slide_number == 1 else f"Slide {cfg.slide_number}"
+            is_first = cfg.slide_number == 1
+            # Slide 1 carries the niche box + hook; slides 2..N show only their own
+            # unique overlay sentence (no niche box, no "Slide N" placeholders).
+            overlays = caption_data.slide_overlays or []
+            idx = cfg.slide_number - 1
+            if is_first:
+                overlay_text = overlays[0] if overlays else caption_data.hook
+            else:
+                overlay_text = overlays[idx] if idx < len(overlays) else ""
             page_num = cfg.page_number if cfg.page_number is not None else (
                 cfg.slide_number if num > 1 else None
             )
             branded = self.brand_engine.create_branded_card(
                 background_image=raw_bytes,
-                niche_text=niche or topic,
-                description_text=heading,
+                niche_text=(niche or topic) if is_first else "",
+                description_text=overlay_text,
                 niche_box_color=niche_box_color,
                 show_logo=show_logo,
+                show_niche_box=is_first,
                 page_number=page_num,
                 total_slides=num if num > 1 else None,
             )
@@ -210,6 +226,7 @@ class ContentEngine:
             image_source=cfg.image_source,
             search_query=cfg.search_query,
             gen_prompt=cfg.gen_prompt,
+            attribution=attribution,
         )
 
     async def export_template(self, post: GeneratedPost) -> bytes:
