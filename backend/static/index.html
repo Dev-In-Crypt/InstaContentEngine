@@ -192,9 +192,6 @@
       <div id="slides-container" class="flex gap-3 overflow-x-auto snap-x pb-2"></div>
     </div>
 
-    <!-- From-trend badge -->
-    <div id="trend-badge" class="hidden text-xs text-pink-300 bg-pink-950 border border-pink-800 rounded-lg px-3 py-2"></div>
-
     <!-- Caption editor -->
     <div>
       <label class="block text-sm text-gray-400 mb-1">Caption</label>
@@ -222,6 +219,19 @@
     <button onclick="saveCaption()" class="w-full bg-gray-700 hover:bg-gray-600 transition rounded-xl py-2.5 text-sm font-semibold">
       💾 Save edits
     </button>
+
+    <!-- References (kept OUT of the post caption — for the author only) -->
+    <div id="references-panel" class="hidden bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-3">
+      <h3 class="text-sm font-semibold text-purple-300 flex items-center gap-2">
+        📎 References
+        <span class="text-xs text-gray-500 font-normal">— shown in this UI only, not added to the post</span>
+      </h3>
+      <div id="ref-trend" class="hidden text-xs text-pink-300 bg-pink-950/40 border border-pink-900 rounded-lg px-3 py-2"></div>
+      <div id="ref-sources" class="hidden">
+        <p class="text-xs text-gray-500 mb-1">Image sources</p>
+        <ul id="ref-sources-list" class="space-y-1 text-xs"></ul>
+      </div>
+    </div>
 
     <!-- Output buttons -->
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
@@ -562,18 +572,8 @@ function renderPreview(post) {
     container.appendChild(wrapper);
   });
 
-  // From-trend badge
-  const trendBadge = document.getElementById('trend-badge');
-  if (post.trend_idea_id && post.trend_source_handle) {
-    const linkHtml = post.trend_source_permalink
-      ? `<a href="${post.trend_source_permalink}" target="_blank" class="underline hover:text-pink-300">@${post.trend_source_handle}</a>`
-      : `@${post.trend_source_handle}`;
-    trendBadge.innerHTML = `🔥 From trend: ${linkHtml}`;
-    trendBadge.classList.remove('hidden');
-  } else if (trendBadge) {
-    trendBadge.classList.add('hidden');
-    trendBadge.innerHTML = '';
-  }
+  // References panel (trend source + image attribution)
+  renderReferences(post);
 
   // Caption
   document.getElementById('caption-edit').value = post.caption;
@@ -585,6 +585,51 @@ function renderPreview(post) {
   // SEO keywords
   S.seoKeywords = [...(post.seo_keywords || [])];
   renderSeoKeywords();
+}
+
+function renderReferences(post) {
+  const panel = document.getElementById('references-panel');
+  const trendBlock = document.getElementById('ref-trend');
+  const sourcesBlock = document.getElementById('ref-sources');
+  const sourcesList = document.getElementById('ref-sources-list');
+
+  let any = false;
+
+  // Trend source
+  if (post.trend_idea_id && post.trend_source_handle) {
+    const linkHtml = post.trend_source_permalink
+      ? `<a href="${post.trend_source_permalink}" target="_blank" class="underline hover:text-pink-200">@${post.trend_source_handle}</a>`
+      : `@${post.trend_source_handle}`;
+    trendBlock.innerHTML = `🔥 Inspired by: ${linkHtml}`;
+    trendBlock.classList.remove('hidden');
+    any = true;
+  } else {
+    trendBlock.classList.add('hidden'); trendBlock.innerHTML = '';
+  }
+
+  // Per-slide image attribution
+  const withAttrib = (post.slides || []).filter(s => s.attribution && s.attribution.author_name);
+  if (withAttrib.length) {
+    sourcesList.innerHTML = '';
+    withAttrib.forEach(s => {
+      const a = s.attribution;
+      const authorHtml = a.author_profile_url
+        ? `<a href="${a.author_profile_url}" target="_blank" class="text-purple-300 hover:text-purple-200 underline">${a.author_name}</a>`
+        : `<span class="text-purple-300">${a.author_name}</span>`;
+      const sourceHtml = a.source_link
+        ? `<a href="${a.source_link}" target="_blank" class="text-gray-400 hover:text-gray-200 underline">${a.source}</a>`
+        : `<span class="text-gray-400">${a.source}</span>`;
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="text-gray-500">Slide ${s.slide_number}:</span> Photo by ${authorHtml} on ${sourceHtml}`;
+      sourcesList.appendChild(li);
+    });
+    sourcesBlock.classList.remove('hidden');
+    any = true;
+  } else {
+    sourcesBlock.classList.add('hidden'); sourcesList.innerHTML = '';
+  }
+
+  panel.classList.toggle('hidden', !any);
 }
 
 function renderSeoKeywords() {
