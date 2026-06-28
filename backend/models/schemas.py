@@ -130,6 +130,13 @@ class ReplaceSlideRequest(BaseModel):
     stock_source: Optional[str] = None             # "unsplash" | "pexels" | "auto"
 
 
+class OverlayUpdateRequest(BaseModel):
+    """Body for editing overlay text in-place on an existing slide (re-renders
+    over the stored raw image, no fresh image fetch)."""
+    overlay_text: Optional[str] = None        # description box (white, lower)
+    niche_text: Optional[str] = None          # niche box (colored, upper) — slide 1 only typically
+
+
 # --- Response Models ---
 
 class SlidePreview(BaseModel):
@@ -139,6 +146,12 @@ class SlidePreview(BaseModel):
     width: int
     height: int
     attribution: Optional[dict] = None     # stock credits, see services.stock
+    # overlay editing
+    overlay_text: Optional[str] = None
+    niche_text: Optional[str] = None
+    original_overlay_text: Optional[str] = None   # LLM-generated, for Reset
+    original_niche_text: Optional[str] = None
+    has_raw_image: bool = False                   # True if PUT /overlay is supported
 
 
 class PostPreview(BaseModel):
@@ -159,6 +172,7 @@ class PostPreview(BaseModel):
     trend_idea_id: Optional[str] = None
     trend_source_handle: Optional[str] = None
     trend_source_permalink: Optional[str] = None
+    sources: list[dict] = []           # [{title,url}] from web-grounded LLM (:online)
 
     model_config = {"from_attributes": True}
 

@@ -1,11 +1,14 @@
 import asyncio
 import io
 import json
+import re
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, AsyncGenerator, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,8 +19,9 @@ from services.brand_engine import PillowBrandEngine
 from config import Settings
 from models.database import Post as PostModel, Slide as SlideModel, TrendIdea as TrendIdeaModel
 from models.schemas import (
-    CaptionUpdate, GenerateRequest, ImageSource, Platform, PostPreview,
-    PostStatus, PostSummary, ReplaceSlideRequest, SlidePreview, PublishResult,
+    CaptionUpdate, GenerateRequest, ImageSource, OverlayUpdateRequest, Platform,
+    PostPreview, PostStatus, PostSummary, ReplaceSlideRequest, SlidePreview,
+    PublishResult,
 )
 from services.content_engine import ContentEngine, GeneratedPost
 from services.image_router import SlideImageConfig
@@ -34,17 +38,37 @@ def _slide_path(post_id: str, slide_num: int) -> Path:
     return UPLOADS_DIR / post_id / f"slide_{slide_num}.jpg"
 
 
-def _to_preview(post: PostModel) -> PostPreview:
+def _slide_raw_path(post_id: str, slide_num: int) -> Path:
+    """Unbranded background, kept around so PUT /overlay can re-render without re-fetching."""
+    return UPLOADS_DIR / post_id / f"slide_{slide_num}_raw.jpg"
+
+
+def _build_slide_preview(post: PostModel, slide: SlideModel, cache_bust: bool = False) -> SlidePreview:
+    """Single source of truth for SlidePreview shape, used by /generate, /regenerate,
+    /upload, /overlay and the GET endpoints."""
     height = 1350 if (post.template_style or "branded_card") == "branded_card" else 1080
+    rp = slide.render_params or {}
+    url = f"/api/posts/{post.id}/slides/{slide.slide_number}/image"
+    if cache_bust:
+        url += f"?t={int(datetime.now(timezone.utc).timestamp())}"
+    return SlidePreview(
+        slide_number=slide.slide_number,
+        image_url=url,
+        image_source=ImageSource(slide.image_source),
+        width=1080,
+        height=height,
+        attribution=slide.attribution,
+        overlay_text=rp.get("overlay_text"),
+        niche_text=rp.get("niche_text"),
+        original_overlay_text=slide.original_overlay_text,
+        original_niche_text=slide.original_niche_text,
+        has_raw_image=bool(slide.raw_image_path and Path(slide.raw_image_path).exists()),
+    )
+
+
+def _to_preview(post: PostModel) -> PostPreview:
     slides = [
-        SlidePreview(
-            slide_number=s.slide_number,
-            image_url=f"/api/posts/{post.id}/slides/{s.slide_number}/image",
-            image_source=s.image_source,
-            width=1080,
-            height=height,
-            attribution=s.attribution,
-        )
+        _build_slide_preview(post, s)
         for s in sorted(post.slides, key=lambda s: s.slide_number)
     ]
     trend = getattr(post, "trend_idea", None)
@@ -67,6 +91,7 @@ def _to_preview(post: PostModel) -> PostPreview:
         trend_idea_id=post.trend_idea_id,
         trend_source_handle=(source.source_handle if source else None),
         trend_source_permalink=(source.permalink if source else None),
+        sources=post.sources or [],
     )
 
 
@@ -85,6 +110,7 @@ async def _persist(
         caption=generated.caption,
         hashtags=generated.hashtags,
         seo_keywords=generated.seo_keywords,
+        sources=generated.sources,
         cta=generated.cta,
         hook=generated.hook,
         alt_text=generated.alt_text,
@@ -99,6 +125,12 @@ async def _persist(
     for slide in generated.slides:
         path = _slide_path(generated.id, slide.slide_number)
         path.write_bytes(slide.image_bytes)
+        raw_path_str: Optional[str] = None
+        if slide.raw_bytes:
+            raw_path = _slide_raw_path(generated.id, slide.slide_number)
+            raw_path.write_bytes(slide.raw_bytes)
+            raw_path_str = str(raw_path)
+        rp = slide.render_params or {}
         db.add(SlideModel(
             post_id=generated.id,
             slide_number=slide.slide_number,
@@ -108,6 +140,9 @@ async def _persist(
             gen_prompt=slide.gen_prompt,
             attribution=slide.attribution,
             render_params=slide.render_params,
+            raw_image_path=raw_path_str,
+            original_overlay_text=rp.get("overlay_text"),
+            original_niche_text=rp.get("niche_text"),
         ))
 
     await db.commit()
@@ -454,23 +489,18 @@ async def regenerate_slide(
     path = Path(slide.image_path) if slide.image_path else _slide_path(post.id, slide.slide_number)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(branded)
+    # Persist the new raw background so PUT /overlay can re-render later.
+    raw_path = _slide_raw_path(post.id, slide.slide_number)
+    raw_path.write_bytes(raw_bytes)
 
     slide.image_source = image_source.value
     slide.search_query = cfg.search_query
     slide.gen_prompt = cfg.gen_prompt
     slide.attribution = attribution
+    slide.raw_image_path = str(raw_path)
     await db.commit()
     await db.refresh(slide)
-
-    height = 1350 if (post.template_style or "branded_card") == "branded_card" else 1080
-    return SlidePreview(
-        slide_number=slide.slide_number,
-        image_url=f"/api/posts/{post.id}/slides/{slide.slide_number}/image?t={int(datetime.now(timezone.utc).timestamp())}",
-        image_source=ImageSource(slide.image_source),
-        width=1080,
-        height=height,
-        attribution=slide.attribution,
-    )
+    return _build_slide_preview(post, slide, cache_bust=True)
 
 
 @router.post(
@@ -505,21 +535,145 @@ async def upload_slide(
     path = Path(slide.image_path) if slide.image_path else _slide_path(post.id, slide.slide_number)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(branded)
+    # Save the uploaded image as the new raw so PUT /overlay can re-brand later.
+    raw_path = _slide_raw_path(post.id, slide.slide_number)
+    raw_path.write_bytes(raw_bytes)
 
     # Custom upload — no stock attribution, no search query.
     slide.image_source = ImageSource.STOCK.value     # reuse enum; treat upload as 'stock-like' source
     slide.search_query = None
     slide.gen_prompt = None
     slide.attribution = None
+    slide.raw_image_path = str(raw_path)
     await db.commit()
     await db.refresh(slide)
+    return _build_slide_preview(post, slide, cache_bust=True)
 
-    height = 1350 if (post.template_style or "branded_card") == "branded_card" else 1080
-    return SlidePreview(
-        slide_number=slide.slide_number,
-        image_url=f"/api/posts/{post.id}/slides/{slide.slide_number}/image?t={int(datetime.now(timezone.utc).timestamp())}",
-        image_source=ImageSource(slide.image_source),
-        width=1080,
-        height=height,
-        attribution=None,
+
+@router.put(
+    "/{post_id}/slides/{slide_num}/overlay",
+    response_model=SlidePreview,
+    dependencies=[Depends(require_token)],
+)
+async def update_slide_overlay(
+    post_id: str,
+    slide_num: int,
+    body: OverlayUpdateRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> SlidePreview:
+    """Re-render the overlay (niche box + description box) on top of the slide's
+    stored raw image — no new image fetch. Used when the user types a new
+    overlay caption in the preview UI and hits Apply."""
+    post, slide = await _slide_with_post(db, post_id, slide_num)
+
+    if not slide.raw_image_path:
+        raise HTTPException(
+            status_code=409,
+            detail="No raw background stored for this slide. Click Replace first.",
+        )
+    raw_path = Path(slide.raw_image_path)
+    if not raw_path.exists():
+        raise HTTPException(status_code=409, detail="Raw background file missing on disk.")
+    raw_bytes = raw_path.read_bytes()
+
+    # Merge new overlay/niche text into the stored render_params.
+    rp = dict(slide.render_params or {})
+    if body.overlay_text is not None:
+        rp["overlay_text"] = body.overlay_text
+    if body.niche_text is not None:
+        rp["niche_text"] = body.niche_text
+
+    brand_cfg = await load_brand_config(db, None)
+    brand_engine = PillowBrandEngine(brand_cfg)
+    branded = _rebrand_slide_bytes(raw_bytes, rp, brand_engine)
+
+    path = Path(slide.image_path) if slide.image_path else _slide_path(post.id, slide.slide_number)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(branded)
+
+    slide.render_params = rp
+    await db.commit()
+    await db.refresh(slide)
+    return _build_slide_preview(post, slide, cache_bust=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Export-to-disk (saves the ZIP straight to the OS Downloads folder)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_filename(name: str) -> str:
+    name = re.sub(r"[^\w\-.\s]", "", name).strip().replace(" ", "_")
+    return name[:60] or "post"
+
+
+def _unique_path(folder: Path, stem: str, suffix: str) -> Path:
+    """Return folder/<stem><suffix> with _2 / _3 / … appended if needed."""
+    candidate = folder / f"{stem}{suffix}"
+    n = 2
+    while candidate.exists():
+        candidate = folder / f"{stem}_{n}{suffix}"
+        n += 1
+    return candidate
+
+
+@router.post("/{post_id}/export-to-disk", dependencies=[Depends(require_token)])
+async def export_post_to_disk(
+    post_id: str,
+    engine: Annotated[ContentEngine, Depends(get_content_engine)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Build the ZIP and save it directly to ~/Downloads. Returns the absolute path.
+    Used by the desktop window (pywebview) where blob downloads don't surface a
+    Save-As dialog and end up in unclear locations."""
+    result = await db.execute(
+        select(PostModel).where(PostModel.id == post_id)
+        .options(selectinload(PostModel.slides))
     )
+    post = result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    images: list[bytes] = []
+    for slide in sorted(post.slides, key=lambda s: s.slide_number):
+        p = Path(slide.image_path) if slide.image_path else None
+        if not p or not p.exists():
+            raise HTTPException(status_code=404, detail=f"Image file missing for slide {slide.slide_number}")
+        images.append(p.read_bytes())
+
+    zip_bytes = await engine.exporter.export_package(
+        images=images,
+        caption=post.caption or "",
+        hashtags=post.hashtags or [],
+        post_name=(post.topic or "post")[:50],
+    )
+    downloads = Path.home() / "Downloads"
+    downloads.mkdir(parents=True, exist_ok=True)
+    stem = _safe_filename(post.topic or "post")[:40]
+    out = _unique_path(downloads, stem, "_template.zip")
+    out.write_bytes(zip_bytes)
+    return {"path": str(out), "filename": out.name, "size_bytes": len(zip_bytes)}
+
+
+@router.post("/open-folder", dependencies=[Depends(require_token)])
+async def open_folder(path: str = Body(..., embed=True)) -> dict:
+    """Open the OS file explorer at the given file (highlighted) or directory.
+    Only allowed for paths under Downloads (defence-in-depth — desktop-only API)."""
+    target = Path(path).resolve()
+    downloads = (Path.home() / "Downloads").resolve()
+    try:
+        target.relative_to(downloads)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path is outside the Downloads folder")
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Path does not exist")
+    try:
+        if sys.platform == "win32":
+            # /select highlights the file in Explorer
+            subprocess.Popen(["explorer", "/select,", str(target)])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", str(target)])
+        else:
+            subprocess.Popen(["xdg-open", str(target.parent if target.is_file() else target)])
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not open: {exc}") from exc
+    return {"opened": str(target)}

@@ -479,6 +479,7 @@ async def _persist_post(
         caption=generated.caption,
         hashtags=generated.hashtags,
         seo_keywords=generated.seo_keywords,
+        sources=generated.sources,
         cta=generated.cta,
         hook=generated.hook,
         alt_text=generated.alt_text,
@@ -492,6 +493,12 @@ async def _persist_post(
     for slide in generated.slides:
         path = _slide_path(generated.id, slide.slide_number)
         path.write_bytes(slide.image_bytes)
+        raw_path_str: Optional[str] = None
+        if slide.raw_bytes:
+            raw_path = UPLOADS_DIR / generated.id / f"slide_{slide.slide_number}_raw.jpg"
+            raw_path.write_bytes(slide.raw_bytes)
+            raw_path_str = str(raw_path)
+        rp = slide.render_params or {}
         db.add(SlideModel(
             post_id=generated.id,
             slide_number=slide.slide_number,
@@ -501,6 +508,9 @@ async def _persist_post(
             gen_prompt=slide.gen_prompt,
             attribution=slide.attribution,
             render_params=slide.render_params,
+            raw_image_path=raw_path_str,
+            original_overlay_text=rp.get("overlay_text"),
+            original_niche_text=rp.get("niche_text"),
         ))
     await db.commit()
     result = await db.execute(
@@ -513,16 +523,9 @@ async def _persist_post(
 
 
 def _post_to_preview(post: PostModel) -> PostPreview:
-    height = 1350 if (post.template_style or "branded_card") == "branded_card" else 1080
+    from api.routes.posts import _build_slide_preview
     slides = [
-        SlidePreview(
-            slide_number=s.slide_number,
-            image_url=f"/api/posts/{post.id}/slides/{s.slide_number}/image",
-            image_source=s.image_source,
-            width=1080,
-            height=height,
-            attribution=s.attribution,
-        )
+        _build_slide_preview(post, s)
         for s in sorted(post.slides, key=lambda s: s.slide_number)
     ]
     trend = post.trend_idea
@@ -545,6 +548,7 @@ def _post_to_preview(post: PostModel) -> PostPreview:
         trend_idea_id=post.trend_idea_id,
         trend_source_handle=(source.source_handle if source else None),
         trend_source_permalink=(source.permalink if source else None),
+        sources=post.sources or [],
     )
 
 
