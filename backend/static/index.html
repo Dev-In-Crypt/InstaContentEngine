@@ -192,6 +192,9 @@
       <div id="slides-container" class="flex gap-3 overflow-x-auto snap-x pb-2"></div>
     </div>
 
+    <!-- Emoji picker (vertical-stacked above caption — works on any focused text field) -->
+    <div id="emoji-picker-host"></div>
+
     <!-- Caption editor -->
     <div>
       <label class="block text-sm text-gray-400 mb-1">Caption</label>
@@ -231,12 +234,16 @@
         <p class="text-xs text-gray-500 mb-1">Image sources</p>
         <ul id="ref-sources-list" class="space-y-1 text-xs"></ul>
       </div>
+      <div id="ref-text-sources" class="hidden">
+        <p class="text-xs text-gray-500 mb-1">Text sources <span class="text-gray-600">(web-grounded LLM)</span></p>
+        <ul id="ref-text-sources-list" class="space-y-1 text-xs"></ul>
+      </div>
     </div>
 
     <!-- Output buttons -->
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
       <button onclick="exportPost()" class="bg-gradient-to-r from-blue-700 to-blue-500 hover:from-blue-600 hover:to-blue-400 transition rounded-xl py-4 font-semibold text-white flex items-center justify-center gap-2 text-lg shadow-lg">
-        📦 Download ZIP
+        📦 Save ZIP to Downloads
       </button>
       <button onclick="publishPost()" class="bg-gradient-to-r from-pink-700 to-rose-500 hover:from-pink-600 hover:to-rose-400 transition rounded-xl py-4 font-semibold text-white flex items-center justify-center gap-2 text-lg shadow-lg">
         📤 Publish to Instagram
@@ -397,6 +404,7 @@ const S = {
   adaptMediaId: null,      // media being adapted in modal
   editingSlide: null,      // slide number being replaced/uploaded
   editSource: 'stock',     // chosen source in the Edit modal
+  slideOriginals: {},      // {slide_number: {overlay, niche}} for Reset
 };
 
 const API = window.location.origin;
@@ -602,7 +610,11 @@ function renderPreview(post) {
     const portrait = (slide.height || 1080) > (slide.width || 1080);
     const imgCls = portrait ? 'slide-img w-56 h-72 object-contain bg-black' : 'slide-img w-64 h-64 object-cover';
     const wrapper = document.createElement('div');
-    wrapper.className = 'flex-shrink-0 snap-start';
+    wrapper.className = 'flex-shrink-0 snap-start space-y-2';
+    const isFirst = slide.slide_number === 1;
+    const overlayVal = (slide.overlay_text || '').replace(/"/g, '&quot;');
+    const nicheVal = (slide.niche_text || '').replace(/"/g, '&quot;');
+    const editable = slide.has_raw_image;     // only enabled if raw is stored
     wrapper.innerHTML = `
       <div class="relative group">
         <img data-slide-num="${slide.slide_number}" src="${API}${slide.image_url}" alt="Slide ${slide.slide_number}"
@@ -612,10 +624,39 @@ function renderPreview(post) {
         <button onclick="openEditSlide(${slide.slide_number}, ${JSON.stringify(slide.search_query || '').replace(/"/g, '&quot;')}, '${slide.image_source}')"
           class="absolute top-2 right-2 bg-black/70 hover:bg-purple-700 transition text-white text-xs rounded-full px-2 py-1"
           title="Replace this image">
-          ✏️ Edit
+          🖼 Replace
         </button>
       </div>
+      <div class="bg-gray-800 border border-gray-700 rounded-lg p-2 space-y-1 w-56 sm:w-64" data-slide-edit="${slide.slide_number}">
+        ${isFirst ? `
+          <label class="block text-[10px] text-gray-500 uppercase tracking-wider">Niche</label>
+          <input type="text" data-slide-niche="${slide.slide_number}" value="${nicheVal}"
+            class="overlay-input w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:ring-1 focus:ring-purple-500"
+            placeholder="Running" ${editable ? '' : 'disabled'} />
+        ` : ''}
+        <label class="block text-[10px] text-gray-500 uppercase tracking-wider">Overlay</label>
+        <textarea data-slide-overlay="${slide.slide_number}" rows="2"
+          class="overlay-input w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none"
+          placeholder="Short sentence." ${editable ? '' : 'disabled'}>${overlayVal}</textarea>
+        <div class="flex gap-1 pt-1">
+          <button onclick="applyOverlay(${slide.slide_number})" ${editable ? '' : 'disabled'}
+            class="flex-1 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 disabled:cursor-not-allowed transition rounded px-2 py-1 text-[11px] font-semibold">
+            ✓ Apply
+          </button>
+          <button onclick="resetOverlay(${slide.slide_number})" ${editable ? '' : 'disabled'}
+            title="Restore to LLM-generated text"
+            class="bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed transition rounded px-2 py-1 text-[11px]">
+            ↶ Reset
+          </button>
+        </div>
+        ${editable ? '' : '<p class="text-[10px] text-gray-600">Replace this slide first to enable in-place editing.</p>'}
+      </div>
     `;
+    // Cache the original LLM text so Reset works without an extra request.
+    S.slideOriginals[slide.slide_number] = {
+      overlay: slide.original_overlay_text || slide.overlay_text || '',
+      niche:   slide.original_niche_text   || slide.niche_text   || '',
+    };
     container.appendChild(wrapper);
   });
 
@@ -632,6 +673,9 @@ function renderPreview(post) {
   // SEO keywords
   S.seoKeywords = [...(post.seo_keywords || [])];
   renderSeoKeywords();
+
+  // Emoji picker (lazily built once)
+  buildEmojiPicker();
 }
 
 // ===== EDIT SLIDE (replace / upload) =====
@@ -734,6 +778,91 @@ function refreshSlideImage(updatedSlide) {
   if (img) img.src = API + updatedSlide.image_url;
 }
 
+// ===== EDITABLE OVERLAY TEXT =====
+async function applyOverlay(slideNum) {
+  if (!S.postId) return;
+  const overlayEl = document.querySelector(`textarea[data-slide-overlay="${slideNum}"]`);
+  const nicheEl   = document.querySelector(`input[data-slide-niche="${slideNum}"]`);
+  const body = { overlay_text: overlayEl ? overlayEl.value : null };
+  if (nicheEl) body.niche_text = nicheEl.value;
+  try {
+    const res = await apiFetch(`${API}/api/posts/${S.postId}/slides/${slideNum}/overlay`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Apply failed');
+    }
+    const updated = await res.json();
+    refreshSlideImage(updated);
+    toast('✅ Overlay updated', 'success');
+  } catch (e) {
+    toast('❌ ' + e.message, 'error');
+  }
+}
+
+function resetOverlay(slideNum) {
+  const orig = S.slideOriginals[slideNum];
+  if (!orig) return;
+  const overlayEl = document.querySelector(`textarea[data-slide-overlay="${slideNum}"]`);
+  const nicheEl   = document.querySelector(`input[data-slide-niche="${slideNum}"]`);
+  if (overlayEl) overlayEl.value = orig.overlay;
+  if (nicheEl)   nicheEl.value   = orig.niche;
+  applyOverlay(slideNum);
+}
+
+// ===== EMOJI PICKER =====
+const EMOJI_POOL = {
+  'Running':      ['🏃','🏃‍♀️','🏃‍♂️','👟','🏅','🥇','⏱️','🌅','🏞️','🥾','💨','🛣️'],
+  'Fitness':      ['💪','🏋️','🏋️‍♀️','🤸','🤾','🚴','⛹️','🥊','🤼','🏆','🏟️','📏'],
+  'Healthy':      ['🥗','🥑','🥦','🍎','🍌','🌱','🥤','💧','🫐','🍵','🥕','🐟'],
+  'Lifestyle':    ['☕','🌅','☀️','🌳','🎯','✨','🔥','💯','🌊','🧗','🌄','📅'],
+  'Mindfulness':  ['🧘','🧘‍♀️','🧘‍♂️','🕉️','🌸','🕯️','🪷','☯️','🌿','🌙','🫶','🌬️'],
+  'Productivity': ['📈','✅','📝','⏰','💡','🎯','📊','📅','🚀','⚡','📌','🧠'],
+};
+
+let _lastFocusedField = null;
+document.addEventListener('focusin', e => {
+  if (e.target.matches('textarea, input[type=text]')) {
+    _lastFocusedField = e.target;
+  }
+});
+
+function insertEmoji(emoji) {
+  const el = _lastFocusedField;
+  if (!el) { toast('Click a text field first', 'warn'); return; }
+  const start = el.selectionStart ?? el.value.length;
+  const end   = el.selectionEnd   ?? start;
+  if (typeof el.setRangeText === 'function') {
+    el.setRangeText(emoji, start, end, 'end');
+  } else {
+    el.value = el.value.slice(0, start) + emoji + el.value.slice(end);
+  }
+  el.focus();
+  el.dispatchEvent(new Event('input', {bubbles:true}));
+}
+
+function buildEmojiPicker() {
+  const host = document.getElementById('emoji-picker-host');
+  if (!host || host.dataset.built === '1') return;
+  host.dataset.built = '1';
+  let html = '<details class="bg-gray-800 border border-gray-700 rounded-xl">';
+  html += '<summary class="cursor-pointer text-xs text-gray-400 px-3 py-2">😀 Emoji picker (click a field, then a symbol)</summary>';
+  html += '<div class="p-2 space-y-1">';
+  for (const [cat, list] of Object.entries(EMOJI_POOL)) {
+    html += `<div class="flex flex-wrap gap-1 items-center"><span class="text-[10px] text-gray-500 w-20">${cat}</span>`;
+    for (const e of list) {
+      html += `<button type="button" onmousedown="event.preventDefault()" onclick="insertEmoji('${e}')"
+        class="text-base hover:bg-gray-700 rounded px-1.5 py-0.5 transition" title="${e}">${e}</button>`;
+    }
+    html += '</div>';
+  }
+  html += '</div></details>';
+  host.innerHTML = html;
+}
+
 function renderReferences(post) {
   const panel = document.getElementById('references-panel');
   const trendBlock = document.getElementById('ref-trend');
@@ -752,6 +881,24 @@ function renderReferences(post) {
     any = true;
   } else {
     trendBlock.classList.add('hidden'); trendBlock.innerHTML = '';
+  }
+
+  // Text sources from web-grounded LLM (:online)
+  const textBlock = document.getElementById('ref-text-sources');
+  const textList = document.getElementById('ref-text-sources-list');
+  if (post.sources && post.sources.length) {
+    textList.innerHTML = '';
+    post.sources.forEach(s => {
+      const li = document.createElement('li');
+      li.innerHTML = s.url
+        ? `<a href="${s.url}" target="_blank" class="text-purple-300 hover:text-purple-200 underline">${s.title || s.url}</a>`
+        : `<span>${s.title || ''}</span>`;
+      textList.appendChild(li);
+    });
+    textBlock.classList.remove('hidden');
+    any = true;
+  } else {
+    textBlock.classList.add('hidden'); textList.innerHTML = '';
   }
 
   // Per-slide image attribution
@@ -840,25 +987,59 @@ async function saveCaption() {
   }
 }
 
-// ===== EXPORT =====
+// ===== EXPORT (saves straight to ~/Downloads — visible path in toast) =====
 async function exportPost() {
   if (!S.postId) return;
-  toast('📦 Packing ZIP…', 'info');
+  toast('📦 Saving ZIP to Downloads…', 'info');
   try {
-    const res = await apiFetch(`${API}/api/posts/${S.postId}/export`, { method: 'POST' });
-    if (!res.ok) throw new Error('Export failed');
-    const blob = await res.blob();
-    const cd = res.headers.get('content-disposition') || '';
-    const match = cd.match(/filename="?([^"]+)"?/);
-    const filename = match ? match[1] : 'post_template.zip';
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename; a.click();
-    URL.revokeObjectURL(url);
-    toast('✅ ZIP downloaded!', 'success');
+    const res = await apiFetch(`${API}/api/posts/${S.postId}/export-to-disk`, { method: 'POST' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Export failed (${res.status})`);
+    }
+    const data = await res.json();
+    showExportToast(data.path);
   } catch(e) {
     toast('❌ ' + e.message, 'error');
   }
+}
+
+function showExportToast(path) {
+  // Persistent toast with absolute path + Open-folder button.
+  const el = document.getElementById('toast');
+  clearTimeout(window._toastTimer);
+  el.className = 'fixed bottom-6 right-6 bg-gray-800 border border-green-700 rounded-xl px-5 py-3 shadow-xl text-sm text-gray-100 max-w-md';
+  el.innerHTML = `
+    <div class="flex items-start gap-3">
+      <span class="text-green-400 text-lg">✅</span>
+      <div class="flex-1 min-w-0">
+        <p class="font-semibold mb-1">Saved to Downloads</p>
+        <p class="text-xs text-gray-400 break-all">${path}</p>
+        <div class="mt-2 flex gap-2">
+          <button onclick="openExportedFolder('${path.replace(/\\/g, '\\\\').replace(/'/g, '&#39;')}')"
+            class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-3 py-1 text-xs font-semibold">
+            📂 Open folder
+          </button>
+          <button onclick="document.getElementById('toast').classList.add('hidden')"
+            class="bg-gray-700 hover:bg-gray-600 transition rounded-lg px-3 py-1 text-xs">Dismiss</button>
+        </div>
+      </div>
+    </div>`;
+  el.classList.remove('hidden');
+}
+
+async function openExportedFolder(path) {
+  try {
+    const res = await apiFetch(`${API}/api/posts/open-folder`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ path }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Open failed');
+    }
+  } catch(e) { toast('❌ ' + e.message, 'error'); }
 }
 
 // ===== PUBLISH =====
