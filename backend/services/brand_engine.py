@@ -197,7 +197,11 @@ class PillowBrandEngine:
                 desc_box_w = desc_text_w + 2 * inner_pad
                 desc_lh = draw.textbbox((0, 0), "Ag", font=desc_font)[3] + 10
                 desc_h = desc_lh * len(desc_lines) + inner_pad
-                desc_top = (niche_top + niche_h + 12) if niche_h else niche_top
+                # Always anchor the description box to the same Y across the carousel,
+                # so slides 1..N line up visually. Falls back lower only if niche box
+                # would otherwise overlap.
+                desc_top = max(int(th * 0.70), niche_top + niche_h + 12) if niche_h \
+                    else int(th * 0.70)
                 desc_right = box_left + desc_box_w
 
                 overlay = Image.new("RGBA", target, (0, 0, 0, 0))

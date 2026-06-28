@@ -241,6 +241,34 @@ def test_fit_two_lines_truncates_when_first_sentence_too_long():
     assert any("…" in line for line in lines)
 
 
+def test_branded_card_description_box_aligned_across_carousel(engine):
+    """White description box must start at the SAME Y on slide 1 (with niche box)
+    and slides 2..N (without niche box) — visual alignment requirement."""
+    bg = make_jpeg_bytes(800, 800, "white")
+
+    def _white_box_top(jpeg: bytes) -> int:
+        img = open_result(jpeg).convert("RGB")
+        # Scan center column top-to-bottom for the first near-white row.
+        x = 540
+        for y in range(int(1350 * 0.55), int(1350 * 0.90)):
+            r, g, b = img.getpixel((x, y))
+            if r > 220 and g > 220 and b > 220:
+                return y
+        return -1
+
+    s1 = engine.create_branded_card(
+        background_image=bg, niche_text="Running",
+        description_text="Run hard.", show_niche_box=True,
+    )
+    s2 = engine.create_branded_card(
+        background_image=bg, niche_text="",
+        description_text="Cross both continents.", show_niche_box=False,
+    )
+    y1, y2 = _white_box_top(s1), _white_box_top(s2)
+    assert y1 > 0 and y2 > 0
+    assert abs(y1 - y2) <= 4, f"description box y-misaligned: slide1={y1}, slide2={y2}"
+
+
 def test_branded_card_truncates_long_description_to_two_lines(engine):
     long_desc = ("Run from Asia to Europe in one morning. "
                  "Cross both continents during the Bosphorus marathon every year. "
