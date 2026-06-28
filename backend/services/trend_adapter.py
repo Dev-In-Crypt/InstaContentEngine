@@ -147,7 +147,9 @@ class TrendAdapter:
             additional_instructions=additional_instructions or "None",
         )
         max_tokens = 3000 if length_tier == LengthTier.DEEP_DIVE else 2000
-        raw = await self.openrouter.generate_text(
+        # Trend adapter doesn't need web grounding — the source is the competitor's
+        # post itself. Drop annotations.
+        raw, _citations = await self.openrouter.generate_text(
             model=text_model,
             system_prompt=system,
             user_prompt=user,

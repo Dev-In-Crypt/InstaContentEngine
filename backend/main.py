@@ -27,11 +27,15 @@ _MIGRATIONS: dict[str, dict[str, str]] = {
         "platform": "VARCHAR(20) DEFAULT 'instagram'",
         "template_style": "VARCHAR(20) DEFAULT 'branded_card'",
         "trend_idea_id": "VARCHAR(36)",
+        "sources": "JSON",
     },
     "slides": {
         "page_number": "INTEGER",
         "attribution": "JSON",
         "render_params": "JSON",
+        "raw_image_path": "TEXT",
+        "original_overlay_text": "TEXT",
+        "original_niche_text": "TEXT",
     },
     "brand_configs": {
         "template_style": "VARCHAR(20) DEFAULT 'branded_card'",

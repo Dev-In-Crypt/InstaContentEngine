@@ -67,7 +67,11 @@ class OpenRouterClient:
                 ) from e
         raise OpenRouterError(str(last_exc)) from last_exc
 
-    async def generate_text(self, model: str, system_prompt: str, user_prompt: str, max_tokens: int = 2000) -> str:
+    async def generate_text(
+        self, model: str, system_prompt: str, user_prompt: str, max_tokens: int = 2000,
+    ) -> tuple[str, list[dict]]:
+        """Returns (content, citations). Citations are populated when the model
+        is suffixed with ':online' (OpenRouter web grounding via Exa.ai)."""
         response = await self._post_with_retry({
             "model": model,
             "messages": [
@@ -77,7 +81,17 @@ class OpenRouterClient:
             "max_tokens": max_tokens,
             "temperature": 0.7,
         })
-        return response.json()["choices"][0]["message"]["content"]
+        message = response.json()["choices"][0]["message"]
+        content = message.get("content", "")
+        # Flatten OpenRouter annotations → [{title, url}]
+        citations: list[dict] = []
+        for ann in (message.get("annotations") or []):
+            if ann.get("type") == "url_citation":
+                uc = ann.get("url_citation") or {}
+                url = uc.get("url")
+                if url:
+                    citations.append({"title": uc.get("title") or url, "url": url})
+        return content, citations
 
     async def generate_image(self, model: str, prompt: str, size: str = "1024x1024") -> bytes:
         """Generate image via chat/completions (Gemini-style). Returns raw image bytes."""

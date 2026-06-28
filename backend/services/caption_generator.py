@@ -138,6 +138,7 @@ class GeneratedCaption:
     alt_text: str
     seo_keywords: list[str] = field(default_factory=list)
     slide_overlays: list[str] = field(default_factory=list)
+    sources: list[dict] = field(default_factory=list)   # [{title,url}] from :online grounding
     raw_response: str = field(default="", repr=False)
 
 
@@ -166,6 +167,7 @@ class CaptionGenerator:
         ),
         platform: Platform = Platform.INSTAGRAM,
         length_tier: LengthTier = LengthTier.SWEET_SPOT,
+        web_grounded: bool = True,
     ) -> GeneratedCaption:
         template = (
             LINKEDIN_SYSTEM_PROMPT if platform == Platform.LINKEDIN else INSTAGRAM_SYSTEM_PROMPT
@@ -186,14 +188,22 @@ class CaptionGenerator:
             additional_instructions=additional_instructions or "None",
         )
 
+        # OpenRouter web-grounding: append :online suffix so the model performs a
+        # live search (Exa.ai under the hood) and returns annotations with citations.
+        model_id = text_model
+        if web_grounded and model_id and not model_id.endswith(":online"):
+            model_id = f"{model_id}:online"
+
         max_tokens = 3000 if length_tier == LengthTier.DEEP_DIVE else 2000
-        raw = await self.openrouter.generate_text(
-            model=text_model,
+        raw, citations = await self.openrouter.generate_text(
+            model=model_id,
             system_prompt=system,
             user_prompt=user,
             max_tokens=max_tokens,
         )
-        return self._parse(raw)
+        result = self._parse(raw)
+        result.sources = citations
+        return result
 
     def _parse(self, raw: str) -> GeneratedCaption:
         # Strip markdown code fences if model wraps response

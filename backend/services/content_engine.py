@@ -21,6 +21,7 @@ class GeneratedSlide:
     gen_prompt: Optional[str] = None
     attribution: Optional[dict] = None   # {source, author_name, author_profile_url, source_link}
     render_params: Optional[dict] = None  # niche_text, overlay_text, show_niche_box, niche_box_color, show_logo, page_number, total_slides, template_style
+    raw_bytes: Optional[bytes] = None    # unbranded background, persisted to disk for /overlay editing
 
 
 @dataclass
@@ -38,6 +39,7 @@ class GeneratedPost:
     image_model_used: Optional[str]
     seo_keywords: list[str] = field(default_factory=list)
     platform: Platform = Platform.INSTAGRAM
+    sources: list[dict] = field(default_factory=list)   # [{title,url}] web-grounded citations
 
     @property
     def images(self) -> list[bytes]:
@@ -146,6 +148,7 @@ class ContentEngine:
             image_model_used=image_model,
             seo_keywords=caption_data.seo_keywords,
             platform=platform,
+            sources=caption_data.sources,
         )
 
     async def _fetch_and_brand(
@@ -240,6 +243,7 @@ class ContentEngine:
             gen_prompt=cfg.gen_prompt,
             attribution=attribution,
             render_params=render_params,
+            raw_bytes=raw_bytes,
         )
 
     async def export_template(self, post: GeneratedPost) -> bytes:

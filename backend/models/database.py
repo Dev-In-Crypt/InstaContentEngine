@@ -19,6 +19,7 @@ class Post(Base):
     caption = Column(Text)
     hashtags = Column(JSON)          # stored as JSON array
     seo_keywords = Column(JSON)      # separate from hashtags
+    sources = Column(JSON)           # [{title,url}] from web-grounded LLM (:online)
     cta = Column(Text)
     hook = Column(Text)
     alt_text = Column(Text)
@@ -52,6 +53,9 @@ class Slide(Base):
     gen_prompt = Column(Text)
     attribution = Column(JSON)        # {source, author_name, author_profile_url, source_link}
     render_params = Column(JSON)      # overlay text + brand config used so single-slide regenerate can reproduce the look
+    raw_image_path = Column(Text)     # unbranded background JPEG path, used by PUT /overlay
+    original_overlay_text = Column(Text)   # LLM-generated overlay text, for Reset
+    original_niche_text = Column(Text)     # LLM-generated niche text (slide 1), for Reset
     gen_model = Column(String(100))
     canva_template_id = Column(String(100))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
