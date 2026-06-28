@@ -158,6 +158,47 @@ async def test_generate_per_platform(httpx_mock: HTTPXMock, platform):
 
 
 @pytest.mark.asyncio
+async def test_generate_appends_online_suffix_when_web_grounded(httpx_mock: HTTPXMock):
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {
+            "content": json.dumps(GOOD_JSON),
+            "annotations": [
+                {"type": "url_citation", "url_citation": {"url": "https://x.example/a", "title": "Article A"}},
+            ],
+        }}]},
+    )
+    client = OpenRouterClient(api_key="k")
+    gen = CaptionGenerator(client)
+    result = await gen.generate(
+        topic="t", format="single", text_model="anthropic/claude-sonnet-4",
+        web_grounded=True,
+    )
+    # Outgoing model id had :online appended
+    body = json.loads(httpx_mock.get_requests()[-1].content)
+    assert body["model"].endswith(":online")
+    # Citations parsed into GeneratedCaption.sources
+    assert result.sources == [{"title": "Article A", "url": "https://x.example/a"}]
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_generate_no_online_suffix_when_disabled(httpx_mock: HTTPXMock):
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(GOOD_JSON)}}]},
+    )
+    client = OpenRouterClient(api_key="k")
+    gen = CaptionGenerator(client)
+    await gen.generate(
+        topic="t", format="single", text_model="m", web_grounded=False,
+    )
+    body = json.loads(httpx_mock.get_requests()[-1].content)
+    assert body["model"] == "m"
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_deep_dive_raises_max_tokens(httpx_mock: HTTPXMock):
     httpx_mock.add_response(
         url=f"{BASE}/chat/completions",

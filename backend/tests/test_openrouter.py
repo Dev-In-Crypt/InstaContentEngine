@@ -13,12 +13,39 @@ async def test_generate_text_success(httpx_mock: HTTPXMock):
         json={"choices": [{"message": {"content": "Generated caption text"}}]},
     )
     client = OpenRouterClient(api_key="test-key")
-    result = await client.generate_text(
+    content, citations = await client.generate_text(
         model="anthropic/claude-sonnet-4",
         system_prompt="You are a content strategist.",
         user_prompt="Create a post about AI trends.",
     )
-    assert result == "Generated caption text"
+    assert content == "Generated caption text"
+    assert citations == []
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_generate_text_extracts_url_citations(httpx_mock: HTTPXMock):
+    """OpenRouter :online responses include annotations[].url_citation — we flatten them."""
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {
+            "content": "Body",
+            "annotations": [
+                {"type": "url_citation", "url_citation": {"url": "https://a.example/1", "title": "Article 1"}},
+                {"type": "url_citation", "url_citation": {"url": "https://b.example/2", "title": "Article 2"}},
+                {"type": "other", "url_citation": {"url": "ignored"}},
+            ],
+        }}]},
+    )
+    client = OpenRouterClient(api_key="key")
+    content, citations = await client.generate_text(
+        model="m", system_prompt="s", user_prompt="u",
+    )
+    assert content == "Body"
+    assert citations == [
+        {"title": "Article 1", "url": "https://a.example/1"},
+        {"title": "Article 2", "url": "https://b.example/2"},
+    ]
     await client.close()
 
 
