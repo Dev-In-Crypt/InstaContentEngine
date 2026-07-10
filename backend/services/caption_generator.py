@@ -205,6 +205,79 @@ class CaptionGenerator:
         result.sources = citations
         return result
 
+    # Fields that regenerate_field can target, with the shape each returns.
+    _LIST_FIELDS = {"hashtags", "seo_keywords"}
+    _TEXT_FIELDS = {"caption", "hook", "cta"}
+
+    async def regenerate_field(
+        self,
+        field: str,
+        topic: str,
+        current_value,
+        caption: str = "",
+        platform: Platform = Platform.INSTAGRAM,
+        tone: str = "professional",
+        text_model: str = "",
+        count: int = 4,
+    ) -> list:
+        """Generate `count` alternatives for a single field via a cheap mini-prompt.
+
+        For text fields (caption/hook/cta) returns list[str].
+        For list fields (hashtags/seo_keywords) returns list[list[str]].
+        """
+        field = field.strip()
+        if field not in self._TEXT_FIELDS and field not in self._LIST_FIELDS:
+            raise CaptionParseError(f"Unsupported field for regeneration: {field!r}")
+
+        is_list = field in self._LIST_FIELDS
+        shape = (
+            'a JSON array of arrays, each inner array holding the tags/keywords'
+            if is_list else 'a JSON array of strings'
+        )
+        cur = ", ".join(current_value) if isinstance(current_value, list) else str(current_value)
+        system = (
+            "You are an Instagram content strategist for the brand My Life My Game "
+            "(running, fitness, healthy habits, productivity). Voice: inspiring, "
+            "practical, human. No em dashes. Few emojis.\n"
+            f"Platform: {platform.value}. Tone: {tone}."
+        )
+        user = (
+            f"Post topic: {topic}\n"
+            f"Post caption (context): {caption[:600]}\n"
+            f"Current {field}: {cur}\n\n"
+            f"Generate {count} distinct, high-quality alternatives for the \"{field}\" "
+            f"in the same brand voice. Keep the format valid for Instagram.\n"
+            f'Respond with ONLY this JSON (no code fences): {{"variants": {shape}}}'
+        )
+        raw, _citations = await self.openrouter.generate_text(
+            model=text_model, system_prompt=system, user_prompt=user, max_tokens=1200,
+        )
+        return self._parse_variants(raw, is_list=is_list)
+
+    @staticmethod
+    def _parse_variants(raw: str, is_list: bool) -> list:
+        text_ = raw.strip()
+        text_ = re.sub(r"^```(?:json)?\s*", "", text_)
+        text_ = re.sub(r"\s*```$", "", text_)
+        try:
+            data = json.loads(text_)
+        except json.JSONDecodeError as e:
+            raise CaptionParseError(f"Could not parse variants JSON: {e}\n\nRaw:\n{raw}") from e
+        variants = data.get("variants") if isinstance(data, dict) else data
+        if not isinstance(variants, list):
+            raise CaptionParseError("Variants response is not a list")
+        if is_list:
+            # each variant should itself be a list of strings
+            out = []
+            for v in variants:
+                if isinstance(v, list):
+                    out.append([str(x) for x in v])
+                elif isinstance(v, str):
+                    # tolerate a space/comma separated string
+                    out.append([t for t in re.split(r"[,\s]+", v) if t])
+            return out
+        return [str(v) for v in variants if str(v).strip()]
+
     def _parse(self, raw: str) -> GeneratedCaption:
         # Strip markdown code fences if model wraps response
         text_ = raw.strip()

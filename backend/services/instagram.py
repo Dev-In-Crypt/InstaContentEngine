@@ -67,22 +67,50 @@ class InstagramPublisher:
         await self._wait_for_container(carousel_id)
         return await self._publish_container(carousel_id)
 
-    async def schedule_post(
-        self,
-        image_url: str,
-        caption: str,
-        publish_time: int,  # Unix timestamp, 10 min to 75 days ahead
-    ) -> str:
-        """Schedule a post for future publishing. Returns container ID."""
-        container_id = await self._create_container({
-            "image_url": image_url,
-            "caption": caption,
-            "published": False,
-            "publish_time": publish_time,
-            "access_token": self.token,
-        })
-        await self._wait_for_container(container_id)
-        return await self._publish_container(container_id)
+    # NOTE: Instagram's Graph API has NO native scheduled publishing (the
+    # `published:false` + `publish_time` params are a Facebook Pages feature,
+    # not Instagram). Scheduling is handled by services/scheduler.py, which
+    # calls publish_single / publish_carousel at the scheduled moment.
+
+    async def get_insights(self, media_id: str, is_video: bool = False) -> dict:
+        """Fetch metrics for a published media object. Returns a flat dict of
+        {metric_name: value} plus 'raw' with the full Graph response."""
+        metrics = ["reach", "likes", "comments", "saved", "shares", "total_interactions"]
+        if is_video:
+            metrics += ["views"]
+        url = f"{self.BASE_URL}/{self.API_VERSION}/{media_id}/insights"
+        try:
+            resp = await self._client.get(
+                url, params={"metric": ",".join(metrics), "access_token": self.token}
+            )
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            # Some metrics are invalid for certain media types — retry with a
+            # minimal safe set before giving up.
+            if e.response.status_code == 400:
+                try:
+                    resp = await self._client.get(url, params={
+                        "metric": "reach,likes,comments,saved,shares",
+                        "access_token": self.token,
+                    })
+                    resp.raise_for_status()
+                except httpx.HTTPStatusError as e2:
+                    raise InstagramError(
+                        f"Insights fetch failed: {e2.response.status_code} {e2.response.text[:200]}"
+                    ) from e2
+            else:
+                raise InstagramError(
+                    f"Insights fetch failed: {e.response.status_code} {e.response.text[:200]}"
+                ) from e
+
+        payload = resp.json()
+        flat: dict = {}
+        for item in payload.get("data", []):
+            name = item.get("name")
+            values = item.get("values") or [{}]
+            flat[name] = values[0].get("value")
+        flat["raw"] = payload
+        return flat
 
     # ------------------------------------------------------------------
     # Internal helpers
