@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from config import get_settings
 from models.database import Base, BrandConfig as BrandConfigModel
 from models.schemas import NICHE_BOX_PALETTE
-from api.routes import posts, models, stock, trends
+from api.routes import posts, models, stock, trends, admin
 
 STATIC_DIR = Path(__file__).parent / "static"
 UPLOADS_DIR = Path(__file__).parent / "uploads"
@@ -155,6 +155,7 @@ app.include_router(posts.router)
 app.include_router(models.router)
 app.include_router(stock.router)
 app.include_router(trends.router)
+app.include_router(admin.router)
 
 # Serve built frontend assets (images, fonts, etc.) at /static/*
 if STATIC_DIR.exists():

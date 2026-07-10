@@ -3,9 +3,9 @@
 # even when the user's PC is off. Local desktop use does NOT need this file.
 FROM python:3.11-slim
 
-# Pillow / fonts runtime deps
+# Pillow / fonts runtime deps + postgresql-client (pg_dump/psql for backup/restore)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libjpeg62-turbo zlib1g \
+    libjpeg62-turbo zlib1g postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

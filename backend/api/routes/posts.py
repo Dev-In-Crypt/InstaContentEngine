@@ -232,6 +232,12 @@ async def generate_post(
                     trend_idea_id=request.trend_idea_id,
                 )
                 preview = _to_preview(db_post)
+                # Persist any buffered LLM usage from this generation.
+                try:
+                    from api.routes.admin import _flush_usage
+                    await _flush_usage(db)
+                except Exception:
+                    pass
                 await queue.put({"type": "complete", "post": preview.model_dump(mode="json")})
             except Exception as exc:
                 await queue.put({"type": "error", "message": str(exc)})
