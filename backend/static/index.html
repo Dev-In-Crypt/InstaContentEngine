@@ -19,9 +19,11 @@
   <div class="max-w-4xl mx-auto px-6 py-4 flex items-center gap-3">
     <span class="text-2xl">📸</span>
     <h1 class="text-xl font-bold tracking-wide cursor-pointer hover:text-purple-200 transition" onclick="goStep(1)" title="New post">InstaContentEngine</h1>
-    <span id="status-dot" class="ml-auto w-3 h-3 rounded-full bg-green-400" title="API connected"></span>
+    <button id="cost-badge" onclick="showCostPopover()" class="ml-auto hidden bg-black/30 hover:bg-black/50 transition rounded-full px-3 py-1 text-xs text-gray-200" title="LLM spend today (click for details)">💰 $0.00</button>
+    <span id="status-dot" class="w-3 h-3 rounded-full bg-green-400" title="API connected"></span>
     <span id="status-label" class="text-xs text-gray-300">connecting…</span>
   </div>
+  <div id="cost-popover" class="hidden max-w-4xl mx-auto px-6 pb-3 text-xs text-gray-300"></div>
 </header>
 
 <main class="max-w-4xl mx-auto px-4 py-8 space-y-6">
@@ -32,6 +34,7 @@
     <button id="nav-trends" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('trends')">🔥 Trends</button>
     <button id="nav-calendar" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('calendar')">📅 Calendar</button>
     <button id="nav-grid" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('grid')">▦ Grid</button>
+    <button id="nav-admin" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('admin')">⚙️</button>
   </div>
 
   <!-- ===== CREATE VIEW (wizard) ===== -->
@@ -242,9 +245,21 @@
       </div>
     </div>
 
-    <button onclick="saveCaption()" class="w-full bg-gray-700 hover:bg-gray-600 transition rounded-xl py-2.5 text-sm font-semibold">
-      💾 Save edits
-    </button>
+    <!-- Unsaved-draft banner -->
+    <div id="draft-banner" class="hidden bg-yellow-950/50 border border-yellow-800 rounded-lg px-3 py-2 text-xs text-yellow-200 flex items-center justify-between">
+      <span>You have unsaved edits from a previous session.</span>
+      <span class="flex gap-2">
+        <button id="draft-restore" class="underline hover:text-white">Restore</button>
+        <button id="draft-discard" class="underline hover:text-white">Discard</button>
+      </span>
+    </div>
+
+    <div class="flex gap-2">
+      <button onclick="saveCaption()" class="flex-1 bg-gray-700 hover:bg-gray-600 transition rounded-xl py-2.5 text-sm font-semibold">
+        💾 Save edits
+      </button>
+      <button id="undo-btn" onclick="undoEdit()" class="hidden bg-gray-800 hover:bg-gray-700 transition rounded-xl px-4 py-2.5 text-sm" title="Undo last saved edit">↶ Undo</button>
+    </div>
 
     <!-- References (kept OUT of the post caption — for the author only) -->
     <div id="references-panel" class="hidden bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-3">
@@ -401,11 +416,35 @@
   <!-- ===== GRID VIEW ===== -->
   <div id="view-grid" class="hidden space-y-4">
     <section class="bg-gray-900 rounded-2xl p-6 space-y-4">
-      <h2 class="text-lg font-semibold text-purple-300">▦ Feed grid <span class="text-xs text-gray-500 font-normal">— как выглядит лента профиля</span></h2>
-      <div id="grid-container" class="grid grid-cols-3 gap-1"></div>
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-purple-300">▦ Feed grid <span class="text-xs text-gray-500 font-normal">— как выглядит лента профиля</span></h2>
+        <div class="flex gap-1 text-xs">
+          <button data-grid-mode="mobile" onclick="setGridMode('mobile')" class="grid-mode-btn px-2 py-1 rounded-lg border-2 border-purple-500 bg-purple-900 text-white">📱 Mobile</button>
+          <button data-grid-mode="desktop" onclick="setGridMode('desktop')" class="grid-mode-btn px-2 py-1 rounded-lg border-2 border-gray-700 bg-gray-800 text-gray-300">🖥 Desktop</button>
+        </div>
+      </div>
+      <div id="grid-frame" class="mx-auto transition-all" style="max-width:430px">
+        <div id="grid-container" class="grid grid-cols-3 gap-1"></div>
+      </div>
       <p id="grid-empty" class="text-sm text-gray-500 text-center hidden">No posts yet.</p>
     </section>
   </div><!-- /#view-grid -->
+
+  <!-- ===== ADMIN VIEW ===== -->
+  <div id="view-admin" class="hidden space-y-4">
+    <section class="bg-gray-900 rounded-2xl p-6 space-y-4">
+      <h2 class="text-lg font-semibold text-purple-300">⚙️ Settings & Backup</h2>
+      <div id="admin-usage" class="text-sm text-gray-300 bg-gray-800 rounded-lg p-3">Loading usage…</div>
+      <div class="flex flex-wrap gap-3">
+        <button onclick="downloadBackup()" class="bg-blue-700 hover:bg-blue-600 transition rounded-lg px-4 py-2 text-sm font-semibold">⬇ Download backup</button>
+        <label class="bg-gray-700 hover:bg-gray-600 transition rounded-lg px-4 py-2 text-sm font-semibold cursor-pointer">
+          ⬆ Restore from file
+          <input type="file" accept=".zip" class="hidden" onchange="restoreBackup(event)" />
+        </label>
+      </div>
+      <p class="text-xs text-gray-500">Backup contains your database + generated slides/videos. Restore replaces current data (a restart may be required locally).</p>
+    </section>
+  </div><!-- /#view-admin -->
 
   <!-- ===== Edit Slide Modal ===== -->
   <div id="edit-slide-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4">
@@ -504,6 +543,9 @@ const S = {
   calRef: null,            // {year, month} shown in calendar
   posts: [],               // cached list for calendar/grid
   hashtagIntel: {},        // {tag: {badge, trend, ...}} after Analyze
+  gridMode: 'mobile',      // grid preview width
+  usage: null,             // last /api/usage snapshot
+  undoStack: [],           // last N caption/hashtag/seo snapshots for current post
 };
 
 const API = window.location.origin;
@@ -702,6 +744,11 @@ async function generatePost() {
 
 // ===== PREVIEW =====
 function renderPreview(post) {
+  // Reset undo stack for this post (load any persisted one)
+  try { S.undoStack = JSON.parse(localStorage.getItem('undo_' + post.id) || '[]'); } catch(e){ S.undoStack = []; }
+  const undoBtn = document.getElementById('undo-btn');
+  if (undoBtn) undoBtn.classList.toggle('hidden', !S.undoStack.length);
+
   // Slides
   const container = document.getElementById('slides-container');
   container.innerHTML = '';
@@ -792,6 +839,9 @@ function renderPreview(post) {
   } else {
     perf.classList.add('hidden');
   }
+
+  // Offer to restore an unsaved draft, if any
+  maybeOfferDraft(post);
 }
 
 // ===== EDIT SLIDE (replace / upload) =====
@@ -1101,9 +1151,68 @@ document.addEventListener('keydown', e => {
   if (e.target.id === 'hashtag-input' && e.key === 'Enter') addHashtag();
 });
 
+// ===== UNDO STACK (client-side, last 5 edits) =====
+function snapshotEdits() {
+  if (!S.postId) return;
+  const snap = {
+    caption: document.getElementById('caption-edit').value,
+    hashtags: [...S.hashtags],
+    seo: [...S.seoKeywords],
+  };
+  S.undoStack.push(snap);
+  if (S.undoStack.length > 5) S.undoStack.shift();
+  try { localStorage.setItem('undo_' + S.postId, JSON.stringify(S.undoStack)); } catch(e){}
+  document.getElementById('undo-btn').classList.toggle('hidden', S.undoStack.length === 0);
+}
+function undoEdit() {
+  if (!S.undoStack.length) return;
+  const snap = S.undoStack.pop();
+  document.getElementById('caption-edit').value = snap.caption;
+  S.hashtags = [...snap.hashtags]; renderHashtags();
+  S.seoKeywords = [...snap.seo]; renderSeoKeywords();
+  try { localStorage.setItem('undo_' + S.postId, JSON.stringify(S.undoStack)); } catch(e){}
+  document.getElementById('undo-btn').classList.toggle('hidden', S.undoStack.length === 0);
+  toast('↶ Reverted last edit', 'info');
+}
+
+// ===== AUTOSAVE DRAFT (client-side) =====
+let _draftTimer;
+function scheduleDraftSave() {
+  clearTimeout(_draftTimer);
+  _draftTimer = setTimeout(saveDraft, 800);
+}
+function saveDraft() {
+  if (!S.postId) return;
+  try {
+    localStorage.setItem('draft_' + S.postId, JSON.stringify({
+      caption: document.getElementById('caption-edit').value,
+      hashtags: S.hashtags, seo: S.seoKeywords, at: Date.now(),
+    }));
+  } catch(e){}
+}
+function maybeOfferDraft(post) {
+  let raw; try { raw = localStorage.getItem('draft_' + post.id); } catch(e){ return; }
+  if (!raw) { document.getElementById('draft-banner').classList.add('hidden'); return; }
+  const draft = JSON.parse(raw);
+  const banner = document.getElementById('draft-banner');
+  banner.classList.remove('hidden');
+  banner.querySelector('#draft-restore').onclick = () => {
+    document.getElementById('caption-edit').value = draft.caption || '';
+    S.hashtags = [...(draft.hashtags||[])]; renderHashtags();
+    S.seoKeywords = [...(draft.seo||[])]; renderSeoKeywords();
+    banner.classList.add('hidden');
+    toast('Draft restored', 'info');
+  };
+  banner.querySelector('#draft-discard').onclick = () => {
+    try { localStorage.removeItem('draft_' + post.id); } catch(e){}
+    banner.classList.add('hidden');
+  };
+}
+
 // ===== SAVE CAPTION =====
 async function saveCaption() {
   if (!S.postId) return;
+  snapshotEdits();   // push current state so Undo can revert this save
   const caption = document.getElementById('caption-edit').value;
   try {
     const res = await apiFetch(`${API}/api/posts/${S.postId}/caption`, {
@@ -1112,6 +1221,7 @@ async function saveCaption() {
       body: JSON.stringify({ caption, hashtags: S.hashtags, seo_keywords: S.seoKeywords }),
     });
     if (!res.ok) throw new Error('Save failed');
+    try { localStorage.removeItem('draft_' + S.postId); } catch(e){}
     toast('✅ Caption saved!', 'success');
   } catch(e) {
     toast('❌ ' + e.message, 'error');
@@ -1518,10 +1628,10 @@ function initNicheSwatches() {
 // ===== VIEW SWITCH =====
 function setView(view) {
   S.view = view;
-  for (const v of ['create','trends','calendar','grid']) {
+  for (const v of ['create','trends','calendar','grid','admin']) {
     document.getElementById('view-' + v).classList.toggle('hidden', view !== v);
   }
-  for (const id of ['nav-create','nav-trends','nav-calendar','nav-grid']) {
+  for (const id of ['nav-create','nav-trends','nav-calendar','nav-grid','nav-admin']) {
     const btn = document.getElementById(id);
     const active = id === ('nav-' + view);
     btn.classList.toggle('border-purple-500', active);
@@ -1534,6 +1644,91 @@ function setView(view) {
   if (view === 'trends') setTrendTab(S.trendTab);
   if (view === 'calendar') renderCalendar();
   if (view === 'grid') loadGrid();
+  if (view === 'admin') loadAdmin();
+}
+
+// ===== GRID MODE (responsive preview) =====
+function setGridMode(mode) {
+  S.gridMode = mode;
+  document.getElementById('grid-frame').style.maxWidth = mode === 'mobile' ? '430px' : '100%';
+  document.querySelectorAll('.grid-mode-btn').forEach(b => {
+    const active = b.dataset.gridMode === mode;
+    b.classList.toggle('border-purple-500', active);
+    b.classList.toggle('bg-purple-900', active);
+    b.classList.toggle('text-white', active);
+    b.classList.toggle('border-gray-700', !active);
+    b.classList.toggle('bg-gray-800', !active);
+    b.classList.toggle('text-gray-300', !active);
+  });
+}
+
+// ===== COST BADGE =====
+async function refreshCost() {
+  try {
+    const res = await apiFetch(`${API}/api/usage`);
+    if (!res.ok) return;
+    const d = await res.json();
+    S.usage = d;
+    const badge = document.getElementById('cost-badge');
+    badge.textContent = `💰 $${(d.today.cost || 0).toFixed(2)}`;
+    badge.classList.remove('hidden');
+    const limit = parseFloat(localStorage.getItem('cost_limit') || '5');
+    badge.classList.toggle('text-red-300', d.today.cost > limit);
+  } catch(e) { /* ignore */ }
+}
+function showCostPopover() {
+  const pop = document.getElementById('cost-popover');
+  if (!pop.classList.contains('hidden')) { pop.classList.add('hidden'); return; }
+  const d = S.usage || {today:{},month:{},by_model:[]};
+  let html = `<div class="bg-black/30 rounded-lg p-3 space-y-1">
+    <div>Today: <b>$${(d.today.cost||0).toFixed(4)}</b> · ${d.today.calls||0} calls · ${d.today.tokens||0} tokens</div>
+    <div>Month: <b>$${(d.month.cost||0).toFixed(4)}</b> · ${d.month.calls||0} calls</div>`;
+  if ((d.by_model||[]).length) {
+    html += '<div class="pt-1 text-gray-400">By model (month):</div>';
+    d.by_model.forEach(m => { html += `<div>${m.model}: $${m.cost.toFixed(4)} (${m.calls})</div>`; });
+  }
+  html += '</div>';
+  pop.innerHTML = html;
+  pop.classList.remove('hidden');
+}
+
+// ===== ADMIN / BACKUP =====
+async function loadAdmin() {
+  await refreshCost();
+  const d = S.usage || {today:{},month:{}};
+  document.getElementById('admin-usage').innerHTML =
+    `💰 LLM spend — today <b>$${(d.today?.cost||0).toFixed(4)}</b>, this month <b>$${(d.month?.cost||0).toFixed(4)}</b> (${d.month?.calls||0} calls)`;
+}
+
+async function downloadBackup() {
+  toast('📦 Building backup…', 'info');
+  try {
+    const res = await apiFetch(`${API}/api/admin/backup`);
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Backup failed'); }
+    const blob = await res.blob();
+    const cd = res.headers.get('content-disposition') || '';
+    const m = cd.match(/filename="?([^"]+)"?/);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = m ? m[1] : 'insta_backup.zip'; a.click();
+    URL.revokeObjectURL(url);
+    toast('✅ Backup downloaded', 'success');
+  } catch(e) { toast('❌ ' + e.message, 'error'); }
+}
+
+async function restoreBackup(ev) {
+  const f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  if (!confirm('Restore will REPLACE current data. Continue?')) { ev.target.value=''; return; }
+  toast('♻ Restoring…', 'info');
+  try {
+    const form = new FormData(); form.append('file', f);
+    const res = await apiFetch(`${API}/api/admin/restore`, { method: 'POST', body: form });
+    const d = await res.json();
+    if (!res.ok || !d.ok) throw new Error(d.detail || 'Restore failed');
+    toast('✅ ' + (d.detail || 'Restored'), 'success');
+  } catch(e) { toast('❌ ' + e.message, 'error'); }
+  finally { ev.target.value = ''; }
 }
 
 function setTrendTab(tab) {
@@ -1820,6 +2015,13 @@ initNicheSwatches();
 showStep(1);
 checkStatus();
 setInterval(checkStatus, 10000);
+
+// Autosave draft as the user types the caption
+document.getElementById('caption-edit').addEventListener('input', scheduleDraftSave);
+
+// Cost badge — poll on load and every 60s
+refreshCost();
+setInterval(refreshCost, 60000);
 </script>
 </body>
 </html>
