@@ -30,6 +30,8 @@
   <div class="flex justify-center gap-2 select-none">
     <button id="nav-create" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-purple-500 bg-purple-900 text-white" onclick="setView('create')">📝 Create</button>
     <button id="nav-trends" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('trends')">🔥 Trends</button>
+    <button id="nav-calendar" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('calendar')">📅 Calendar</button>
+    <button id="nav-grid" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('grid')">▦ Grid</button>
   </div>
 
   <!-- ===== CREATE VIEW (wizard) ===== -->
@@ -197,14 +199,20 @@
 
     <!-- Caption editor -->
     <div>
-      <label class="block text-sm text-gray-400 mb-1">Caption</label>
+      <div class="flex items-center justify-between mb-1">
+        <label class="block text-sm text-gray-400">Caption</label>
+        <button onclick="showVariations('caption')" class="text-xs text-purple-400 hover:text-purple-300">↻ Variations</button>
+      </div>
       <textarea id="caption-edit" rows="5"
         class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none text-sm"></textarea>
     </div>
 
     <!-- Hashtag editor -->
     <div>
-      <label class="block text-sm text-gray-400 mb-2">Hashtags</label>
+      <div class="flex items-center justify-between mb-2">
+        <label class="block text-sm text-gray-400">Hashtags</label>
+        <button onclick="showVariations('hashtags')" class="text-xs text-purple-400 hover:text-purple-300">↻ Variations</button>
+      </div>
       <div id="hashtag-container" class="flex flex-wrap gap-2 p-3 bg-gray-800 rounded-xl min-h-[44px]"></div>
       <div class="flex gap-2 mt-2">
         <input id="hashtag-input" type="text" placeholder="#addhashtag"
@@ -215,8 +223,20 @@
 
     <!-- SEO keywords (separate from hashtags) -->
     <div>
-      <label class="block text-sm text-gray-400 mb-2">🔍 SEO keywords <span class="text-gray-600">(Instagram search)</span></label>
+      <div class="flex items-center justify-between mb-2">
+        <label class="block text-sm text-gray-400">🔍 SEO keywords <span class="text-gray-600">(Instagram search)</span></label>
+        <button onclick="showVariations('seo_keywords')" class="text-xs text-purple-400 hover:text-purple-300">↻ Variations</button>
+      </div>
       <div id="seo-container" class="flex flex-wrap gap-2 p-3 bg-gray-800 rounded-xl min-h-[44px]"></div>
+    </div>
+
+    <!-- Variations popover -->
+    <div id="variations-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4">
+      <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-lg w-full space-y-3 shadow-2xl">
+        <h3 id="variations-title" class="text-lg font-semibold text-purple-300">↻ Variations</h3>
+        <div id="variations-list" class="space-y-2 max-h-80 overflow-y-auto"></div>
+        <button onclick="closeVariations()" class="w-full bg-gray-700 hover:bg-gray-600 rounded-lg py-2 text-sm">Close</button>
+      </div>
     </div>
 
     <button onclick="saveCaption()" class="w-full bg-gray-700 hover:bg-gray-600 transition rounded-xl py-2.5 text-sm font-semibold">
@@ -240,13 +260,36 @@
       </div>
     </div>
 
+    <!-- Performance (published posts) -->
+    <div id="performance-panel" class="hidden bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-3">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-green-300">📊 Performance</h3>
+        <button onclick="refreshInsights()" class="bg-gray-700 hover:bg-gray-600 rounded-lg px-3 py-1 text-xs font-semibold">🔄 Refresh</button>
+      </div>
+      <div id="insights-numbers" class="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center text-xs"></div>
+    </div>
+
+    <!-- Schedule -->
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-2">
+      <div class="flex items-center justify-between">
+        <label class="text-sm font-semibold text-purple-300">📅 Schedule</label>
+        <span id="schedule-status" class="text-xs text-gray-500"></span>
+      </div>
+      <div class="flex gap-2">
+        <input id="schedule-dt" type="datetime-local"
+          class="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500" />
+        <button onclick="schedulePost()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">Schedule</button>
+        <button onclick="unschedulePost()" id="unschedule-btn" class="hidden bg-gray-700 hover:bg-gray-600 transition rounded-lg px-3 py-2 text-sm">Cancel</button>
+      </div>
+    </div>
+
     <!-- Output buttons -->
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
       <button onclick="exportPost()" class="bg-gradient-to-r from-blue-700 to-blue-500 hover:from-blue-600 hover:to-blue-400 transition rounded-xl py-4 font-semibold text-white flex items-center justify-center gap-2 text-lg shadow-lg">
         📦 Save ZIP to Downloads
       </button>
       <button onclick="publishPost()" class="bg-gradient-to-r from-pink-700 to-rose-500 hover:from-pink-600 hover:to-rose-400 transition rounded-xl py-4 font-semibold text-white flex items-center justify-center gap-2 text-lg shadow-lg">
-        📤 Publish to Instagram
+        📤 Publish now
       </button>
     </div>
 
@@ -311,6 +354,33 @@
     </section>
 
   </div><!-- /#view-trends -->
+
+  <!-- ===== CALENDAR VIEW ===== -->
+  <div id="view-calendar" class="hidden space-y-4">
+    <section class="bg-gray-900 rounded-2xl p-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <button onclick="calShift(-1)" class="bg-gray-800 hover:bg-gray-700 rounded-lg px-3 py-1.5 text-sm">← Prev</button>
+        <h2 id="cal-title" class="text-lg font-semibold text-purple-300">Calendar</h2>
+        <button onclick="calShift(1)" class="bg-gray-800 hover:bg-gray-700 rounded-lg px-3 py-1.5 text-sm">Next →</button>
+      </div>
+      <div class="grid grid-cols-7 gap-1 text-center text-[11px] text-gray-500">
+        <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
+      </div>
+      <div id="cal-grid" class="grid grid-cols-7 gap-1"></div>
+      <div class="flex gap-4 text-xs text-gray-500 pt-2">
+        <span>🟣 scheduled</span><span>🟢 published</span><span>🔴 failed</span><span>⚪ draft</span>
+      </div>
+    </section>
+  </div><!-- /#view-calendar -->
+
+  <!-- ===== GRID VIEW ===== -->
+  <div id="view-grid" class="hidden space-y-4">
+    <section class="bg-gray-900 rounded-2xl p-6 space-y-4">
+      <h2 class="text-lg font-semibold text-purple-300">▦ Feed grid <span class="text-xs text-gray-500 font-normal">— как выглядит лента профиля</span></h2>
+      <div id="grid-container" class="grid grid-cols-3 gap-1"></div>
+      <p id="grid-empty" class="text-sm text-gray-500 text-center hidden">No posts yet.</p>
+    </section>
+  </div><!-- /#view-grid -->
 
   <!-- ===== Edit Slide Modal ===== -->
   <div id="edit-slide-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4">
@@ -405,6 +475,9 @@ const S = {
   editingSlide: null,      // slide number being replaced/uploaded
   editSource: 'stock',     // chosen source in the Edit modal
   slideOriginals: {},      // {slide_number: {overlay, niche}} for Reset
+  currentPost: null,       // last-rendered PostPreview (for schedule/insights)
+  calRef: null,            // {year, month} shown in calendar
+  posts: [],               // cached list for calendar/grid
 };
 
 const API = window.location.origin;
@@ -676,6 +749,18 @@ function renderPreview(post) {
 
   // Emoji picker (lazily built once)
   buildEmojiPicker();
+
+  // Schedule + performance state
+  S.currentPost = post;
+  applyScheduleState(post);
+  const perf = document.getElementById('performance-panel');
+  if (post.instagram_media_id || post.status === 'published') {
+    perf.classList.remove('hidden');
+    document.getElementById('insights-numbers').innerHTML =
+      '<div class="col-span-full text-gray-500">Click Refresh to load metrics.</div>';
+  } else {
+    perf.classList.add('hidden');
+  }
 }
 
 // ===== EDIT SLIDE (replace / upload) =====
@@ -1057,6 +1142,204 @@ async function publishPost() {
   }
 }
 
+// ===== SCHEDULE =====
+async function schedulePost() {
+  if (!S.postId) return;
+  const val = document.getElementById('schedule-dt').value;
+  if (!val) { toast('Pick a date/time first', 'warn'); return; }
+  const iso = new Date(val).toISOString();
+  try {
+    const res = await apiFetch(`${API}/api/posts/${S.postId}/schedule`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ publish_at: iso }),
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Schedule failed'); }
+    const post = await res.json();
+    applyScheduleState(post);
+    toast('✅ Scheduled for ' + new Date(post.scheduled_at).toLocaleString(), 'success');
+  } catch(e) { toast('❌ ' + e.message, 'error'); }
+}
+
+async function unschedulePost() {
+  if (!S.postId) return;
+  try {
+    const res = await apiFetch(`${API}/api/posts/${S.postId}/schedule`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Cancel failed');
+    const post = await res.json();
+    applyScheduleState(post);
+    toast('Schedule cancelled', 'info');
+  } catch(e) { toast('❌ ' + e.message, 'error'); }
+}
+
+function applyScheduleState(post) {
+  const status = document.getElementById('schedule-status');
+  const cancelBtn = document.getElementById('unschedule-btn');
+  if (post.scheduled_at) {
+    status.textContent = 'Scheduled: ' + new Date(post.scheduled_at).toLocaleString();
+    status.className = 'text-xs text-purple-300';
+    cancelBtn.classList.remove('hidden');
+  } else if (post.published_at) {
+    status.textContent = 'Published: ' + new Date(post.published_at).toLocaleString();
+    status.className = 'text-xs text-green-400';
+    cancelBtn.classList.add('hidden');
+  } else {
+    status.textContent = '';
+    cancelBtn.classList.add('hidden');
+  }
+}
+
+// ===== INSIGHTS =====
+async function refreshInsights() {
+  if (!S.postId) return;
+  toast('📊 Fetching insights…', 'info');
+  try {
+    const res = await apiFetch(`${API}/api/posts/${S.postId}/insights/refresh`, { method: 'POST' });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Insights failed'); }
+    renderInsights(await res.json());
+    toast('✅ Insights updated', 'success');
+  } catch(e) { toast('❌ ' + e.message, 'error'); }
+}
+
+function renderInsights(ins) {
+  const box = document.getElementById('insights-numbers');
+  const cell = (label, val) => `<div class="bg-gray-900 rounded-lg py-2"><div class="text-base font-bold">${val ?? '—'}</div><div class="text-gray-500">${label}</div></div>`;
+  box.innerHTML =
+    cell('Reach', ins.reach) + cell('Likes', ins.likes) + cell('Comments', ins.comments) +
+    cell('Saves', ins.saved) + cell('Shares', ins.shares) + cell('Views', ins.video_views ?? ins.impressions);
+}
+
+// ===== VARIATIONS =====
+async function showVariations(field) {
+  if (!S.postId) return;
+  const modal = document.getElementById('variations-modal');
+  const list = document.getElementById('variations-list');
+  document.getElementById('variations-title').textContent = '↻ Variations — ' + field;
+  list.innerHTML = '<p class="text-sm text-gray-500">⏳ Generating…</p>';
+  modal.classList.remove('hidden');
+  try {
+    const res = await apiFetch(`${API}/api/posts/${S.postId}/regenerate-field`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ field, count: 4 }),
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Failed'); }
+    const data = await res.json();
+    list.innerHTML = '';
+    (data.variants || []).forEach(v => {
+      const isList = Array.isArray(v);
+      const display = isList ? v.join(' ') : v;
+      const btn = document.createElement('button');
+      btn.className = 'w-full text-left bg-gray-800 hover:bg-purple-900 border border-gray-700 rounded-lg p-3 text-sm transition';
+      btn.textContent = display;
+      btn.onclick = () => { applyVariation(field, v); closeVariations(); };
+      list.appendChild(btn);
+    });
+    if (!list.children.length) list.innerHTML = '<p class="text-sm text-gray-500">No variants returned.</p>';
+  } catch(e) {
+    list.innerHTML = `<p class="text-sm text-red-400">❌ ${e.message}</p>`;
+  }
+}
+
+function applyVariation(field, value) {
+  if (field === 'caption') {
+    document.getElementById('caption-edit').value = value;
+  } else if (field === 'hashtags') {
+    S.hashtags = Array.isArray(value) ? [...value] : String(value).split(/\s+/).filter(Boolean);
+    renderHashtags();
+  } else if (field === 'seo_keywords') {
+    S.seoKeywords = Array.isArray(value) ? [...value] : String(value).split(/,\s*/).filter(Boolean);
+    renderSeoKeywords();
+  }
+  toast('Applied — remember to Save edits', 'info');
+}
+
+function closeVariations() {
+  document.getElementById('variations-modal').classList.add('hidden');
+}
+
+// ===== CALENDAR =====
+function calShift(delta) {
+  const r = S.calRef || _todayRef();
+  let m = r.month + delta, y = r.year;
+  if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; }
+  S.calRef = { year: y, month: m };
+  renderCalendar();
+}
+function _todayRef() { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; }
+
+async function renderCalendar() {
+  if (!S.calRef) S.calRef = _todayRef();
+  const { year, month } = S.calRef;
+  document.getElementById('cal-title').textContent =
+    new Date(year, month, 1).toLocaleString(undefined, { month: 'long', year: 'numeric' });
+  await ensurePosts();
+  // Map posts to day keys
+  const byDay = {};
+  S.posts.forEach(p => {
+    const when = p.scheduled_at || p.published_at;
+    if (!when) return;
+    const d = new Date(when);
+    if (d.getFullYear() === year && d.getMonth() === month) {
+      const k = d.getDate();
+      (byDay[k] = byDay[k] || []).push(p);
+    }
+  });
+  const grid = document.getElementById('cal-grid');
+  grid.innerHTML = '';
+  const first = new Date(year, month, 1);
+  const startDow = (first.getDay() + 6) % 7;  // Mon=0
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  for (let i = 0; i < startDow; i++) grid.appendChild(document.createElement('div'));
+  const dot = { scheduled: '🟣', published: '🟢', failed: '🔴', draft: '⚪', preview: '⚪' };
+  for (let day = 1; day <= daysInMonth; day++) {
+    const cell = document.createElement('div');
+    cell.className = 'min-h-[64px] bg-gray-800 rounded-lg p-1 text-left';
+    let html = `<div class="text-[10px] text-gray-500">${day}</div>`;
+    (byDay[day] || []).forEach(p => {
+      html += `<div class="text-[10px] truncate cursor-pointer hover:text-purple-300" onclick="openPost('${p.id}')">${dot[p.status] || '⚪'} ${p.topic.slice(0,14)}</div>`;
+    });
+    cell.innerHTML = html;
+    grid.appendChild(cell);
+  }
+}
+
+// ===== GRID =====
+async function loadGrid() {
+  await ensurePosts();
+  const c = document.getElementById('grid-container');
+  document.getElementById('grid-empty').classList.toggle('hidden', S.posts.length > 0);
+  c.innerHTML = '';
+  const ring = { scheduled: 'ring-purple-500', published: 'ring-green-500', failed: 'ring-red-500' };
+  S.posts.forEach(p => {
+    const div = document.createElement('div');
+    div.className = 'relative aspect-[4/5] bg-gray-800 cursor-pointer';
+    div.onclick = () => openPost(p.id);
+    div.innerHTML = p.thumb_url
+      ? `<img src="${API}${p.thumb_url}" class="w-full h-full object-cover ${ring[p.status] ? 'ring-2 ' + ring[p.status] : ''}" />`
+      : `<div class="w-full h-full flex items-center justify-center text-gray-600 text-xs">${p.topic.slice(0,20)}</div>`;
+    div.innerHTML += `<span class="absolute top-1 right-1 text-xs">${({scheduled:'🟣',published:'🟢',failed:'🔴'})[p.status] || ''}</span>`;
+    c.appendChild(div);
+  });
+}
+
+async function ensurePosts() {
+  try {
+    const res = await apiFetch(`${API}/api/posts`);
+    if (res.ok) S.posts = await res.json();
+  } catch(e) { /* ignore */ }
+}
+
+async function openPost(postId) {
+  try {
+    const res = await apiFetch(`${API}/api/posts/${postId}`);
+    if (!res.ok) throw new Error('Load failed');
+    const post = await res.json();
+    S.postId = post.id;
+    setView('create');
+    renderPreview(post);
+    showStep(4);
+  } catch(e) { toast('❌ ' + e.message, 'error'); }
+}
+
 // ===== TOAST =====
 let toastTimer;
 function toast(msg, type = 'info') {
@@ -1113,9 +1396,10 @@ function initNicheSwatches() {
 // ===== VIEW SWITCH =====
 function setView(view) {
   S.view = view;
-  document.getElementById('view-create').classList.toggle('hidden', view !== 'create');
-  document.getElementById('view-trends').classList.toggle('hidden', view !== 'trends');
-  for (const id of ['nav-create','nav-trends']) {
+  for (const v of ['create','trends','calendar','grid']) {
+    document.getElementById('view-' + v).classList.toggle('hidden', view !== v);
+  }
+  for (const id of ['nav-create','nav-trends','nav-calendar','nav-grid']) {
     const btn = document.getElementById(id);
     const active = id === ('nav-' + view);
     btn.classList.toggle('border-purple-500', active);
@@ -1125,9 +1409,9 @@ function setView(view) {
     btn.classList.toggle('bg-gray-800', !active);
     btn.classList.toggle('text-gray-300', !active);
   }
-  if (view === 'trends') {
-    setTrendTab(S.trendTab);
-  }
+  if (view === 'trends') setTrendTab(S.trendTab);
+  if (view === 'calendar') renderCalendar();
+  if (view === 'grid') loadGrid();
 }
 
 function setTrendTab(tab) {
