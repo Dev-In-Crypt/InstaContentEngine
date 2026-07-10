@@ -34,6 +34,8 @@ class Post(Base):
     published_at = Column(DateTime(timezone=True))
     published_image_urls = Column(JSON)   # imgbb public URLs used for publishing
     schedule_error = Column(Text)          # last publish failure (status=failed)
+    pillar = Column(String(30))            # content pillar (educational/inspirational/...)
+    video_path = Column(Text)              # generated Reel MP4 on disk
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -107,6 +109,21 @@ class InstagramToken(Base):
     ig_user_id = Column(String(100), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class HashtagStat(Base):
+    """Cached hashtag intelligence (IG hashtag limit is 30 unique / 7 days,
+    so we memoize lookups here)."""
+    __tablename__ = "hashtag_stats"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    tag = Column(String(120), nullable=False, unique=True, index=True)
+    media_count = Column(Integer)          # absolute IG count (often unavailable → nullable)
+    avg_engagement = Column(Float)         # avg likes+comments of top media / competitor posts
+    frequency = Column(Integer)            # times seen across trending_media
+    trend = Column(String(4))              # "up" | "flat" | "down"
+    source = Column(String(20))            # "ig_api" | "heuristic" | "both"
+    checked_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class PostInsight(Base):

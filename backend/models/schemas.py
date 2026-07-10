@@ -11,6 +11,7 @@ class PostFormat(str, Enum):
     CAROUSEL_5 = "carousel_5"
     CAROUSEL_10 = "carousel_10"
     INFOGRAPHIC = "infographic"
+    REEL = "reel"
 
 
 class ImageSource(str, Enum):
@@ -145,6 +146,10 @@ class RegenFieldRequest(BaseModel):
 class RegenFieldResponse(BaseModel):
     field: str
     variants: list                              # list[str] or list[list[str]]
+
+
+class HashtagRankRequest(BaseModel):
+    tags: list[str] = Field(..., min_length=1, max_length=30)
 
 
 class PostInsightSchema(BaseModel):

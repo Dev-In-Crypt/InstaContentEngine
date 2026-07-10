@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     app_mode: str = "local"
     public_base_url: str = ""   # e.g. https://myengine.up.railway.app (cloud mode)
 
+    # Video (Reels) generation provider: "kenburns" (local ffmpeg slideshow) or
+    # "ai" (Runway/Kling/Luma — not implemented yet, stub raises).
+    video_provider: str = "kenburns"
+
 
 @lru_cache
 def get_settings() -> Settings:

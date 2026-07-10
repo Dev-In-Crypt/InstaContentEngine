@@ -30,6 +30,8 @@ _MIGRATIONS: dict[str, dict[str, str]] = {
         "sources": "JSON",
         "published_image_urls": "JSON",
         "schedule_error": "TEXT",
+        "pillar": "VARCHAR(30)",
+        "video_path": "TEXT",
     },
     "slides": {
         "page_number": "INTEGER",
