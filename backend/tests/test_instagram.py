@@ -103,6 +103,20 @@ async def test_publish_carousel_too_many_images():
     await pub.close()
 
 
+# --- Reels ---
+
+@pytest.mark.asyncio
+async def test_publish_reel(httpx_mock: HTTPXMock):
+    httpx_mock.add_response(method="POST", url=f"{BASE}/{IG_USER}/media", json={"id": "reel-c1"})
+    httpx_mock.add_response(method="GET", url=_poll_url("reel-c1"), json={"status_code": "FINISHED"})
+    httpx_mock.add_response(method="POST", url=f"{BASE}/{IG_USER}/media_publish", json={"id": "reel-pub"})
+
+    pub = make_publisher()
+    media_id = await pub.publish_reel("https://cdn.example.com/reel.mp4", "My reel caption")
+    assert media_id == "reel-pub"
+    await pub.close()
+
+
 # --- Insights ---
 
 @pytest.mark.asyncio

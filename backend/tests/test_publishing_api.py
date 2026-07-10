@@ -168,3 +168,51 @@ def test_list_posts_has_thumb_and_status(client, seeded):
     row = next(p for p in posts if p["id"] == seeded)
     assert row["thumb_url"].endswith("/slides/1/image")
     assert row["status"] == "preview"
+
+
+# ── pillars ─────────────────────────────────────────────────────────────────
+
+def test_pillars_mix(client, seeded):
+    res = client.get("/api/posts/pillars/mix")
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data["pillars"]) == 5
+    assert "suggestion" in data
+    assert data["total"] >= 1
+
+
+# ── reel render ─────────────────────────────────────────────────────────────
+
+def test_make_reel_and_fetch_video(client, seeded):
+    res = client.post(f"/api/posts/{seeded}/reel")
+    assert res.status_code == 200, res.text
+    assert "?t=" in res.json()["video_url"]
+    assert res.json()["size_bytes"] > 0
+    # fetch the rendered mp4
+    v = client.get(f"/api/posts/{seeded}/reel/video")
+    assert v.status_code == 200
+    assert v.headers["content-type"] == "video/mp4"
+
+
+def test_reel_video_404_when_not_rendered(client, seeded):
+    res = client.get(f"/api/posts/{seeded}/reel/video")
+    assert res.status_code == 404
+
+
+def test_publish_reel_needs_public_url(client, seeded):
+    # render first
+    client.post(f"/api/posts/{seeded}/reel")
+    res = client.post(f"/api/posts/{seeded}/publish-reel")
+    body = res.json()
+    assert body["success"] is False
+    assert "public" in body["error"].lower()
+
+
+# ── hashtag intelligence ────────────────────────────────────────────────────
+
+def test_hashtag_rank(client, seeded):
+    res = client.post("/api/trends/hashtags/rank", json={"tags": ["#running", "#newtag"]})
+    assert res.status_code == 200, res.text
+    tags = res.json()["hashtags"]
+    assert len(tags) == 2
+    assert all("badge" in t for t in tags)
