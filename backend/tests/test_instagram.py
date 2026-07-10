@@ -103,17 +103,26 @@ async def test_publish_carousel_too_many_images():
     await pub.close()
 
 
-# --- Scheduled ---
+# --- Insights ---
 
 @pytest.mark.asyncio
-async def test_schedule_post_success(httpx_mock: HTTPXMock):
-    httpx_mock.add_response(method="POST", url=f"{BASE}/{IG_USER}/media", json={"id": "sched-1"})
-    httpx_mock.add_response(method="GET", url=_poll_url("sched-1"), json={"status_code": "FINISHED"})
-    httpx_mock.add_response(method="POST", url=f"{BASE}/{IG_USER}/media_publish", json={"id": "pub-sched"})
-
+async def test_get_insights_flattens_metrics(httpx_mock: HTTPXMock):
+    import re
+    httpx_mock.add_response(
+        method="GET",
+        url=re.compile(rf"{BASE}/media-123/insights.*"),
+        json={"data": [
+            {"name": "reach", "values": [{"value": 1200}]},
+            {"name": "likes", "values": [{"value": 88}]},
+            {"name": "saved", "values": [{"value": 14}]},
+        ]},
+    )
     pub = make_publisher()
-    result = await pub.schedule_post(IMG_URL, CAPTION, publish_time=1800000000)
-    assert result == "pub-sched"
+    metrics = await pub.get_insights("media-123")
+    assert metrics["reach"] == 1200
+    assert metrics["likes"] == 88
+    assert metrics["saved"] == 14
+    assert "raw" in metrics
     await pub.close()
 
 
