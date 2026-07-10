@@ -111,6 +111,19 @@ class InstagramToken(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class LLMUsage(Base):
+    """One row per OpenRouter call — for the cost dashboard / badge."""
+    __tablename__ = "llm_usage"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    model = Column(String(120))
+    prompt_tokens = Column(Integer)
+    completion_tokens = Column(Integer)
+    total_tokens = Column(Integer)
+    cost = Column(Float, default=0.0)      # USD, from OpenRouter usage.cost
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class HashtagStat(Base):
     """Cached hashtag intelligence (IG hashtag limit is 30 unique / 7 days,
     so we memoize lookups here)."""

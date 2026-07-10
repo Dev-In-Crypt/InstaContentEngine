@@ -1,7 +1,35 @@
 import asyncio
 import base64
 import httpx
+from datetime import datetime, timezone
 from typing import Optional
+
+
+# ── LLM usage tracking ───────────────────────────────────────────────────────
+# OpenRouter returns a `usage` object (and `usage.cost` in USD when we ask for
+# it). We buffer each call in-memory; the admin router flushes the buffer into
+# the LLMUsage table on demand.
+_USAGE_BUFFER: list[dict] = []
+
+
+def record_usage(model: str, usage: Optional[dict]) -> None:
+    if not usage:
+        return
+    _USAGE_BUFFER.append({
+        "model": model,
+        "prompt_tokens": usage.get("prompt_tokens"),
+        "completion_tokens": usage.get("completion_tokens"),
+        "total_tokens": usage.get("total_tokens"),
+        "cost": float(usage.get("cost") or 0.0),
+        "at": datetime.now(timezone.utc),
+    })
+
+
+def drain_usage() -> list[dict]:
+    """Return and clear the buffered usage records."""
+    global _USAGE_BUFFER
+    out, _USAGE_BUFFER = _USAGE_BUFFER, []
+    return out
 
 
 TEXT_MODELS: dict[str, str] = {
@@ -80,8 +108,11 @@ class OpenRouterClient:
             ],
             "max_tokens": max_tokens,
             "temperature": 0.7,
+            "usage": {"include": True},
         })
-        message = response.json()["choices"][0]["message"]
+        payload = response.json()
+        record_usage(model, payload.get("usage"))
+        message = payload["choices"][0]["message"]
         content = message.get("content", "")
         # Flatten OpenRouter annotations → [{title, url}]
         citations: list[dict] = []
@@ -98,9 +129,12 @@ class OpenRouterClient:
         response = await self._post_with_retry({
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
+            "usage": {"include": True},
         })
 
-        message = response.json()["choices"][0]["message"]
+        payload = response.json()
+        record_usage(model, payload.get("usage"))
+        message = payload["choices"][0]["message"]
 
         # Check message.images list first (OpenRouter Gemini format)
         for source in [
