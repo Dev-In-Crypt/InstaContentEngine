@@ -79,8 +79,15 @@ def client(db_url):
     fake_engine.caption_gen = AsyncMock()
     fake_engine.caption_gen.regenerate_field.return_value = ["Variant 1.", "Variant 2."]
 
+    from api.deps import get_settings
+    from config import Settings
+
+    def override_settings():
+        return Settings(database_url=db_url)
+
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_content_engine] = lambda: fake_engine
+    app.dependency_overrides[get_settings] = override_settings
     app.state.sessionmaker = SM   # for publish_now / scheduler paths
 
     tc = TestClient(app)
@@ -89,6 +96,7 @@ def client(db_url):
 
     app.dependency_overrides.pop(get_db, None)
     app.dependency_overrides.pop(get_content_engine, None)
+    app.dependency_overrides.pop(get_settings, None)
     asyncio.run(eng.dispose())
 
 
@@ -216,3 +224,35 @@ def test_hashtag_rank(client, seeded):
     tags = res.json()["hashtags"]
     assert len(tags) == 2
     assert all("badge" in t for t in tags)
+
+
+# ── usage + backup ──────────────────────────────────────────────────────────
+
+def test_usage_aggregate(client, seeded):
+    from services.openrouter import record_usage, drain_usage
+    drain_usage()
+    record_usage("anthropic/claude-sonnet-4", {"prompt_tokens": 10, "completion_tokens": 5,
+                                                "total_tokens": 15, "cost": 0.01})
+    res = client.get("/api/usage")
+    assert res.status_code == 200, res.text
+    d = res.json()
+    assert d["today"]["cost"] >= 0.01
+    assert d["today"]["calls"] >= 1
+    assert any(m["model"] == "anthropic/claude-sonnet-4" for m in d["by_model"])
+
+
+def test_backup_returns_zip(client, seeded):
+    import io, zipfile
+    res = client.get("/api/admin/backup")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "application/zip"
+    zf = zipfile.ZipFile(io.BytesIO(res.content))
+    names = zf.namelist()
+    # sqlite backup includes the db file; uploads present because seeded wrote a slide
+    assert "insta.db" in names
+    assert any(n.startswith("uploads/") for n in names)
+
+
+def test_restore_rejects_non_zip(client, seeded):
+    res = client.post("/api/admin/restore", files={"file": ("x.zip", b"not a zip", "application/zip")})
+    assert res.status_code == 400
