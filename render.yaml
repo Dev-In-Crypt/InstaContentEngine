@@ -1,0 +1,39 @@
+# Render.com blueprint — one-click 24/7 backend + Postgres.
+# Push this repo to GitHub, then in Render: New → Blueprint → pick the repo.
+# Fill the env vars marked sync:false in the dashboard after creation.
+services:
+  - type: web
+    name: insta-content-engine
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter          # ~$7/mo; free tier sleeps and would miss scheduled posts
+    healthCheckPath: /health
+    envVars:
+      - key: APP_MODE
+        value: cloud
+      - key: DATABASE_URL
+        fromDatabase:
+          name: insta-db
+          property: connectionString
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: IMGBB_API_KEY
+        sync: false
+      - key: INSTAGRAM_ACCESS_TOKEN
+        sync: false
+      - key: INSTAGRAM_USER_ID
+        sync: false
+      - key: DEFAULT_TEXT_MODEL
+        value: anthropic/claude-sonnet-4
+      - key: DEFAULT_IMAGE_MODEL
+        value: google/gemini-2.5-flash-image-preview
+      - key: UNSPLASH_ACCESS_KEY
+        sync: false
+      - key: PEXELS_API_KEY
+        sync: false
+      - key: API_TOKEN
+        sync: false
+
+databases:
+  - name: insta-db
+    plan: basic-256mb      # Render Postgres; the connectionString is async-compatible

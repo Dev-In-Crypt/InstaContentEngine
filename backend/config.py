@@ -65,6 +65,14 @@ class Settings(BaseSettings):
     # Trend Finder
     trend_provider: str = "business_discovery"   # business_discovery | scraper
 
+    # Image hosting (public URLs for Instagram publishing)
+    imgbb_api_key: str = ""
+
+    # Deployment mode: "local" (desktop, scheduler runs only while app open) or
+    # "cloud" (24/7 backend, scheduled posts publish even when user's PC is off)
+    app_mode: str = "local"
+    public_base_url: str = ""   # e.g. https://myengine.up.railway.app (cloud mode)
+
 
 @lru_cache
 def get_settings() -> Settings:
