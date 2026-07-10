@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Annotated, AsyncGenerator, Optional
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -28,6 +28,7 @@ from models.schemas import (
     PublishResult,
 )
 from services.content_engine import ContentEngine, GeneratedPost
+from services.pillars import classify_pillar, pillar_mix, suggest_today
 from services.image_router import SlideImageConfig
 from services.instagram import InstagramPublisher
 from services.openrouter import OpenRouterError
@@ -127,6 +128,7 @@ async def _persist(
         trend_idea_id=trend_idea_id,
         text_model=generated.text_model_used,
         image_model=generated.image_model_used,
+        pillar=classify_pillar(generated.topic, generated.caption),
     )
     db.add(db_post)
 
@@ -845,3 +847,119 @@ async def regenerate_field(
         raise HTTPException(status_code=502, detail=f"Regeneration failed: {e}") from e
 
     return RegenFieldResponse(field=body.field, variants=variants)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Content pillars mix + "what to post today"
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/pillars/mix", dependencies=[Depends(require_token)])
+async def pillars_mix(db: Annotated[AsyncSession, Depends(get_db)]) -> dict:
+    result = await db.execute(select(PostModel.pillar, PostModel.topic, PostModel.caption))
+    rows = result.all()
+    pillars = [
+        (p if p else classify_pillar(topic, caption))
+        for (p, topic, caption) in rows
+    ]
+    mix = pillar_mix(pillars)
+    return {"pillars": mix, "suggestion": suggest_today(mix), "total": len(pillars)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Reels — render a vertical video from the post's slides (Ken Burns), serve it,
+# and publish it to Instagram (cloud mode, where the video URL is public).
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _reel_path(post_id: str) -> Path:
+    return UPLOADS_DIR / post_id / "reel.mp4"
+
+
+@router.post("/{post_id}/reel", dependencies=[Depends(require_token)])
+async def make_reel(
+    post_id: str,
+    settings: Annotated[Settings, Depends(get_settings)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Render a Reel MP4 from the post's slides and store it on disk."""
+    from services.video import get_video_provider, VideoError
+
+    result = await db.execute(
+        select(PostModel).where(PostModel.id == post_id).options(selectinload(PostModel.slides))
+    )
+    post = result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    slides = sorted(post.slides, key=lambda s: s.slide_number)
+    images: list[bytes] = []
+    overlays: list[str] = []
+    for s in slides:
+        p = Path(s.image_path) if s.image_path else None
+        if not p or not p.exists():
+            raise HTTPException(status_code=404, detail=f"Image missing for slide {s.slide_number}")
+        images.append(p.read_bytes())
+        rp = s.render_params or {}
+        overlays.append(rp.get("overlay_text") or "")
+    if not images:
+        raise HTTPException(status_code=400, detail="No slides to build a reel from")
+
+    provider = get_video_provider(settings.video_provider)
+    try:
+        mp4 = await provider.make_reel(images, overlays=overlays, duration_per=3.0)
+    except VideoError as e:
+        raise HTTPException(status_code=502, detail=f"Reel render failed: {e}") from e
+
+    path = _reel_path(post.id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(mp4)
+    post.video_path = str(path)
+    await db.commit()
+    ts = int(datetime.now(timezone.utc).timestamp())
+    return {"video_url": f"/api/posts/{post.id}/reel/video?t={ts}", "size_bytes": len(mp4)}
+
+
+@router.get("/{post_id}/reel/video", dependencies=[Depends(require_token)])
+async def get_reel_video(
+    post_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> FileResponse:
+    post = await db.get(PostModel, post_id)
+    if not post or not post.video_path:
+        raise HTTPException(status_code=404, detail="Reel not rendered yet")
+    p = Path(post.video_path)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="Reel file missing on disk")
+    return FileResponse(str(p), media_type="video/mp4", filename="reel.mp4")
+
+
+@router.post("/{post_id}/publish-reel", response_model=PublishResult,
+             dependencies=[Depends(require_token)])
+async def publish_reel(
+    post_id: str,
+    req: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> PublishResult:
+    """Publish the rendered Reel to Instagram. Requires a publicly reachable
+    video URL — only works in cloud mode (PUBLIC_BASE_URL set)."""
+    from services.publisher_flow import publish_reel_now, PublishError
+
+    post = await db.get(PostModel, post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if not post.video_path:
+        raise HTTPException(status_code=409, detail="Render the reel first (Make Reel)")
+
+    base = (settings.public_base_url or "").rstrip("/")
+    if not base:
+        return PublishResult(
+            success=False,
+            error="Reel publishing needs a public video URL. Set PUBLIC_BASE_URL "
+                  "(cloud mode) — Instagram cannot fetch a video from localhost.",
+        )
+    video_url = f"{base}/api/posts/{post_id}/reel/video"
+    try:
+        media_id = await publish_reel_now(req.app.state.sessionmaker, post_id, video_url)
+        return PublishResult(success=True, instagram_media_id=media_id)
+    except PublishError as e:
+        return PublishResult(success=False, error=str(e))

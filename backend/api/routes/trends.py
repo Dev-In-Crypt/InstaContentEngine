@@ -29,10 +29,11 @@ from models.database import (
 )
 from models.schemas import (
     AdaptTrendRequest, CompetitorAccount as CompetitorSchema, CompetitorCreate,
-    CompetitorUpdate, GenerateFromIdeaRequest, LengthTier, Platform, PostStatus,
-    PostPreview, RefreshTrendsRequest, SlidePreview, TrendIdeaSchema, TrendIdeaUpdate,
-    TrendingMediaPreview, TrendMediaType,
+    CompetitorUpdate, GenerateFromIdeaRequest, HashtagRankRequest, LengthTier,
+    Platform, PostStatus, PostPreview, RefreshTrendsRequest, SlidePreview,
+    TrendIdeaSchema, TrendIdeaUpdate, TrendingMediaPreview, TrendMediaType,
 )
+from services.hashtag_intel import HashtagIntel
 from services.brand_engine import PillowBrandEngine
 from services.content_engine import ContentEngine, GeneratedPost
 from services.trend_adapter import TrendAdapter, TrendAdaptError
@@ -42,6 +43,22 @@ from services.trend_extractor import (
 from services.trend_provider import FetchedMedia, TrendProviderError
 
 router = APIRouter(prefix="/api/trends", tags=["trends"])
+
+
+@router.post("/hashtags/rank", dependencies=[Depends(require_token)])
+async def rank_hashtags(
+    body: HashtagRankRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Rank hashtags by how well they work in the niche (heuristic from collected
+    trending media + optional IG hashtag API enrichment)."""
+    intel = HashtagIntel(
+        ig_access_token=settings.instagram_access_token,
+        ig_user_id=settings.instagram_user_id,
+    )
+    ranked = await intel.rank(db, body.tags)
+    return {"hashtags": ranked}
 
 UPLOADS_DIR = Path(__file__).parent.parent.parent / "uploads" / "posts"
 
