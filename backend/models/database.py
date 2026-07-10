@@ -32,11 +32,14 @@ class Post(Base):
     instagram_media_id = Column(String(100))
     scheduled_at = Column(DateTime(timezone=True))
     published_at = Column(DateTime(timezone=True))
+    published_image_urls = Column(JSON)   # imgbb public URLs used for publishing
+    schedule_error = Column(Text)          # last publish failure (status=failed)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     slides = relationship("Slide", back_populates="post", cascade="all, delete-orphan")
     trend_idea = relationship("TrendIdea", back_populates="posts")
+    insights = relationship("PostInsight", back_populates="post", cascade="all, delete-orphan")
 
 
 class Slide(Base):
@@ -104,6 +107,27 @@ class InstagramToken(Base):
     ig_user_id = Column(String(100), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class PostInsight(Base):
+    """A point-in-time snapshot of a published post's Instagram metrics."""
+    __tablename__ = "post_insights"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    post_id = Column(String(36), ForeignKey("posts.id", ondelete="CASCADE"), index=True)
+    snapshot_at = Column(DateTime(timezone=True), server_default=func.now())
+    reach = Column(Integer)
+    impressions = Column(Integer)
+    likes = Column(Integer)
+    comments = Column(Integer)
+    saved = Column(Integer)
+    shares = Column(Integer)
+    total_interactions = Column(Integer)
+    plays = Column(Integer)          # video / Reels only
+    video_views = Column(Integer)    # video / Reels only
+    raw = Column(JSON)               # full Graph API response
+
+    post = relationship("Post", back_populates="insights")
 
 
 # ---------------- Trend Finder ----------------

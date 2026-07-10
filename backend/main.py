@@ -28,6 +28,8 @@ _MIGRATIONS: dict[str, dict[str, str]] = {
         "template_style": "VARCHAR(20) DEFAULT 'branded_card'",
         "trend_idea_id": "VARCHAR(36)",
         "sources": "JSON",
+        "published_image_urls": "JSON",
+        "schedule_error": "TEXT",
     },
     "slides": {
         "page_number": "INTEGER",
@@ -48,13 +50,31 @@ _MIGRATIONS: dict[str, dict[str, str]] = {
 
 
 async def _apply_migrations(conn) -> None:
-    """Add any missing columns to existing tables (sqlite, no migration tool)."""
+    """Add any missing columns to existing tables (no migration tool).
+
+    On sqlite we inspect via PRAGMA and ALTER. On Postgres (cloud), create_all
+    already made every column on first boot, and ADD COLUMN IF NOT EXISTS is a
+    safe no-op for pre-existing tables. Dialect is branched to keep both happy.
+    """
+    dialect = conn.dialect.name
     for table, columns in _MIGRATIONS.items():
-        existing = await conn.execute(text(f"PRAGMA table_info({table})"))
-        present = {row[1] for row in existing.fetchall()}
-        for col, ddl in columns.items():
-            if col not in present:
-                await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
+        if dialect == "sqlite":
+            existing = await conn.execute(text(f"PRAGMA table_info({table})"))
+            present = {row[1] for row in existing.fetchall()}
+            for col, ddl in columns.items():
+                if col not in present:
+                    await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
+        else:
+            # Postgres / others: JSON maps to JSONB is not needed here; use plain
+            # types. IF NOT EXISTS keeps it idempotent without introspection.
+            for col, ddl in columns.items():
+                pg_ddl = ddl.replace("JSON", "JSONB")
+                try:
+                    await conn.execute(
+                        text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {pg_ddl}")
+                    )
+                except Exception:
+                    pass
 
 
 async def _seed_brand_preset(sessionmaker) -> None:
@@ -93,7 +113,24 @@ async def lifespan(app: FastAPI):
     app.state.sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
     await _seed_brand_preset(app.state.sessionmaker)
     UPLOADS_DIR.mkdir(exist_ok=True)
+
+    # Scheduled publishing (APScheduler). In local mode this only fires while
+    # the app is open; in cloud mode it runs 24/7. Failures here must not block
+    # the app from starting.
+    try:
+        from services.scheduler import init_scheduler
+        init_scheduler(settings.database_url, app.state.sessionmaker)
+    except Exception as exc:  # pragma: no cover
+        import logging
+        logging.getLogger(__name__).warning("Scheduler init failed: %s", exc)
+
     yield
+
+    try:
+        from services.scheduler import shutdown_scheduler
+        shutdown_scheduler()
+    except Exception:
+        pass
     await engine.dispose()
 
 
