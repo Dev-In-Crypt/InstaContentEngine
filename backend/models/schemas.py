@@ -111,7 +111,7 @@ class GenerateRequest(BaseModel):
 
 
 class ScheduleRequest(BaseModel):
-    publish_time: datetime
+    publish_at: datetime
 
 
 class CaptionUpdate(BaseModel):
@@ -135,6 +135,31 @@ class OverlayUpdateRequest(BaseModel):
     over the stored raw image, no fresh image fetch)."""
     overlay_text: Optional[str] = None        # description box (white, lower)
     niche_text: Optional[str] = None          # niche box (colored, upper) — slide 1 only typically
+
+
+class RegenFieldRequest(BaseModel):
+    field: str = Field(..., pattern="^(caption|hook|cta|hashtags|seo_keywords)$")
+    count: int = Field(4, ge=1, le=8)
+
+
+class RegenFieldResponse(BaseModel):
+    field: str
+    variants: list                              # list[str] or list[list[str]]
+
+
+class PostInsightSchema(BaseModel):
+    snapshot_at: datetime
+    reach: Optional[int] = None
+    impressions: Optional[int] = None
+    likes: Optional[int] = None
+    comments: Optional[int] = None
+    saved: Optional[int] = None
+    shares: Optional[int] = None
+    total_interactions: Optional[int] = None
+    plays: Optional[int] = None
+    video_views: Optional[int] = None
+
+    model_config = {"from_attributes": True}
 
 
 # --- Response Models ---
@@ -173,6 +198,10 @@ class PostPreview(BaseModel):
     trend_source_handle: Optional[str] = None
     trend_source_permalink: Optional[str] = None
     sources: list[dict] = []           # [{title,url}] from web-grounded LLM (:online)
+    scheduled_at: Optional[datetime] = None
+    published_at: Optional[datetime] = None
+    schedule_error: Optional[str] = None
+    instagram_media_id: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -182,6 +211,9 @@ class PostSummary(BaseModel):
     topic: str
     format: PostFormat
     status: PostStatus
+    thumb_url: Optional[str] = None      # first slide image, for grid/calendar
+    scheduled_at: Optional[datetime] = None
+    published_at: Optional[datetime] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

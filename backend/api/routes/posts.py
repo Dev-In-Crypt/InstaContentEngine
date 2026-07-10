@@ -17,10 +17,14 @@ from sqlalchemy.orm import selectinload
 from api.deps import get_content_engine, get_db, get_settings, load_brand_config, require_token
 from services.brand_engine import PillowBrandEngine
 from config import Settings
-from models.database import Post as PostModel, Slide as SlideModel, TrendIdea as TrendIdeaModel
+from models.database import (
+    Post as PostModel, Slide as SlideModel, TrendIdea as TrendIdeaModel,
+    PostInsight as PostInsightModel,
+)
 from models.schemas import (
     CaptionUpdate, GenerateRequest, ImageSource, OverlayUpdateRequest, Platform,
-    PostPreview, PostStatus, PostSummary, ReplaceSlideRequest, SlidePreview,
+    PostInsightSchema, PostPreview, PostStatus, PostSummary, RegenFieldRequest,
+    RegenFieldResponse, ReplaceSlideRequest, ScheduleRequest, SlidePreview,
     PublishResult,
 )
 from services.content_engine import ContentEngine, GeneratedPost
@@ -92,6 +96,10 @@ def _to_preview(post: PostModel) -> PostPreview:
         trend_source_handle=(source.source_handle if source else None),
         trend_source_permalink=(source.permalink if source else None),
         sources=post.sources or [],
+        scheduled_at=post.scheduled_at,
+        published_at=post.published_at,
+        schedule_error=post.schedule_error,
+        instagram_media_id=post.instagram_media_id,
     )
 
 
@@ -241,18 +249,26 @@ async def generate_post(
 
 @router.get("", response_model=list[PostSummary], dependencies=[Depends(require_token)])
 async def list_posts(db: Annotated[AsyncSession, Depends(get_db)]) -> list[PostSummary]:
-    result = await db.execute(select(PostModel).order_by(PostModel.created_at.desc()))
+    result = await db.execute(
+        select(PostModel).order_by(PostModel.created_at.desc())
+        .options(selectinload(PostModel.slides))
+    )
     posts = result.scalars().all()
-    return [
-        PostSummary(
+    out = []
+    for p in posts:
+        first = min(p.slides, key=lambda s: s.slide_number) if p.slides else None
+        thumb = f"/api/posts/{p.id}/slides/{first.slide_number}/image" if first else None
+        out.append(PostSummary(
             id=p.id,
             topic=p.topic,
             format=p.format,
             status=PostStatus(p.status),
+            thumb_url=thumb,
+            scheduled_at=p.scheduled_at,
+            published_at=p.published_at,
             created_at=p.created_at or datetime.now(timezone.utc),
-        )
-        for p in posts
-    ]
+        ))
+    return out
 
 
 @router.get("/{post_id}", response_model=PostPreview, dependencies=[Depends(require_token)])
@@ -331,51 +347,95 @@ async def export_post(
 async def publish_post(
     post_id: str,
     req: Request,
-    settings: Annotated[Settings, Depends(get_settings)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> PublishResult:
+    """Publish immediately: slides → imgbb (public URLs) → Instagram."""
+    from services.publisher_flow import publish_now, PublishError
+    sessionmaker = req.app.state.sessionmaker
+    try:
+        media_id = await publish_now(sessionmaker, post_id)
+        return PublishResult(success=True, instagram_media_id=media_id)
+    except PublishError as e:
+        return PublishResult(success=False, error=str(e))
+    except Exception as e:
+        return PublishResult(success=False, error=str(e))
+
+
+@router.post("/{post_id}/schedule", response_model=PostPreview, dependencies=[Depends(require_token)])
+async def schedule_post_endpoint(
+    post_id: str,
+    body: ScheduleRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> PostPreview:
+    """Schedule a post for future publishing (10 min – 75 days ahead)."""
+    from services.scheduler import schedule_publish
+
     result = await db.execute(
-        select(PostModel).where(PostModel.id == post_id).options(selectinload(PostModel.slides), selectinload(PostModel.trend_idea).selectinload(TrendIdeaModel.source_media))
+        select(PostModel).where(PostModel.id == post_id).options(
+            selectinload(PostModel.slides),
+            selectinload(PostModel.trend_idea).selectinload(TrendIdeaModel.source_media),
+        )
     )
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    if not settings.instagram_access_token or not settings.instagram_user_id:
-        return PublishResult(success=False, error="Instagram credentials not configured")
-
-    base_url = str(req.base_url).rstrip("/")
-    image_urls = [
-        f"{base_url}/api/posts/{post_id}/slides/{s.slide_number}/image"
-        for s in sorted(post.slides, key=lambda s: s.slide_number)
-    ]
+    when = body.publish_at
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    delta = (when - now).total_seconds()
+    if delta < 600:
+        raise HTTPException(status_code=400, detail="Schedule time must be at least 10 minutes ahead")
+    if delta > 75 * 24 * 3600:
+        raise HTTPException(status_code=400, detail="Schedule time must be within 75 days")
 
     try:
-        publisher = InstagramPublisher(
-            access_token=settings.instagram_access_token,
-            ig_user_id=settings.instagram_user_id,
+        schedule_publish(post_id, when)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=f"Scheduler unavailable: {e}") from e
+
+    post.status = "scheduled"
+    post.scheduled_at = when
+    post.schedule_error = None
+    await db.commit()
+    result2 = await db.execute(
+        select(PostModel).where(PostModel.id == post_id).options(
+            selectinload(PostModel.slides),
+            selectinload(PostModel.trend_idea).selectinload(TrendIdeaModel.source_media),
         )
-        if len(post.slides) == 1:
-            media_id = await publisher.publish_single(
-                image_url=image_urls[0],
-                caption=f"{post.caption or ''}\n\n{' '.join(post.hashtags or [])}",
-                alt_text=post.alt_text or "",
-            )
-        else:
-            media_id = await publisher.publish_carousel(
-                image_urls=image_urls,
-                caption=f"{post.caption or ''}\n\n{' '.join(post.hashtags or [])}",
-            )
-        await publisher.close()
+    )
+    return _to_preview(result2.scalar_one())
 
-        post.status = "published"
-        post.instagram_media_id = media_id
-        post.published_at = datetime.now(timezone.utc)
-        await db.commit()
 
-        return PublishResult(success=True, instagram_media_id=media_id)
-    except Exception as e:
-        return PublishResult(success=False, error=str(e))
+@router.delete("/{post_id}/schedule", response_model=PostPreview, dependencies=[Depends(require_token)])
+async def unschedule_post(
+    post_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> PostPreview:
+    from services.scheduler import cancel_publish
+
+    result = await db.execute(
+        select(PostModel).where(PostModel.id == post_id).options(
+            selectinload(PostModel.slides),
+            selectinload(PostModel.trend_idea).selectinload(TrendIdeaModel.source_media),
+        )
+    )
+    post = result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    cancel_publish(post_id)
+    if post.status == "scheduled":
+        post.status = "preview"
+    post.scheduled_at = None
+    await db.commit()
+    result2 = await db.execute(
+        select(PostModel).where(PostModel.id == post_id).options(
+            selectinload(PostModel.slides),
+            selectinload(PostModel.trend_idea).selectinload(TrendIdeaModel.source_media),
+        )
+    )
+    return _to_preview(result2.scalar_one())
 
 
 @router.get("/{post_id}/slides/{slide_num}/image", dependencies=[Depends(require_token)])
@@ -677,3 +737,111 @@ async def open_folder(path: str = Body(..., embed=True)) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Could not open: {exc}") from exc
     return {"opened": str(target)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Insights (on-demand refresh + history)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/{post_id}/insights/refresh", response_model=PostInsightSchema,
+             dependencies=[Depends(require_token)])
+async def refresh_insights(
+    post_id: str,
+    settings: Annotated[Settings, Depends(get_settings)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> PostInsightSchema:
+    """Pull the latest Instagram metrics for a published post and store a snapshot."""
+    post = await db.get(PostModel, post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if not post.instagram_media_id:
+        raise HTTPException(status_code=409, detail="Post is not published to Instagram yet")
+    if not settings.instagram_access_token or not settings.instagram_user_id:
+        raise HTTPException(status_code=409, detail="Instagram credentials not configured")
+
+    publisher = InstagramPublisher(
+        access_token=settings.instagram_access_token,
+        ig_user_id=settings.instagram_user_id,
+    )
+    try:
+        is_video = (post.format or "").startswith("reel") or "video" in (post.format or "")
+        metrics = await publisher.get_insights(post.instagram_media_id, is_video=is_video)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Insights fetch failed: {e}") from e
+    finally:
+        await publisher.close()
+
+    snap = PostInsightModel(
+        post_id=post.id,
+        reach=metrics.get("reach"),
+        impressions=metrics.get("impressions") or metrics.get("views"),
+        likes=metrics.get("likes"),
+        comments=metrics.get("comments"),
+        saved=metrics.get("saved"),
+        shares=metrics.get("shares"),
+        total_interactions=metrics.get("total_interactions"),
+        plays=metrics.get("plays"),
+        video_views=metrics.get("views"),
+        raw=metrics.get("raw"),
+    )
+    db.add(snap)
+    await db.commit()
+    await db.refresh(snap)
+    return PostInsightSchema.model_validate(snap)
+
+
+@router.get("/{post_id}/insights", response_model=list[PostInsightSchema],
+            dependencies=[Depends(require_token)])
+async def list_insights(
+    post_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[PostInsightSchema]:
+    result = await db.execute(
+        select(PostInsightModel).where(PostInsightModel.post_id == post_id)
+        .order_by(PostInsightModel.snapshot_at.desc())
+    )
+    return [PostInsightSchema.model_validate(r) for r in result.scalars().all()]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Regenerate a single field (caption / hook / cta / hashtags / seo_keywords)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/{post_id}/regenerate-field", response_model=RegenFieldResponse,
+             dependencies=[Depends(require_token)])
+async def regenerate_field(
+    post_id: str,
+    body: RegenFieldRequest,
+    engine: Annotated[ContentEngine, Depends(get_content_engine)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> RegenFieldResponse:
+    """Cheap targeted regeneration: returns N alternatives for one field.
+    Does not persist — the client applies a chosen variant via PUT /caption."""
+    post = await db.get(PostModel, post_id)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    current = {
+        "caption": post.caption,
+        "hook": post.hook,
+        "cta": post.cta,
+        "hashtags": post.hashtags or [],
+        "seo_keywords": post.seo_keywords or [],
+    }.get(body.field)
+
+    try:
+        variants = await engine.caption_gen.regenerate_field(
+            field=body.field,
+            topic=post.topic,
+            current_value=current,
+            caption=post.caption or "",
+            platform=Platform(post.platform or "instagram"),
+            tone="professional",
+            text_model=post.text_model or settings.default_text_model,
+            count=body.count,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Regeneration failed: {e}") from e
+
+    return RegenFieldResponse(field=body.field, variants=variants)
