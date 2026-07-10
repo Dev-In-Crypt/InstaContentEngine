@@ -90,6 +90,43 @@ async def publish_now(sessionmaker, post_id: str) -> str:
         return media_id
 
 
+async def publish_reel_now(sessionmaker, post_id: str, video_url: str) -> str:
+    """Publish an already-rendered Reel MP4 (served at `video_url`) to Instagram.
+
+    `video_url` must be publicly reachable by Instagram — in cloud mode this is
+    PUBLIC_BASE_URL + /api/posts/{id}/reel/video. Raises PublishError on failure.
+    """
+    settings = get_settings()
+    if not settings.instagram_access_token or not settings.instagram_user_id:
+        raise PublishError("Instagram credentials not configured")
+
+    async with sessionmaker() as db:
+        result = await db.execute(select(PostModel).where(PostModel.id == post_id))
+        post = result.scalar_one_or_none()
+        if not post:
+            raise PublishError(f"Post {post_id} not found")
+
+        caption = f"{post.caption or ''}\n\n{' '.join(post.hashtags or [])}".strip()
+        publisher = InstagramPublisher(
+            access_token=settings.instagram_access_token,
+            ig_user_id=settings.instagram_user_id,
+        )
+        try:
+            media_id = await publisher.publish_reel(video_url=video_url, caption=caption)
+        except InstagramError as e:
+            await _mark_failed(db, post, str(e))
+            raise PublishError(str(e)) from e
+        finally:
+            await publisher.close()
+
+        post.status = "published"
+        post.instagram_media_id = media_id
+        post.published_at = datetime.now(timezone.utc)
+        post.schedule_error = None
+        await db.commit()
+        return media_id
+
+
 async def _mark_failed(db, post: PostModel, error: str) -> None:
     post.status = "failed"
     post.schedule_error = error[:1000]

@@ -67,6 +67,22 @@ class InstagramPublisher:
         await self._wait_for_container(carousel_id)
         return await self._publish_container(carousel_id)
 
+    async def publish_reel(self, video_url: str, caption: str, cover_url: str = "") -> str:
+        """Create + publish a Reel from a public video URL. Returns media ID.
+        Video containers take longer to process, so we poll longer."""
+        params: dict = {
+            "media_type": "REELS",
+            "video_url": video_url,
+            "caption": caption,
+            "access_token": self.token,
+        }
+        if cover_url:
+            params["cover_url"] = cover_url
+        container_id = await self._create_container(params)
+        # Reels encoding can take a while — allow up to ~2 min.
+        await self._wait_for_container(container_id, max_retries=60, poll_interval=2.0)
+        return await self._publish_container(container_id)
+
     # NOTE: Instagram's Graph API has NO native scheduled publishing (the
     # `published:false` + `publish_time` params are a Facebook Pages feature,
     # not Instagram). Scheduling is handled by services/scheduler.py, which
