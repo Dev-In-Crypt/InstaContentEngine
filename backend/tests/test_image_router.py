@@ -47,33 +47,31 @@ async def test_stock_no_client_raises():
         await router.fetch_image(make_config(ImageSource.STOCK))
 
 
+# OpenRouterClient.generate_image returns raw bytes (it resolves data-URLs and
+# downloads http URLs internally), so the router just passes them through.
+
 @pytest.mark.asyncio
-async def test_ai_gen_fetch(httpx_mock: HTTPXMock):
-    httpx_mock.add_response(
-        url="https://cdn.example.com/generated.png",
-        content=b"ai-image-bytes",
-    )
+async def test_ai_gen_fetch():
     openrouter = AsyncMock()
-    openrouter.generate_image.return_value = "https://cdn.example.com/generated.png"
+    openrouter.generate_image.return_value = b"ai-image-bytes"
     router = ImageRouter(openrouter=openrouter)
-    result = await router.fetch_image(make_config(
+    img, attrib = await router.fetch_image(make_config(
         ImageSource.AI_GEN, gen_prompt="a robot", gen_model="openai/dall-e-3"
     ))
-    assert result == b"ai-image-bytes"
+    assert img == b"ai-image-bytes"
+    assert attrib is None          # AI images carry no stock attribution
     openrouter.generate_image.assert_awaited_once_with(
-        model="openai/dall-e-3", prompt="a robot", size="1024x1024"
+        model="openai/dall-e-3", prompt="a robot"
     )
 
 
 @pytest.mark.asyncio
-async def test_ai_gen_uses_default_model(httpx_mock: HTTPXMock):
-    httpx_mock.add_response(url="https://img.example.com/x.png", content=b"img")
+async def test_ai_gen_without_model_raises():
+    """The route supplies DEFAULT_IMAGE_MODEL; the router itself refuses to guess."""
     openrouter = AsyncMock()
-    openrouter.generate_image.return_value = "https://img.example.com/x.png"
     router = ImageRouter(openrouter=openrouter)
-    await router.fetch_image(make_config(ImageSource.AI_GEN, gen_prompt="abstract"))
-    call_kwargs = openrouter.generate_image.call_args.kwargs
-    assert call_kwargs["model"] == "openai/dall-e-3"
+    with pytest.raises(ImageFetchError, match="No image model configured"):
+        await router.fetch_image(make_config(ImageSource.AI_GEN, gen_prompt="abstract"))
 
 
 @pytest.mark.asyncio

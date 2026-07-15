@@ -88,7 +88,6 @@ def test_create_carousel_slide_with_bg_image(engine):
 
 
 def test_resize_and_crop_wider_than_target():
-    engine = PillowBrandEngine(BrandConfig())
     img = Image.new("RGBA", (2000, 800), "red")
     result = PillowBrandEngine._resize_and_crop(img, (1080, 1080))
     assert result.size == (1080, 1080)

@@ -1,84 +1,47 @@
-import io
-import json
-import zipfile
+"""Smoke tests for the endpoints that aren't covered elsewhere.
+
+Post CRUD / generate / export / slides are covered by test_publishing_api.py and
+test_slide_replace.py; this file keeps only what's unique: liveness, the model
+catalogue, request validation, and stock-search query validation.
+"""
+from __future__ import annotations
+
+import asyncio
+
 import pytest
-import httpx
-from unittest.mock import AsyncMock, MagicMock
-from PIL import Image
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from api.deps import get_db
 from main import app
-from api.deps import get_content_engine
-from api.routes import posts as posts_module
-from models.schemas import ImageSource, PostFormat
-from services.content_engine import GeneratedPost, GeneratedSlide
-from services.stock import StockPhotoResult
-
-
-def make_jpeg(color="teal") -> bytes:
-    img = Image.new("RGB", (1080, 1080), color)
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG")
-    return buf.getvalue()
-
-
-def make_fake_post(post_id: str = "post-001", num_slides: int = 1) -> GeneratedPost:
-    slides = [
-        GeneratedSlide(
-            slide_number=i,
-            image_bytes=make_jpeg(),
-            image_source=ImageSource.STOCK,
-            search_query="AI trends",
-        )
-        for i in range(1, num_slides + 1)
-    ]
-    return GeneratedPost(
-        id=post_id,
-        topic="AI trends",
-        format=PostFormat.SINGLE if num_slides == 1 else PostFormat.CAROUSEL_3,
-        caption="Full caption here.",
-        hashtags=["#AI", "#Tech"],
-        cta="Follow for more!",
-        hook="AI is here.",
-        alt_text="AI image",
-        slides=slides,
-        text_model_used="anthropic/claude-sonnet-4",
-        image_model_used="openai/dall-e-3",
-    )
-
-
-@pytest.fixture(autouse=True)
-def clear_store():
-    posts_module._post_store.clear()
-    yield
-    posts_module._post_store.clear()
+from models.database import Base
 
 
 @pytest.fixture
-def mock_engine():
-    engine = AsyncMock()
-    engine.generate_post.return_value = make_fake_post()
-    engine.export_template.return_value = _make_zip()
-    return engine
+def client(tmp_path):
+    """TestClient with a throwaway sqlite DB (no lifespan side effects)."""
+    db_url = f"sqlite+aiosqlite:///{tmp_path / 'api.db'}"
+    eng = create_async_engine(db_url)
+
+    async def _create():
+        async with eng.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    asyncio.run(_create())
+
+    SM = async_sessionmaker(eng, expire_on_commit=False)
+
+    async def override_db():
+        async with SM() as s:
+            yield s
+
+    app.dependency_overrides[get_db] = override_db
+    app.state.sessionmaker = SM
+    yield TestClient(app)
+    app.dependency_overrides.pop(get_db, None)
+    asyncio.run(eng.dispose())
 
 
-def _make_zip() -> bytes:
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w") as zf:
-        zf.writestr("slides/slide_01.jpg", make_jpeg())
-        zf.writestr("caption.txt", "caption here")
-        zf.writestr("metadata.json", json.dumps({"post_name": "test"}))
-    buf.seek(0)
-    return buf.getvalue()
-
-
-@pytest.fixture
-def client(mock_engine):
-    app.dependency_overrides[get_content_engine] = lambda: mock_engine
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
-
+# ── liveness ────────────────────────────────────────────────────────────────
 
 def test_health(client):
     resp = client.get("/health")
@@ -86,11 +49,12 @@ def test_health(client):
     assert resp.json()["status"] == "ok"
 
 
+# ── model catalogue ─────────────────────────────────────────────────────────
+
 def test_list_text_models(client):
     resp = client.get("/api/models/text")
     assert resp.status_code == 200
     data = resp.json()
-    assert isinstance(data, list)
     assert len(data) > 0
     assert all("id" in m and "name" in m and "provider" in m for m in data)
 
@@ -103,101 +67,33 @@ def test_list_image_models(client):
     assert any(m["name"] == "dall-e-3" for m in data)
 
 
-def test_generate_post_success(client, mock_engine):
-    resp = client.post("/api/posts/generate", json={
-        "topic": "AI trends in 2026",
-        "format": "single",
-    })
+def test_model_defaults(client):
+    resp = client.get("/api/models/defaults")
     assert resp.status_code == 200
-    data = resp.json()
-    assert data["topic"] == "AI trends"  # from mock
-    assert data["caption"] == "Full caption here."
-    assert data["status"] == "preview"
-    assert len(data["slides"]) == 1
-    assert data["slides"][0]["slide_number"] == 1
+    body = resp.json()
+    assert "text_model" in body and "image_model" in body
 
 
-def test_generate_post_stored(client, mock_engine):
-    resp = client.post("/api/posts/generate", json={"topic": "Test topic here", "format": "single"})
-    post_id = resp.json()["id"]
-    # Should now be retrievable
-    resp2 = client.get(f"/api/posts/{post_id}")
-    assert resp2.status_code == 200
-    assert resp2.json()["id"] == post_id
+# ── request validation ──────────────────────────────────────────────────────
 
-
-def test_list_posts_empty(client):
-    resp = client.get("/api/posts")
-    assert resp.status_code == 200
-    assert resp.json() == []
-
-
-def test_list_posts_after_generate(client, mock_engine):
-    client.post("/api/posts/generate", json={"topic": "Some topic here", "format": "single"})
-    resp = client.get("/api/posts")
-    assert resp.status_code == 200
-    assert len(resp.json()) == 1
-
-
-def test_get_post_not_found(client):
-    resp = client.get("/api/posts/nonexistent-id")
-    assert resp.status_code == 404
-
-
-def test_update_caption(client, mock_engine):
-    gen_resp = client.post("/api/posts/generate", json={"topic": "Health tips for everyone", "format": "single"})
-    post_id = gen_resp.json()["id"]
-
-    resp = client.put(f"/api/posts/{post_id}/caption", json={
-        "caption": "Updated caption text",
-        "hashtags": ["#health", "#fitness"],
-    })
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["caption"] == "Updated caption text"
-    assert data["hashtags"] == ["#health", "#fitness"]
-
-
-def test_update_caption_not_found(client):
-    resp = client.put("/api/posts/bad-id/caption", json={"caption": "new"})
-    assert resp.status_code == 404
-
-
-def test_export_post_returns_zip(client, mock_engine):
-    gen_resp = client.post("/api/posts/generate", json={"topic": "Export topic here", "format": "single"})
-    post_id = gen_resp.json()["id"]
-
-    resp = client.post(f"/api/posts/{post_id}/export")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"] == "application/zip"
-    assert zipfile.is_zipfile(io.BytesIO(resp.content))
-
-
-def test_export_post_not_found(client):
-    resp = client.post("/api/posts/ghost-id/export")
-    assert resp.status_code == 404
-
-
-def test_get_slide_image(client, mock_engine):
-    gen_resp = client.post("/api/posts/generate", json={"topic": "Slide image topic", "format": "single"})
-    post_id = gen_resp.json()["id"]
-
-    resp = client.get(f"/api/posts/{post_id}/slides/1/image")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"] == "image/jpeg"
-
-
-def test_get_slide_image_not_found(client, mock_engine):
-    gen_resp = client.post("/api/posts/generate", json={"topic": "Slide topic test here", "format": "single"})
-    post_id = gen_resp.json()["id"]
-    resp = client.get(f"/api/posts/{post_id}/slides/99/image")
-    assert resp.status_code == 404
-
-
-def test_generate_post_invalid_topic(client):
+def test_generate_post_rejects_short_topic(client):
     resp = client.post("/api/posts/generate", json={"topic": "AI", "format": "single"})
+    assert resp.status_code == 422      # topic min_length=3
+
+
+def test_generate_post_rejects_bad_format(client):
+    resp = client.post("/api/posts/generate", json={"topic": "AI trends", "format": "nope"})
     assert resp.status_code == 422
 
+
+def test_generate_post_rejects_bad_niche_color(client):
+    resp = client.post("/api/posts/generate", json={
+        "topic": "AI trends", "format": "single", "niche_box_color": "#abcdef",
+    })
+    assert resp.status_code == 422      # not in NICHE_BOX_PALETTE
+
+
+# ── stock search validation ─────────────────────────────────────────────────
 
 def test_stock_search_missing_query(client):
     resp = client.get("/api/stock/search")
@@ -205,5 +101,17 @@ def test_stock_search_missing_query(client):
 
 
 def test_stock_search_short_query(client):
-    resp = client.get("/api/stock/search?query=a")
-    assert resp.status_code == 422
+    resp = client.get("/api/stock/search", params={"query": "a"})
+    assert resp.status_code == 422      # min_length=2
+
+
+def test_stock_search_bad_source(client):
+    resp = client.get("/api/stock/search", params={"query": "running", "source": "flickr"})
+    assert resp.status_code == 422      # pattern ^(unsplash|pexels)$
+
+
+# ── 404s ────────────────────────────────────────────────────────────────────
+
+def test_get_post_not_found(client):
+    resp = client.get("/api/posts/does-not-exist")
+    assert resp.status_code == 404

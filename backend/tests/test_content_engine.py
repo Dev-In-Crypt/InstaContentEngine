@@ -124,7 +124,8 @@ async def test_export_template_returns_zip():
     engine, _, _ = make_engine()
     post = await engine.generate_post(topic="AI", format=PostFormat.SINGLE)
     zip_bytes = await engine.export_template(post)
-    import zipfile, io
+    import zipfile
+    import io
     assert zipfile.is_zipfile(io.BytesIO(zip_bytes))
 
 

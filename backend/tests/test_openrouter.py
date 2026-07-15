@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
 import httpx
 from pytest_httpx import HTTPXMock
@@ -62,28 +64,68 @@ async def test_generate_text_http_error(httpx_mock: HTTPXMock):
     await client.close()
 
 
+# Images go through /chat/completions (Gemini-style) and return raw bytes —
+# not the legacy /images/generations URL contract.
+
 @pytest.mark.asyncio
-async def test_generate_image_success(httpx_mock: HTTPXMock):
+async def test_generate_image_from_data_url(httpx_mock: HTTPXMock):
+    import base64
+    raw = b"\xff\xd8\xff\xe0-jpeg-bytes"
+    data_url = "data:image/jpeg;base64," + base64.b64encode(raw).decode()
     httpx_mock.add_response(
-        url=f"{BASE}/images/generations",
-        json={"data": [{"url": "https://cdn.example.com/img.png"}]},
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {
+            "images": [{"type": "image_url", "image_url": {"url": data_url}}],
+        }}]},
     )
     client = OpenRouterClient(api_key="test-key")
-    url = await client.generate_image(model="openai/dall-e-3", prompt="A futuristic city")
-    assert url == "https://cdn.example.com/img.png"
+    out = await client.generate_image(model="google/gemini-2.5-flash", prompt="A city")
+    assert out == raw
     await client.close()
 
 
 @pytest.mark.asyncio
-async def test_generate_image_error(httpx_mock: HTTPXMock):
+async def test_generate_image_downloads_http_url(httpx_mock: HTTPXMock):
     httpx_mock.add_response(
-        url=f"{BASE}/images/generations",
-        status_code=429,
-        json={"error": "Rate limited"},
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {
+            "images": [{"type": "image_url",
+                        "image_url": {"url": "https://cdn.example.com/img.png"}}],
+        }}]},
+    )
+    httpx_mock.add_response(url="https://cdn.example.com/img.png", content=b"png-bytes")
+    client = OpenRouterClient(api_key="test-key")
+    out = await client.generate_image(model="m", prompt="p")
+    assert out == b"png-bytes"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_generate_image_no_image_raises(httpx_mock: HTTPXMock):
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": "sorry, text only"}}]},
     )
     client = OpenRouterClient(api_key="test-key")
-    with pytest.raises(OpenRouterError, match="429"):
-        await client.generate_image("openai/dall-e-3", "test")
+    with pytest.raises(OpenRouterError, match="No image found"):
+        await client.generate_image("m", "p")
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_generate_image_http_error(httpx_mock: HTTPXMock):
+    # 429 is retried (retries=2) → the same response must serve all attempts,
+    # and the backoff sleep is stubbed so the test stays fast.
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        status_code=429,
+        json={"error": "Rate limited"},
+        is_reusable=True,
+    )
+    client = OpenRouterClient(api_key="test-key")
+    with patch("services.openrouter.asyncio.sleep", new_callable=AsyncMock):
+        with pytest.raises(OpenRouterError, match="429"):
+            await client.generate_image("m", "p")
     await client.close()
 
 

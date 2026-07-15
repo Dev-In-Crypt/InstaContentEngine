@@ -86,8 +86,10 @@ def seeded_post(db_engine_url, tmp_path):
     if path.exists():
         path.unlink()
     if path.parent.exists():
-        try: path.parent.rmdir()
-        except OSError: pass
+        try:
+            path.parent.rmdir()
+        except OSError:
+            pass
 
 
 @pytest.fixture

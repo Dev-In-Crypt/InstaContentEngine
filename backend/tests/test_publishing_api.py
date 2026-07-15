@@ -61,8 +61,10 @@ def seeded(db_url):
     if (p / "slide_1.jpg").exists():
         (p / "slide_1.jpg").unlink()
     if p.exists():
-        try: p.rmdir()
-        except OSError: pass
+        try:
+            p.rmdir()
+        except OSError:
+            pass
 
 
 @pytest.fixture
@@ -242,7 +244,8 @@ def test_usage_aggregate(client, seeded):
 
 
 def test_backup_returns_zip(client, seeded):
-    import io, zipfile
+    import io
+    import zipfile
     res = client.get("/api/admin/backup")
     assert res.status_code == 200
     assert res.headers["content-type"] == "application/zip"

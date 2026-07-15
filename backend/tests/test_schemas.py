@@ -11,7 +11,9 @@ from datetime import datetime, timezone
 
 def test_generate_request_defaults():
     req = GenerateRequest(topic="AI trends", format=PostFormat.SINGLE)
-    assert req.text_model == "anthropic/claude-sonnet-4"
+    # text_model defaults to None — the route falls back to settings.default_text_model
+    assert req.text_model is None
+    assert req.image_model is None
     assert req.apply_branding is True
     assert req.brand_engine == "pillow"
     assert req.tone == "professional"
@@ -49,8 +51,8 @@ def test_caption_update_partial():
 
 def test_schedule_request():
     dt = datetime(2026, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
-    req = ScheduleRequest(publish_time=dt)
-    assert req.publish_time == dt
+    req = ScheduleRequest(publish_at=dt)
+    assert req.publish_at == dt
 
 
 def test_brand_config_defaults():
