@@ -4,6 +4,8 @@ import random
 from dataclasses import dataclass
 from typing import Optional
 
+from services.http_utils import describe_request_error
+
 log = logging.getLogger(__name__)
 
 
@@ -35,8 +37,9 @@ class StockError(Exception):
 class UnsplashClient:
     BASE_URL = "https://api.unsplash.com"
 
-    def __init__(self, access_key: str):
+    def __init__(self, access_key: str, ssl_verify: bool = True):
         self.access_key = access_key
+        self._ssl_verify = ssl_verify
         self._client: Optional[httpx.AsyncClient] = None
 
     def _get_client(self) -> httpx.AsyncClient:
@@ -45,7 +48,7 @@ class UnsplashClient:
                 base_url=self.BASE_URL,
                 headers={"Authorization": f"Client-ID {self.access_key}"},
                 timeout=30.0,
-                verify=False,
+                verify=self._ssl_verify,
             )
         return self._client
 
@@ -91,9 +94,12 @@ class UnsplashClient:
             raise StockError(f"Unsplash photo fetch failed: {e.response.status_code}") from e
 
         download_url = resp.json()["urls"][size]
-        async with httpx.AsyncClient(timeout=60.0, verify=False) as dl:
-            img = await dl.get(download_url)
-            img.raise_for_status()
+        async with httpx.AsyncClient(timeout=60.0, verify=self._ssl_verify) as dl:
+            try:
+                img = await dl.get(download_url)
+                img.raise_for_status()
+            except httpx.RequestError as e:
+                raise StockError(describe_request_error(e, "Unsplash download")) from e
             return img.content
 
     async def close(self) -> None:
@@ -105,8 +111,9 @@ class UnsplashClient:
 class PexelsClient:
     BASE_URL = "https://api.pexels.com/v1"
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, ssl_verify: bool = True):
         self.api_key = api_key
+        self._ssl_verify = ssl_verify
         self._client: Optional[httpx.AsyncClient] = None
 
     def _get_client(self) -> httpx.AsyncClient:
@@ -115,7 +122,7 @@ class PexelsClient:
                 base_url=self.BASE_URL,
                 headers={"Authorization": self.api_key},
                 timeout=30.0,
-                verify=False,
+                verify=self._ssl_verify,
             )
         return self._client
 
@@ -153,9 +160,12 @@ class PexelsClient:
             raise StockError(f"Pexels photo fetch failed: {e.response.status_code}") from e
 
         download_url = resp.json()["src"]["original"]
-        async with httpx.AsyncClient(timeout=60.0, verify=False) as dl:
-            img = await dl.get(download_url)
-            img.raise_for_status()
+        async with httpx.AsyncClient(timeout=60.0, verify=self._ssl_verify) as dl:
+            try:
+                img = await dl.get(download_url)
+                img.raise_for_status()
+            except httpx.RequestError as e:
+                raise StockError(describe_request_error(e, "Pexels download")) from e
             return img.content
 
     async def close(self) -> None:

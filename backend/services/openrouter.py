@@ -4,6 +4,8 @@ import httpx
 from datetime import datetime, timezone
 from typing import Optional
 
+from services.http_utils import describe_request_error
+
 
 # ── LLM usage tracking ───────────────────────────────────────────────────────
 # OpenRouter returns a `usage` object (and `usage.cost` in USD when we ask for
@@ -56,10 +58,14 @@ class OpenRouterError(Exception):
 class OpenRouterClient:
     BASE_URL = "https://openrouter.ai/api/v1"
 
-    def __init__(self, api_key: str, referer: str = "https://localhost", app_title: str = "InstaContentEngine"):
+    def __init__(
+        self, api_key: str, referer: str = "https://localhost",
+        app_title: str = "InstaContentEngine", ssl_verify: bool = True,
+    ):
         self.api_key = api_key
         self._referer = referer
         self._app_title = app_title
+        self._ssl_verify = ssl_verify
         self._client: Optional[httpx.AsyncClient] = None
 
     def _get_client(self) -> httpx.AsyncClient:
@@ -73,7 +79,7 @@ class OpenRouterClient:
                     "X-Title": self._app_title,
                 },
                 timeout=120.0,
-                verify=False,
+                verify=self._ssl_verify,
             )
         return self._client
 
@@ -93,6 +99,8 @@ class OpenRouterClient:
                 raise OpenRouterError(
                     f"OpenRouter failed: {e.response.status_code} {e.response.text}"
                 ) from e
+            except httpx.RequestError as e:
+                raise OpenRouterError(describe_request_error(e, "OpenRouter")) from e
         raise OpenRouterError(str(last_exc)) from last_exc
 
     async def generate_text(
@@ -160,11 +168,13 @@ class OpenRouterClient:
         _, b64 = data_url.split(",", 1)
         return base64.b64decode(b64)
 
-    @staticmethod
-    async def _download_url(url: str) -> bytes:
-        async with httpx.AsyncClient(timeout=60.0, verify=False) as c:
-            r = await c.get(url)
-            r.raise_for_status()
+    async def _download_url(self, url: str) -> bytes:
+        async with httpx.AsyncClient(timeout=60.0, verify=self._ssl_verify) as c:
+            try:
+                r = await c.get(url)
+                r.raise_for_status()
+            except httpx.RequestError as e:
+                raise OpenRouterError(describe_request_error(e, "OpenRouter image download")) from e
             return r.content
 
     async def close(self) -> None:

@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-production"
     api_token: str = ""  # if set, all API calls require Bearer <token>
 
+    # Verify TLS certificates on outbound API calls. Keep True — turning this off
+    # exposes your API keys to man-in-the-middle interception. Only set False if a
+    # corporate proxy/antivirus breaks HTTPS on a network you trust.
+    ssl_verify: bool = True
+
     # OpenRouter
     openrouter_api_key: str = ""
     openrouter_referer: str = "https://localhost"

@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, AsyncGenerator, Optional
+from typing import Annotated, Optional
+from collections.abc import AsyncGenerator
 
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
@@ -24,14 +25,15 @@ from services.trend_adapter import TrendAdapter
 # ---- leaf service singletons (created once per process) ----
 
 @lru_cache
-def _get_openrouter(api_key: str, referer: str, title: str) -> OpenRouterClient:
-    return OpenRouterClient(api_key=api_key, referer=referer, app_title=title)
+def _get_openrouter(api_key: str, referer: str, title: str, ssl_verify: bool = True) -> OpenRouterClient:
+    return OpenRouterClient(api_key=api_key, referer=referer, app_title=title,
+                            ssl_verify=ssl_verify)
 
 
 @lru_cache
-def _get_stock_client(unsplash_key: str, pexels_key: str) -> StockClient:
-    unsplash = UnsplashClient(unsplash_key) if unsplash_key else None
-    pexels = PexelsClient(pexels_key) if pexels_key else None
+def _get_stock_client(unsplash_key: str, pexels_key: str, ssl_verify: bool = True) -> StockClient:
+    unsplash = UnsplashClient(unsplash_key, ssl_verify=ssl_verify) if unsplash_key else None
+    pexels = PexelsClient(pexels_key, ssl_verify=ssl_verify) if pexels_key else None
     return StockClient(unsplash=unsplash, pexels=pexels)
 
 
@@ -85,11 +87,14 @@ def get_openrouter(settings: Annotated[Settings, Depends(get_settings)]) -> Open
         settings.openrouter_api_key,
         settings.openrouter_referer,
         settings.openrouter_app_title,
+        settings.ssl_verify,
     )
 
 
 def get_stock(settings: Annotated[Settings, Depends(get_settings)]) -> StockClient:
-    return _get_stock_client(settings.unsplash_access_key, settings.pexels_api_key)
+    return _get_stock_client(
+        settings.unsplash_access_key, settings.pexels_api_key, settings.ssl_verify,
+    )
 
 
 def get_brand_engine() -> PillowBrandEngine:
