@@ -1,0 +1,30 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [".venv", "venv", "__pycache__", ".pytest_cache", "backend/uploads"]
+
+[tool.ruff.lint]
+# Deliberately NOT enabling "I" (isort): reordering every import block is a
+# mass reformat that muddies git blame for no bug-catching benefit.
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes (unused imports/vars, undefined names)
+    "W",   # pycodestyle warnings
+    "UP",  # pyupgrade (modern syntax)
+    "B",   # flake8-bugbear (likely bugs)
+]
+ignore = [
+    "E501",   # line length — we don't mass-reformat; keeps git blame readable
+    "B008",   # function call in default arg — that IS the FastAPI Depends() idiom
+    "B904",   # raise-without-from inside except — errors are wrapped explicitly
+    "E402",   # module import not at top — the .pyw launcher imports after dep install
+    # The rules below are pure syntax modernisation across every signature.
+    # They'd touch ~240 lines in files we aren't otherwise changing, for zero
+    # bug-catching value. Revisit if we ever do a deliberate sweep.
+    "UP045",  # Optional[X] -> X | None
+    "UP017",  # timezone.utc -> datetime.UTC
+    "UP042",  # str, Enum -> StrEnum
+]
+
+[tool.ruff.lint.per-file-ignores]
+"backend/tests/*" = ["F401", "F811"]   # fixtures/imports used implicitly by pytest

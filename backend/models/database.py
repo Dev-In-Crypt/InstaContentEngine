@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, Text, DateTime, JSON
-from sqlalchemy.ext.asyncio import AsyncAttrs, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, relationship
 from sqlalchemy.sql import func
 

@@ -7,7 +7,8 @@ import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, AsyncGenerator, Optional
+from typing import Annotated, Optional
+from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -16,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from api.deps import (
-    get_content_engine, get_db, get_openrouter, get_settings,
+    get_content_engine, get_db, get_settings,
     get_trend_adapter, load_brand_config, make_trend_provider_for, require_token,
 )
 from config import Settings
@@ -30,8 +31,7 @@ from models.database import (
 from models.schemas import (
     AdaptTrendRequest, CompetitorAccount as CompetitorSchema, CompetitorCreate,
     CompetitorUpdate, GenerateFromIdeaRequest, HashtagRankRequest, LengthTier,
-    Platform, PostStatus, PostPreview, RefreshTrendsRequest, SlidePreview,
-    TrendIdeaSchema, TrendIdeaUpdate, TrendingMediaPreview, TrendMediaType,
+    Platform, PostStatus, PostPreview, RefreshTrendsRequest, TrendIdeaSchema, TrendIdeaUpdate, TrendingMediaPreview, TrendMediaType,
 )
 from services.hashtag_intel import HashtagIntel
 from services.brand_engine import PillowBrandEngine
@@ -452,13 +452,11 @@ async def update_idea(
     row = result.scalar_one_or_none()
     if not row:
         raise HTTPException(status_code=404, detail="Idea not found")
-    if body.hook is not None: row.hook = body.hook
-    if body.short_script is not None: row.short_script = body.short_script
-    if body.shot_list is not None: row.shot_list = body.shot_list
-    if body.caption is not None: row.caption = body.caption
-    if body.cta is not None: row.cta = body.cta
-    if body.hashtags is not None: row.hashtags = body.hashtags
-    if body.seo_keywords is not None: row.seo_keywords = body.seo_keywords
+    for field in ("hook", "short_script", "shot_list", "caption", "cta",
+                  "hashtags", "seo_keywords"):
+        value = getattr(body, field)
+        if value is not None:
+            setattr(row, field, value)
     await db.commit()
     await db.refresh(row)
     return _to_idea_schema(row, row.source_media)

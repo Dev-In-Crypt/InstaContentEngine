@@ -1,4 +1,3 @@
-from typing import Annotated
 from fastapi import APIRouter, Depends, Query, HTTPException
 from api.deps import get_stock
 from models.schemas import StockPhoto

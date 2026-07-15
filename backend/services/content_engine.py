@@ -1,14 +1,15 @@
 import asyncio
 import uuid
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Optional
+from typing import Optional
+from collections.abc import Awaitable, Callable
 
 from models.schemas import ImageSource, PostFormat, Platform, LengthTier, TemplateStyle
 from services.caption_generator import CaptionGenerator, GeneratedCaption
 from services.image_router import ImageRouter, SlideImageConfig, ImageFetchError
 from services.openrouter import OpenRouterError
 from services.stock import StockError
-from services.brand_engine import PillowBrandEngine, BrandConfig
+from services.brand_engine import PillowBrandEngine
 from services.exporter import TemplateExporter
 
 

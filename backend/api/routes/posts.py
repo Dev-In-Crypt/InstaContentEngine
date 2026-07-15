@@ -6,7 +6,8 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Annotated, AsyncGenerator, Optional
+from typing import Annotated, Optional
+from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse, FileResponse

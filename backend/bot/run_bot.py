@@ -1,4 +1,3 @@
-import asyncio
 from config import get_settings
 from services.openrouter import OpenRouterClient
 from services.caption_generator import CaptionGenerator

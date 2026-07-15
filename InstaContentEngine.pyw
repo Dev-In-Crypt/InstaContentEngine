@@ -166,7 +166,8 @@ def _prompt_for_api_key() -> None:
     try:
         import tkinter as tk
         import tkinter.messagebox as mb
-        root = tk.Tk(); root.withdraw()
+        root = tk.Tk()
+        root.withdraw()
         if mb.askokcancel(
             "One-time setup",
             "Almost there!\n\n"
