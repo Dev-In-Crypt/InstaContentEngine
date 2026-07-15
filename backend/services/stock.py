@@ -4,7 +4,7 @@ import random
 from dataclasses import dataclass
 from typing import Optional
 
-from services.http_utils import describe_request_error, ssl_config
+from services.http_utils import describe_request_error
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class UnsplashClient:
                 base_url=self.BASE_URL,
                 headers={"Authorization": f"Client-ID {self.access_key}"},
                 timeout=30.0,
-                verify=ssl_config(self._ssl_verify),
+                verify=self._ssl_verify,
             )
         return self._client
 
@@ -94,7 +94,7 @@ class UnsplashClient:
             raise StockError(f"Unsplash photo fetch failed: {e.response.status_code}") from e
 
         download_url = resp.json()["urls"][size]
-        async with httpx.AsyncClient(timeout=60.0, verify=ssl_config(self._ssl_verify)) as dl:
+        async with httpx.AsyncClient(timeout=60.0, verify=self._ssl_verify) as dl:
             try:
                 img = await dl.get(download_url)
                 img.raise_for_status()
@@ -122,7 +122,7 @@ class PexelsClient:
                 base_url=self.BASE_URL,
                 headers={"Authorization": self.api_key},
                 timeout=30.0,
-                verify=ssl_config(self._ssl_verify),
+                verify=self._ssl_verify,
             )
         return self._client
 
@@ -160,7 +160,7 @@ class PexelsClient:
             raise StockError(f"Pexels photo fetch failed: {e.response.status_code}") from e
 
         download_url = resp.json()["src"]["original"]
-        async with httpx.AsyncClient(timeout=60.0, verify=ssl_config(self._ssl_verify)) as dl:
+        async with httpx.AsyncClient(timeout=60.0, verify=self._ssl_verify) as dl:
             try:
                 img = await dl.get(download_url)
                 img.raise_for_status()

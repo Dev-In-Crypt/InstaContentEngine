@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from config import get_settings
 from models.database import Base, BrandConfig as BrandConfigModel
 from models.schemas import NICHE_BOX_PALETTE
+from services.http_utils import setup_tls
 from api.routes import posts, models, stock, trends, admin
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -108,6 +109,9 @@ async def _seed_brand_preset(sessionmaker) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Must precede every outbound connection, the database included.
+    setup_tls()
+
     engine = create_async_engine(settings.database_url, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

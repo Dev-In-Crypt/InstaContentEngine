@@ -21,10 +21,15 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-production"
     api_token: str = ""  # if set, all API calls require Bearer <token>
 
-    # Verify TLS certificates on outbound API calls. Keep True — turning this off
-    # exposes your API keys to man-in-the-middle interception. Verification runs
-    # against the OS trust store (see services/http_utils.ssl_config), so HTTPS
-    # inspection by an antivirus or corporate proxy does not require disabling it.
+    # Certificates are ALWAYS verified against the OS trust store — see
+    # services/http_utils.setup_tls, installed at every process entry point — so an
+    # antivirus or corporate proxy that inspects HTTPS needs no configuration here.
+    #
+    # This flag only decides whether the clients that accept an ssl_verify argument
+    # (OpenRouter, Unsplash, Pexels) verify at all. Setting it False exposes those
+    # API keys to man-in-the-middle interception, and does NOT affect Instagram,
+    # imgbb, trend discovery, hashtag intel or the Telegram bot, which always verify.
+    # It is a last resort, not the fix for TLS-inspecting security software.
     ssl_verify: bool = True
 
     # OpenRouter

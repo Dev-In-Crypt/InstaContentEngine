@@ -6,6 +6,7 @@ from services.brand_engine import PillowBrandEngine, BrandConfig
 from services.exporter import TemplateExporter
 from services.stock import UnsplashClient, PexelsClient, StockClient
 from services.content_engine import ContentEngine
+from services.http_utils import setup_tls
 from bot.telegram_bot import InstaBot
 
 
@@ -14,9 +15,16 @@ def build_engine(settings) -> ContentEngine:
         api_key=settings.openrouter_api_key,
         referer=settings.openrouter_referer,
         app_title=settings.openrouter_app_title,
+        ssl_verify=settings.ssl_verify,
     )
-    unsplash = UnsplashClient(settings.unsplash_access_key) if settings.unsplash_access_key else None
-    pexels = PexelsClient(settings.pexels_api_key) if settings.pexels_api_key else None
+    unsplash = (
+        UnsplashClient(settings.unsplash_access_key, ssl_verify=settings.ssl_verify)
+        if settings.unsplash_access_key else None
+    )
+    pexels = (
+        PexelsClient(settings.pexels_api_key, ssl_verify=settings.ssl_verify)
+        if settings.pexels_api_key else None
+    )
     stock = StockClient(unsplash=unsplash, pexels=pexels)
     brand_engine = PillowBrandEngine(BrandConfig())
     caption_gen = CaptionGenerator(openrouter)
@@ -26,6 +34,11 @@ def build_engine(settings) -> ContentEngine:
 
 
 def main() -> None:
+    # This process never runs main.py's lifespan, so it installs its own TLS hook.
+    # It must come before InstaBot(), which builds telegram's httpx client in its
+    # constructor.
+    setup_tls()
+
     settings = get_settings()
     if not settings.telegram_bot_token:
         raise ValueError("TELEGRAM_BOT_TOKEN is not set")

@@ -4,7 +4,7 @@ import httpx
 from datetime import datetime, timezone
 from typing import Optional
 
-from services.http_utils import describe_request_error, ssl_config
+from services.http_utils import describe_request_error
 
 
 # ── LLM usage tracking ───────────────────────────────────────────────────────
@@ -79,7 +79,7 @@ class OpenRouterClient:
                     "X-Title": self._app_title,
                 },
                 timeout=120.0,
-                verify=ssl_config(self._ssl_verify),
+                verify=self._ssl_verify,
             )
         return self._client
 
@@ -169,7 +169,7 @@ class OpenRouterClient:
         return base64.b64decode(b64)
 
     async def _download_url(self, url: str) -> bytes:
-        async with httpx.AsyncClient(timeout=60.0, verify=ssl_config(self._ssl_verify)) as c:
+        async with httpx.AsyncClient(timeout=60.0, verify=self._ssl_verify) as c:
             try:
                 r = await c.get(url)
                 r.raise_for_status()

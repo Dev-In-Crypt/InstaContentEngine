@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import ssl
-
 import httpx
 import truststore
 
@@ -14,21 +12,30 @@ SSL_HINT = (
 )
 
 
-def ssl_config(ssl_verify: bool) -> ssl.SSLContext | bool:
-    """What to hand httpx's `verify=`.
+def setup_tls() -> None:
+    """Verify certificates against the OS trust store instead of certifi's bundle.
 
-    Verifying against certifi's bundle is wrong on the desktop: security suites
-    (Avast, Kaspersky, ESET) and corporate proxies terminate TLS and re-sign it
-    with their own root, which certifi has never heard of — every call then dies
-    with "unable to get local issuer certificate". Their root *is* installed in
-    the OS trust store, so validating against that keeps verification on and
-    still rejects a certificate no one on this machine trusts.
+    certifi ships Mozilla's roots. A security suite (Avast, Kaspersky, ESET) or a
+    corporate proxy terminates TLS and re-signs it with a root certifi has never
+    heard of, so every outbound call dies with "unable to get local issuer
+    certificate". That root *is* installed in the OS trust store, so validating
+    against it keeps verification on and still rejects a certificate nobody on
+    this machine trusts.
 
-    Returns False only when the operator has explicitly opted out.
+    Patches ssl.SSLContext process-wide, which is what reaches clients we don't
+    construct ourselves — python-telegram-bot builds its own httpx client and
+    takes no verify= argument. Wiring this per-client is how the previous attempt
+    covered 3 of 9 clients and silently left publishing broken.
+
+    Idempotent, and unconditional by design: skipping it when SSL_VERIFY=false
+    would drop the clients that ignore that flag back onto certifi, so turning
+    verification *off* would cause *more* failures. SSL_VERIFY stays orthogonal —
+    this decides how we verify, that decides whether the clients taking an
+    ssl_verify argument verify at all.
+
+    ANY new process entry point must call this before constructing HTTP clients.
     """
-    if not ssl_verify:
-        return False
-    return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    truststore.inject_into_ssl()
 
 
 def is_ssl_error(exc: Exception) -> bool:
