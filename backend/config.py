@@ -18,7 +18,6 @@ class Settings(BaseSettings):
 
     # Core
     database_url: str = "sqlite+aiosqlite:///./insta.db"
-    redis_url: str = "redis://localhost:6379/0"
     secret_key: str = "change-me-in-production"
     api_token: str = ""  # if set, all API calls require Bearer <token>
 
