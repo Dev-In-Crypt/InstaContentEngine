@@ -10,7 +10,9 @@ desktop application, and can also run 24/7 in the cloud for scheduled posting.
   <img src="https://img.shields.io/badge/FastAPI-0.115-009688.svg" alt="FastAPI">
   <img src="https://img.shields.io/badge/SQLAlchemy-async-d71f00.svg" alt="SQLAlchemy async">
   <img src="https://img.shields.io/badge/UI-pywebview-7c3aed.svg" alt="pywebview">
-  <img src="https://img.shields.io/badge/tests-225%20passing-22c55e.svg" alt="225 tests">
+  <a href="https://github.com/Dev-In-Crypt/InstaContentEngine/actions/workflows/ci.yml">
+    <img src="https://github.com/Dev-In-Crypt/InstaContentEngine/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
 </p>
 
 ---
@@ -230,10 +232,9 @@ Refresh trends → TrendingMedia → [Adapt] → LLM → TrendIdea
     │   ├── hashtag_intel.py · pillars.py
     │   └── video/             ← base (Protocol) · kenburns · ai_provider (stub)
     ├── models/                ← database.py (tables) · schemas.py (Pydantic + enums)
-    ├── tasks/                 ← Celery app + stubs
     ├── bot/                   ← Telegram bot (optional)
     ├── static/index.html      ← single-page UI (Tailwind CDN, vanilla JS)
-    └── tests/                 ← pytest suite (~225 passing)
+    └── tests/                 ← pytest suite (244 passing)
 ```
 
 ---
@@ -249,10 +250,12 @@ python -m pytest -q                                 # run tests
 del insta.db                                        # reset DB (re-seeds brand preset)
 ```
 
-**Tests:** ~**225 passing**. There are 6 failures + 21 errors in `test_api.py`,
-`test_image_router.py`, and `test_openrouter.py` — pre-existing legacy breakage
-(stale `_post_store` fixture, outdated `images/generations` HTTPX mocks),
-unrelated to current features.
+**Tests:** **244 passing**, 0 failing. **Lint:** `ruff check backend
+InstaContentEngine.pyw` from the repo root (ruff is CI-only — install it with
+`pip install ruff`, it is not in `requirements.txt`).
+
+Both run on every push and pull request via [GitHub
+Actions](.github/workflows/ci.yml).
 
 ### Extending
 
