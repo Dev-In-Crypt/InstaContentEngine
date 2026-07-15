@@ -1,8 +1,9 @@
 """Smoke tests for the endpoints that aren't covered elsewhere.
 
-Post CRUD / generate / export / slides are covered by test_publishing_api.py and
-test_slide_replace.py; this file keeps only what's unique: liveness, the model
-catalogue, request validation, and stock-search query validation.
+This file keeps liveness, the model catalogue, request validation, and
+stock-search query validation. Post CRUD / generate / export / slide images live
+in test_posts_crud_api.py; scheduling, insights and reels in
+test_publishing_api.py; slide replacement in test_slide_replace.py.
 """
 from __future__ import annotations
 
