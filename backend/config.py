@@ -22,8 +22,9 @@ class Settings(BaseSettings):
     api_token: str = ""  # if set, all API calls require Bearer <token>
 
     # Verify TLS certificates on outbound API calls. Keep True — turning this off
-    # exposes your API keys to man-in-the-middle interception. Only set False if a
-    # corporate proxy/antivirus breaks HTTPS on a network you trust.
+    # exposes your API keys to man-in-the-middle interception. Verification runs
+    # against the OS trust store (see services/http_utils.ssl_config), so HTTPS
+    # inspection by an antivirus or corporate proxy does not require disabling it.
     ssl_verify: bool = True
 
     # OpenRouter
