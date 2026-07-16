@@ -247,7 +247,7 @@
 
     <!-- Unsaved-draft banner -->
     <div id="draft-banner" class="hidden bg-yellow-950/50 border border-yellow-800 rounded-lg px-3 py-2 text-xs text-yellow-200 flex items-center justify-between">
-      <span>You have unsaved edits from a previous session.</span>
+      <span>You have unsaved edits from a previous session.<span id="draft-age"></span></span>
       <span class="flex gap-2">
         <button id="draft-restore" class="underline hover:text-white">Restore</button>
         <button id="draft-discard" class="underline hover:text-white">Discard</button>
@@ -694,6 +694,8 @@ function addProgress(msg) {
 async function generatePost() {
   const topic = document.getElementById('topic').value.trim();
   if (!topic) { goStep(1); return; }
+  if (S.generating) return;          // ignore a second click while one is in flight
+  S.generating = true;
 
   showStep(3);
   document.getElementById('loading-spinner').classList.remove('hidden');
@@ -732,6 +734,7 @@ async function generatePost() {
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = '';
+    let sawTerminal = false;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -740,21 +743,29 @@ async function generatePost() {
       buf = lines.pop();
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
-        const ev = JSON.parse(line.slice(6));
+        let ev;
+        try { ev = JSON.parse(line.slice(6)); }
+        catch { continue; }          // skip a malformed frame, don't kill the stream
         if (ev.type === 'progress') addProgress(ev.message);
         if (ev.type === 'complete') {
+          sawTerminal = true;
           S.postId = ev.post.id;
           renderPreview(ev.post);
           showStep(4);
         }
-        if (ev.type === 'error') throw new Error(ev.message);
+        if (ev.type === 'error') { sawTerminal = true; throw new Error(ev.message); }
       }
     }
+    // Stream closed with no complete/error (backend crash, dropped connection) —
+    // don't leave the spinner turning forever.
+    if (!sawTerminal) throw new Error('Generation stream ended unexpectedly. Please try again.');
   } catch(e) {
     document.getElementById('loading-spinner').classList.add('hidden');
     const errEl = document.getElementById('gen-error');
     document.getElementById('gen-error-msg').textContent = '❌ ' + e.message;
     errEl.classList.remove('hidden');
+  } finally {
+    S.generating = false;
   }
 }
 
@@ -1177,7 +1188,8 @@ function snapshotEdits() {
   };
   S.undoStack.push(snap);
   if (S.undoStack.length > 5) S.undoStack.shift();
-  try { localStorage.setItem('undo_' + S.postId, JSON.stringify(S.undoStack)); } catch(e){}
+  try { localStorage.setItem('undo_' + S.postId, JSON.stringify(S.undoStack)); }
+  catch(e){ toast('⚠️ Local storage full — undo history not saved', 'warn'); }
   document.getElementById('undo-btn').classList.toggle('hidden', S.undoStack.length === 0);
 }
 function undoEdit() {
@@ -1204,13 +1216,24 @@ function saveDraft() {
       caption: document.getElementById('caption-edit').value,
       hashtags: S.hashtags, seo: S.seoKeywords, at: Date.now(),
     }));
-  } catch(e){}
+  } catch(e){ toast('⚠️ Local storage full — draft not autosaved', 'warn'); }
 }
 function maybeOfferDraft(post) {
   let raw; try { raw = localStorage.getItem('draft_' + post.id); } catch(e){ return; }
   if (!raw) { document.getElementById('draft-banner').classList.add('hidden'); return; }
-  const draft = JSON.parse(raw);
+  let draft; try { draft = JSON.parse(raw); } catch(e){
+    try { localStorage.removeItem('draft_' + post.id); } catch(e2){}
+    return;   // corrupt draft — drop it rather than crash renderPreview
+  }
   const banner = document.getElementById('draft-banner');
+  // Surface the draft's age so the user can judge staleness (there's no server
+  // updated_at to compare against, so we don't auto-decide).
+  if (draft.at) {
+    const mins = Math.round((Date.now() - draft.at) / 60000);
+    const when = mins < 1 ? 'just now' : mins < 60 ? `${mins} min ago` : `${Math.round(mins/60)} h ago`;
+    const lbl = banner.querySelector('#draft-age');
+    if (lbl) lbl.textContent = ` (saved ${when})`;
+  }
   banner.classList.remove('hidden');
   banner.querySelector('#draft-restore').onclick = () => {
     document.getElementById('caption-edit').value = draft.caption || '';
@@ -1237,7 +1260,11 @@ async function saveCaption() {
       body: JSON.stringify({ caption, hashtags: S.hashtags, seo_keywords: S.seoKeywords }),
     });
     if (!res.ok) throw new Error('Save failed');
+    // Clear both per-post keys so they don't accumulate to the quota over time.
     try { localStorage.removeItem('draft_' + S.postId); } catch(e){}
+    try { localStorage.removeItem('undo_' + S.postId); } catch(e){}
+    S.undoStack = [];
+    document.getElementById('undo-btn').classList.add('hidden');
     toast('✅ Caption saved!', 'success');
   } catch(e) {
     toast('❌ ' + e.message, 'error');
@@ -1302,7 +1329,9 @@ async function openExportedFolder(path) {
 // ===== PUBLISH =====
 async function publishPost() {
   if (!S.postId) return;
+  if (S.publishing) return;          // block a double-click from publishing twice
   if (!confirm('Publish this post to Instagram now?')) return;
+  S.publishing = true;
   toast('📤 Publishing…', 'info');
   try {
     const res = await apiFetch(`${API}/api/posts/${S.postId}/publish`, { method: 'POST' });
@@ -1311,6 +1340,8 @@ async function publishPost() {
     toast('✅ Published! Media ID: ' + data.instagram_media_id, 'success');
   } catch(e) {
     toast('❌ ' + e.message, 'error');
+  } finally {
+    S.publishing = false;
   }
 }
 
@@ -1855,11 +1886,13 @@ async function refreshTrends() {
       buf = lines.pop();
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
-        const ev = JSON.parse(line.slice(6));
+        let ev;
+        try { ev = JSON.parse(line.slice(6)); }
+        catch { continue; }          // one bad frame must not abort the refresh
         const li = document.createElement('li');
-        if (ev.type === 'progress') li.innerHTML = `▸ ${ev.message}`;
-        if (ev.type === 'error') { li.innerHTML = `<span class="text-red-400">✗ ${ev.handle || ''} ${ev.message}</span>`; }
-        if (ev.type === 'complete') { li.innerHTML = `<span class="text-green-400">✓ Done. Total fetched: ${ev.fetched}</span>`; }
+        if (ev.type === 'progress') li.innerHTML = `▸ ${esc(ev.message)}`;
+        if (ev.type === 'error') { li.innerHTML = `<span class="text-red-400">✗ ${esc(ev.handle || '')} ${esc(ev.message)}</span>`; }
+        if (ev.type === 'complete') { li.innerHTML = `<span class="text-green-400">✓ Done. Total fetched: ${esc(ev.fetched)}</span>`; }
         progress.appendChild(li);
       }
     }
