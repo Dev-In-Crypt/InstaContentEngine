@@ -112,6 +112,16 @@ async def lifespan(app: FastAPI):
     # Must precede every outbound connection, the database included.
     setup_tls()
 
+    # In cloud mode the app is reachable from the internet, and require_token is a
+    # no-op when api_token is empty — which would expose /api/admin/backup (the
+    # whole DB, including Instagram/Canva tokens) to anyone. Refuse to start.
+    if settings.app_mode == "cloud" and not settings.api_token:
+        raise RuntimeError(
+            "API_TOKEN is required in cloud mode: the app is publicly reachable "
+            "and would otherwise serve /api/admin/backup without authentication. "
+            "Set API_TOKEN in the environment."
+        )
+
     engine = create_async_engine(settings.database_url, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
