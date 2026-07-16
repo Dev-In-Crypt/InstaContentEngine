@@ -192,12 +192,14 @@ async def restore(
 
 
 def _extract_uploads(zf: zipfile.ZipFile) -> None:
+    uploads_root = (_BACKEND_DIR / "uploads").resolve()
     for name in zf.namelist():
         if name.startswith("uploads/") and not name.endswith("/"):
             dest = (_BACKEND_DIR / name).resolve()
-            # guard against zip-slip
-            if _BACKEND_DIR.resolve() not in dest.parents and dest != _BACKEND_DIR:
-                if not str(dest).startswith(str((_BACKEND_DIR / "uploads").resolve())):
-                    continue
+            # zip-slip guard: reject anything that escapes uploads/, however it
+            # got there. `uploads/../main.py` resolves inside backend/ and must be
+            # dropped just like `uploads/../../etc`.
+            if not dest.is_relative_to(uploads_root):
+                continue
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(zf.read(name))
