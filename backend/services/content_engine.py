@@ -132,8 +132,13 @@ class ContentEngine:
             )
             for cfg in slide_configs[:num]
         ]
-        slides = await asyncio.gather(*tasks)
-        slides = sorted(slides, key=lambda s: s.slide_number)
+        # return_exceptions so one slide's failure doesn't abandon its siblings
+        # mid-flight ("Task exception was never retrieved"); surface the first.
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, BaseException):
+                raise r
+        slides = sorted(results, key=lambda s: s.slide_number)
 
         return GeneratedPost(
             id=str(uuid.uuid4()),
@@ -209,7 +214,11 @@ class ContentEngine:
                 "page_number": page_num,
                 "total_slides": num if num > 1 else None,
             }
-            branded = self.brand_engine.create_branded_card(
+            # PIL rendering is CPU-bound and synchronous; off-load it so it
+            # doesn't freeze the event loop (and the SSE progress stream) while a
+            # 1080x1350 LANCZOS resize runs.
+            branded = await asyncio.to_thread(
+                self.brand_engine.create_branded_card,
                 background_image=raw_bytes,
                 niche_text=render_params["niche_text"],
                 description_text=overlay_text,
@@ -220,7 +229,8 @@ class ContentEngine:
                 total_slides=num if num > 1 else None,
             )
         elif format in (PostFormat.SINGLE, PostFormat.INFOGRAPHIC):
-            branded = self.brand_engine.apply_brand(
+            branded = await asyncio.to_thread(
+                self.brand_engine.apply_brand,
                 raw_bytes,
                 text_overlay=caption_data.hook,
                 subtitle=caption_data.cta,
@@ -228,7 +238,8 @@ class ContentEngine:
         else:
             heading = caption_data.hook if cfg.slide_number == 1 else f"Slide {cfg.slide_number}"
             body = caption_data.cta if cfg.slide_number == num else ""
-            branded = self.brand_engine.create_carousel_slide(
+            branded = await asyncio.to_thread(
+                self.brand_engine.create_carousel_slide,
                 slide_number=cfg.slide_number,
                 total_slides=num,
                 heading=heading,

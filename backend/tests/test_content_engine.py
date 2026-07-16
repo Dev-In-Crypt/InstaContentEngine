@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import pytest
@@ -319,3 +320,39 @@ def test_build_default_slide_configs_fallback_query():
     assert configs[0].search_query == "only-one"
     assert configs[1].search_query == "slide 2"
     assert configs[2].search_query == "slide 3"
+
+
+# ── A3/A4: PIL off the event loop, gather doesn't abandon siblings ──────────
+
+@pytest.mark.asyncio
+async def test_branding_runs_off_the_event_loop():
+    """PIL rendering must go through asyncio.to_thread so it can't block the loop
+    (and the SSE progress stream) during a slow LANCZOS resize."""
+    engine, _, _ = make_engine()
+    with patch("services.content_engine.asyncio.to_thread", wraps=asyncio.to_thread) as spy:
+        await engine.generate_post(topic="AI trends", format=PostFormat.SINGLE)
+    assert spy.await_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_one_slide_failure_lets_siblings_finish_before_raising():
+    """With gather(return_exceptions=True) the whole batch is awaited, so a slow
+    sibling completes before the failure surfaces. Plain gather would raise on
+    slide 1 immediately and leave slides 2 and 3 orphaned mid-flight."""
+    engine, _, img_router = make_engine()
+
+    completed: set[int] = set()
+
+    async def flaky(cfg):
+        if cfg.slide_number == 1:
+            raise RuntimeError("slide 1 boom")
+        await asyncio.sleep(0.05)      # still running when slide 1 fails
+        completed.add(cfg.slide_number)
+        return make_jpeg()
+
+    img_router.fetch_image.side_effect = flaky
+    with pytest.raises(RuntimeError, match="slide 1 boom"):
+        await engine.generate_post(topic="Trends", format=PostFormat.CAROUSEL_3)
+
+    # Both siblings ran to completion rather than being abandoned when slide 1 blew up.
+    assert completed == {2, 3}

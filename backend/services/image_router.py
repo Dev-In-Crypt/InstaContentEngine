@@ -25,7 +25,7 @@ class SlideImageConfig:
     image_source: ImageSource
     # stock
     search_query: Optional[str] = None
-    stock_source: str = "unsplash"       # "unsplash" | "pexels"
+    stock_source: str = "auto"           # "auto" (Unsplash→Pexels) | "unsplash" | "pexels"
     # ai gen
     gen_prompt: Optional[str] = None
     gen_model: Optional[str] = None

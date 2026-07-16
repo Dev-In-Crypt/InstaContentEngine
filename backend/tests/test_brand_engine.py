@@ -281,3 +281,31 @@ def test_branded_card_truncates_long_description_to_two_lines(engine):
     # image must be 1080x1350. The 2-line cap is enforced by _fit_two_lines
     # which is unit-tested above.
     assert open_result(result).size == (1080, 1350)
+
+
+# ── M6: over-wide single word must not overflow the box ─────────────────────
+
+def test_wrap_lines_hard_breaks_overwide_word():
+    """A word wider than max_width (a long URL/hashtag) used to be placed on its
+    own line unbroken, so the box drawn from actual text width ran off-canvas."""
+    from PIL import ImageDraw, ImageFont
+    img = Image.new("RGB", (1080, 200))
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+    max_width = 300
+
+    lines = PillowBrandEngine._wrap_lines(draw, "W" * 400, font, max_width)
+
+    assert lines, "expected at least one line"
+    for line in lines:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        assert bbox[2] - bbox[0] <= max_width, f"line overflows: {bbox[2]-bbox[0]} > {max_width}"
+
+
+def test_wrap_lines_normal_words_unchanged():
+    from PIL import ImageDraw, ImageFont
+    img = Image.new("RGB", (1080, 200))
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+    lines = PillowBrandEngine._wrap_lines(draw, "run every single day", font, 10000)
+    assert lines == ["run every single day"]

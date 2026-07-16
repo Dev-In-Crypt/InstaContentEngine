@@ -258,14 +258,32 @@ class PillowBrandEngine:
         font: ImageFont.FreeTypeFont,
         max_width: int,
     ) -> list[str]:
-        """Word-wrap text to fit max_width pixels."""
-        words = text.split()
+        """Word-wrap text to fit max_width pixels.
+
+        A word wider than max_width on its own (a long URL or hashtag) is
+        hard-broken character by character — otherwise it would sit on one
+        unbroken line and the box, sized from actual text width, runs off-canvas.
+        """
+        def width(s: str) -> int:
+            bbox = draw.textbbox((0, 0), s, font=font)
+            return bbox[2] - bbox[0]
+
         lines: list[str] = []
         current = ""
-        for word in words:
+        for word in text.split():
+            # Break a word that can't fit on any line by itself.
+            while width(word) > max_width and len(word) > 1:
+                if current:
+                    lines.append(current)
+                    current = ""
+                chunk = word
+                while len(chunk) > 1 and width(chunk) > max_width:
+                    chunk = chunk[:-1]
+                lines.append(chunk)
+                word = word[len(chunk):]
+
             test = f"{current} {word}".strip()
-            bbox = draw.textbbox((0, 0), test, font=font)
-            if bbox[2] - bbox[0] <= max_width:
+            if width(test) <= max_width:
                 current = test
             else:
                 if current:
