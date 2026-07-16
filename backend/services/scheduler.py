@@ -9,7 +9,6 @@ process restart — on startup APScheduler re-loads any pending jobs.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -87,22 +86,21 @@ def get_job(post_id: str):
     return _scheduler.get_job(f"pub_{post_id}")
 
 
-def _run_publish_job(post_id: str) -> None:
-    """APScheduler calls this synchronously; bridge into the async publish flow."""
-    from services.publisher_flow import publish_now, PublishError
+async def _run_publish_job(post_id: str) -> None:
+    """The scheduled publish.
 
-    async def _go():
-        try:
-            media_id = await publish_now(_sessionmaker, post_id)
-            log.info("Scheduled publish OK: post=%s media=%s", post_id, media_id)
-        except PublishError as e:
-            log.error("Scheduled publish FAILED: post=%s error=%s", post_id, e)
+    A coroutine on purpose: AsyncIOScheduler runs coroutine jobs on its own event
+    loop, which is the app loop (the scheduler is started in the FastAPI
+    lifespan). That's the loop _sessionmaker's async engine belongs to. A sync job
+    would instead run in a worker thread and have to spin up a throwaway loop,
+    using the engine across loops — the source of "Event loop is closed" errors.
+    """
+    from services.publisher_flow import publish_now
 
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.run_coroutine_threadsafe(_go(), loop)
-        else:
-            loop.run_until_complete(_go())
-    except RuntimeError:
-        asyncio.run(_go())
+        media_id = await publish_now(_sessionmaker, post_id)
+        log.info("Scheduled publish OK: post=%s media=%s", post_id, media_id)
+    except Exception as e:
+        # publish_now already marked the post failed with the error; don't let the
+        # exception escape into APScheduler, where the outcome would be invisible.
+        log.error("Scheduled publish FAILED: post=%s error=%s", post_id, e)
