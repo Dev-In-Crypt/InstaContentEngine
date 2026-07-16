@@ -28,7 +28,11 @@ import time
 import urllib.request
 from pathlib import Path
 
-HERE = Path(__file__).parent.resolve()
+# When frozen by PyInstaller, __file__ points into the read-only bundle (_MEIPASS),
+# so anchor on the exe's real folder instead — that's where the loose backend/ (with
+# its editable .env, insta.db and uploads/) sits beside the exe.
+FROZEN = getattr(sys, "frozen", False)
+HERE = (Path(sys.executable).parent if FROZEN else Path(__file__).parent).resolve()
 BACKEND = HERE / "backend"
 ENV = BACKEND / ".env"
 ENV_EX = BACKEND / ".env.example"
@@ -260,9 +264,54 @@ def _open_window(port: int) -> None:
     webview.start()
 
 
+def _selfcheck() -> None:
+    """Headless boot check for the frozen build: start the server, hit /health,
+    print the result and exit — no window. Proves the bundle loads the whole app
+    (fastapi, all deps, static, DB migrations) without needing a human to click.
+    Triggered by `--selfcheck` or ICE_SELFCHECK=1.
+    """
+    _ensure_env()
+    port = _pick_free_port()
+    server, thread = _start_server(port)
+    # Poll health, but bail immediately if the server thread died (a missing bundled
+    # module raises on `from main import app` and is logged to the error file).
+    deadline = time.time() + 25
+    ok = False
+    url = f"http://127.0.0.1:{port}/health"
+    while time.time() < deadline and thread.is_alive():
+        try:
+            with urllib.request.urlopen(url, timeout=2) as resp:
+                if resp.status == 200:
+                    ok = True
+                    break
+        except Exception:
+            time.sleep(0.3)
+    try:
+        server.should_exit = True
+    except Exception:
+        pass
+    thread.join(timeout=5)
+    result = "SELFCHECK OK" if ok else "SELFCHECK FAILED"
+    # A --windowed exe has no console (sys.stdout is None), so record the result to
+    # a file too; the exit code is the primary signal.
+    try:
+        (HERE / "selfcheck_result.txt").write_text(result, encoding="utf-8")
+    except Exception:
+        pass
+    try:
+        print(result, flush=True)
+    except Exception:
+        pass
+    sys.exit(0 if ok else 1)
+
+
 def main() -> None:
-    # Step 1: deps
-    if not _deps_ok():
+    if "--selfcheck" in sys.argv or os.environ.get("ICE_SELFCHECK") == "1":
+        _selfcheck()   # exits
+
+    # Step 1: deps. In a frozen build they're baked in — sys.executable is the exe,
+    # not python, so pip isn't available and the install path must be skipped.
+    if not FROZEN and not _deps_ok():
         _install_dependencies()
         if not _deps_ok():
             _show_error(

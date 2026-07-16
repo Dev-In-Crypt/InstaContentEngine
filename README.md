@@ -91,7 +91,12 @@ desktop application, and can also run 24/7 in the cloud for scheduled posting.
 
 ## 🚀 Quick start (end user)
 
-> Requires Python 3.11+ and Windows 10/11 (Edge WebView2 is pre-installed there).
+> **No Python?** Ship the standalone build instead — a folder with an `.exe` that
+> needs no Python installed. See [BUILD.md](BUILD.md) for how to build it and how
+> the client runs it.
+
+> The source archive below (double-click `.pyw`) requires Python 3.11+ and
+> Windows 10/11 (Edge WebView2 is pre-installed there).
 
 1. **Unzip** `InstaContentEngine.zip` to any folder, e.g. `C:\InstaContentEngine\`.
 2. **Configure keys**: open `backend\.env` and set at minimum:
