@@ -32,7 +32,10 @@ _UPLOADS_DIR = _BACKEND_DIR / "uploads"
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def _flush_usage(db: AsyncSession) -> None:
-    for rec in drain_usage():
+    records = drain_usage()
+    if not records:
+        return   # nothing buffered — a GET /usage poll shouldn't write to the DB
+    for rec in records:
         db.add(LLMUsage(
             id=str(uuid.uuid4()),
             model=rec.get("model"),

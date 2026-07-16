@@ -2,10 +2,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from models.schemas import ModelInfo
 from services.openrouter import TEXT_MODELS, IMAGE_MODELS
-from api.deps import get_settings
+from api.deps import get_settings, require_token
 from config import Settings
 
-router = APIRouter(prefix="/api/models", tags=["models"])
+router = APIRouter(prefix="/api/models", tags=["models"], dependencies=[Depends(require_token)])
 
 
 @router.get("/text", response_model=list[ModelInfo])

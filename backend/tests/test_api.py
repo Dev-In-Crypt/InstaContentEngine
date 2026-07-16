@@ -116,3 +116,66 @@ def test_stock_search_bad_source(client):
 def test_get_post_not_found(client):
     resp = client.get("/api/posts/does-not-exist")
     assert resp.status_code == 404
+
+
+# ── C1: stock/models must require the token when one is set ─────────────────
+
+import pytest as _pytest  # noqa: E402
+from api.deps import get_settings as _get_settings  # noqa: E402
+from config import Settings as _Settings  # noqa: E402
+
+
+@_pytest.fixture
+def token_client(client):
+    app.dependency_overrides[_get_settings] = lambda: _Settings(api_token="secret")
+    yield client
+    app.dependency_overrides.pop(_get_settings, None)
+
+
+@_pytest.mark.parametrize("path", [
+    "/api/stock/search?query=run",
+    "/api/models/text",
+    "/api/models/image",
+    "/api/models/defaults",
+])
+def test_protected_routes_401_without_token(token_client, path):
+    assert token_client.get(path).status_code == 401
+
+
+def test_protected_route_passes_with_token(token_client):
+    # With the right bearer, require_token lets it through (not a 401).
+    res = token_client.get("/api/models/text", headers={"Authorization": "Bearer secret"})
+    assert res.status_code != 401
+
+
+# ── C2: unknown /api/* must 404, not fall through to the SPA ─────────────────
+
+def test_unknown_api_path_returns_404(client):
+    res = client.get("/api/does-not-exist")
+    assert res.status_code == 404
+    assert "text/html" not in res.headers.get("content-type", "")
+
+
+# ── C3: GET /api/usage must not write when nothing is buffered ──────────────
+
+def test_usage_flush_noop_when_buffer_empty():
+    import asyncio as _asyncio
+    from unittest.mock import AsyncMock, patch
+    from api.routes.admin import _flush_usage
+
+    db = AsyncMock()
+    with patch("api.routes.admin.drain_usage", return_value=[]):
+        _asyncio.get_event_loop().run_until_complete(_flush_usage(db)) if False else _asyncio.run(_flush_usage(db))
+    db.commit.assert_not_awaited()
+
+
+def test_usage_flush_commits_when_records_present():
+    import asyncio as _asyncio
+    from unittest.mock import AsyncMock, patch
+    from api.routes.admin import _flush_usage
+
+    db = AsyncMock()
+    rec = {"model": "m", "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2, "cost": 0.01}
+    with patch("api.routes.admin.drain_usage", return_value=[rec]):
+        _asyncio.run(_flush_usage(db))
+    db.commit.assert_awaited_once()

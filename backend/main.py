@@ -2,7 +2,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -181,7 +181,10 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
-# Catch-all: serve the single-page app for any non-API route
+# Catch-all: serve the single-page app for any non-API route. An unknown /api/*
+# path must 404 rather than fall through to the SPA with a misleading 200.
 @app.get("/{full_path:path}", include_in_schema=False)
 async def spa_fallback(full_path: str) -> FileResponse:
+    if full_path == "api" or full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found")
     return FileResponse(STATIC_DIR / "index.html")
