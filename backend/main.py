@@ -1,3 +1,4 @@
+import logging
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,13 +13,14 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from config import get_settings
 from models.database import Base, BrandConfig as BrandConfigModel
 from models.schemas import NICHE_BOX_PALETTE
-from services.http_utils import setup_tls
+from services.http_utils import setup_logging, setup_tls
 from api.routes import posts, models, stock, trends, admin
 
 STATIC_DIR = Path(__file__).parent / "static"
 UPLOADS_DIR = Path(__file__).parent / "uploads"
 
 settings = get_settings()
+log = logging.getLogger(__name__)
 
 # New columns added after the initial schema. create_all does NOT alter existing
 # tables, so on an already-created sqlite db these are added idempotently here.
@@ -47,7 +49,7 @@ _MIGRATIONS: dict[str, dict[str, str]] = {
         "niche_box_color": "VARCHAR(7) DEFAULT '#ff751f'",
         "niche_box_palette": "JSON",
         "description_box_alpha": "FLOAT DEFAULT 0.79",
-        "show_logo": "BOOLEAN DEFAULT 1",
+        "show_logo": "BOOLEAN DEFAULT TRUE",   # TRUE, not 1 — 1 is a syntax error in Postgres
     },
 }
 
@@ -76,8 +78,9 @@ async def _apply_migrations(conn) -> None:
                     await conn.execute(
                         text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {pg_ddl}")
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Don't hide a real failure (bad DDL, permissions) as success.
+                    log.warning("Migration ADD COLUMN %s.%s failed: %s", table, col, e)
 
 
 async def _seed_brand_preset(sessionmaker) -> None:
@@ -109,6 +112,7 @@ async def _seed_brand_preset(sessionmaker) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging(settings.log_level)
     # Must precede every outbound connection, the database included.
     setup_tls()
 
