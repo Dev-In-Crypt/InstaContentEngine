@@ -93,3 +93,19 @@ async def test_scraper_provider_raises_not_implemented():
     p = ScraperTrendProvider()
     with pytest.raises(TrendProviderError):
         await p.fetch_for_handles(["x"], limit_per=1)
+
+
+@pytest.mark.asyncio
+async def test_business_discovery_all_handles_fail_raises(httpx_mock: HTTPXMock, caplog):
+    """An expired token fails every handle identically. Returning [] silently made
+    that look like 'no trends found' — it must raise and log instead."""
+    import logging
+    httpx_mock.add_response(url=_bd_url_re("9"), status_code=400, text="bad token")
+    httpx_mock.add_response(url=_bd_url_re("9"), status_code=400, text="bad token")
+
+    p = InstagramBusinessDiscoveryProvider(access_token="t", ig_user_id="9")
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(TrendProviderError):
+            await p.fetch_for_handles(["a", "b"], limit_per=5)
+    assert any("a" in r.message or "b" in r.message for r in caplog.records)
+    await p.close()

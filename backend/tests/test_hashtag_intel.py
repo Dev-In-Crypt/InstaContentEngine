@@ -53,3 +53,51 @@ def test_badge_thresholds():
     assert _badge(2, 800, 10) == "hot"            # rel 0.2 + high eng
     assert _badge(0, 0, 10) == "niche"
     assert _badge(3, 100, 10) == "good"
+
+
+# ── B2: no blind swallow, negative caching, single commit ───────────────────
+
+@pytest.mark.asyncio
+async def test_ig_lookup_narrow_except_lets_bugs_propagate():
+    """A network/HTTP error → None (legit 'couldn't reach IG'). A parsing bug
+    (anything else) must propagate, not be masked as 'no data'."""
+    import httpx
+    intel = HashtagIntel("tok", "uid")
+
+    class NetFail:
+        async def get(self, *a, **k):
+            raise httpx.ConnectError("network down")
+
+    class BugClient:
+        async def get(self, *a, **k):
+            raise KeyError("unexpected shape")
+
+    assert await intel._ig_lookup(NetFail(), "#x") is None
+    with pytest.raises(KeyError):
+        await intel._ig_lookup(BugClient(), "#x")
+
+
+@pytest.mark.asyncio
+async def test_failed_lookup_is_negatively_cached(db):
+    """A failed IG lookup must be cached so repeated rank() calls don't re-hit the
+    30-tags/7-days quota on every request."""
+    from unittest.mock import AsyncMock, patch
+    intel = HashtagIntel("tok", "uid")
+    with patch.object(intel, "_ig_lookup", AsyncMock(return_value=None)) as lookup:
+        await intel.rank(db, ["#foo"])
+        await intel.rank(db, ["#foo"])
+    assert lookup.await_count == 1   # second served from the negative cache
+
+
+@pytest.mark.asyncio
+async def test_enrich_commits_at_most_once(db):
+    """_set_cache used to commit per tag, committing whatever else was pending in
+    the caller's request session mid-loop."""
+    from unittest.mock import AsyncMock, patch
+    intel = HashtagIntel("tok", "uid")
+    real_commit = db.commit
+    spy = AsyncMock(side_effect=real_commit)
+    with patch.object(db, "commit", spy), \
+         patch.object(intel, "_ig_lookup", AsyncMock(return_value={"media_count": None, "avg_engagement": 5.0})):
+        await intel._ig_enrich(db, ["#a", "#b", "#c"])
+    assert spy.await_count <= 1

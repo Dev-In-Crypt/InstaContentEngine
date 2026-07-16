@@ -123,16 +123,25 @@ class HashtagIntel:
 
     async def _ig_enrich(self, db: AsyncSession, tags: list[str]) -> dict:
         out: dict = {}
+        wrote = False
         async with httpx.AsyncClient(timeout=30.0) as client:
             for t in tags:
                 cached = await self._get_cache(db, t)
                 if cached is not None:
-                    out[t] = cached
-                    continue
+                    if not cached.get("failed"):
+                        out[t] = cached
+                    continue   # positive or negative — either way, don't re-hit the API
                 data = await self._ig_lookup(client, t)
                 if data is not None:
                     out[t] = data
-                    await self._set_cache(db, t, data)
+                    await self._stage_cache(db, t, data, ok=True)
+                else:
+                    # Negative-cache the failure so we don't re-hit the quota next time.
+                    await self._stage_cache(db, t, {}, ok=False)
+                wrote = True
+        # One commit for the whole batch, not one per tag mid-request.
+        if wrote:
+            await db.commit()
         return out
 
     async def _get_cache(self, db: AsyncSession, tag: str) -> Optional[dict]:
@@ -144,43 +153,58 @@ class HashtagIntel:
             checked = checked.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) - checked > _CACHE_TTL:
             return None
+        if row.source == "ig_api_fail":
+            return {"failed": True}
         return {"media_count": row.media_count, "avg_engagement": row.avg_engagement}
 
-    async def _set_cache(self, db: AsyncSession, tag: str, data: dict) -> None:
+    async def _stage_cache(self, db: AsyncSession, tag: str, data: dict, ok: bool) -> None:
+        """Upsert a cache row WITHOUT committing — caller commits once per batch."""
         import uuid
-        row = (await db.execute(select(HashtagStat).where(HashtagStat.tag == tag))).scalar_one_or_none()
+        row = (await db.execute(
+            select(HashtagStat).where(HashtagStat.tag == tag)
+        )).scalar_one_or_none()
         if row is None:
             row = HashtagStat(id=str(uuid.uuid4()), tag=tag)
             db.add(row)
         row.media_count = data.get("media_count")
         row.avg_engagement = data.get("avg_engagement")
-        row.source = "ig_api"
+        row.source = "ig_api" if ok else "ig_api_fail"
         row.checked_at = datetime.now(timezone.utc)
-        await db.commit()
 
     async def _ig_lookup(self, client: httpx.AsyncClient, tag: str) -> Optional[dict]:
-        """Resolve tag → hashtag id → top_media avg engagement. Returns None on error."""
+        """Resolve tag → hashtag id → top_media avg engagement.
+
+        Returns None only for real IG failures (network, HTTP error, rate limit).
+        A parsing bug (unexpected response shape) propagates instead of being
+        masked as "no data", so we actually find out about it.
+        """
         base = "https://graph.instagram.com/v25.0"
         q = tag.lstrip("#")
         try:
             r = await client.get(f"{base}/ig_hashtag_search",
                                   params={"user_id": self._ig_user_id, "q": q, "access_token": self._token})
             r.raise_for_status()
-            ids = r.json().get("data", [])
-            if not ids:
-                return None
-            hid = ids[0]["id"]
+        except httpx.HTTPError as e:  # network / status / timeout — legitimately "couldn't reach IG"
+            log.warning("IG hashtag lookup failed for %s: %s", tag, e)
+            return None
+
+        ids = r.json().get("data", [])
+        if not ids:
+            return None
+        hid = ids[0]["id"]
+        try:
             r2 = await client.get(f"{base}/{hid}/top_media", params={
                 "user_id": self._ig_user_id,
                 "fields": "like_count,comments_count",
                 "access_token": self._token,
             })
             r2.raise_for_status()
-            media = r2.json().get("data", [])
-            if not media:
-                return {"media_count": None, "avg_engagement": 0.0}
-            eng = [int(m.get("like_count", 0)) + int(m.get("comments_count", 0)) for m in media]
-            return {"media_count": None, "avg_engagement": round(sum(eng) / len(eng), 1)}
-        except Exception as e:  # rate limit / permission / unknown tag
-            log.warning("IG hashtag lookup failed for %s: %s", tag, e)
+        except httpx.HTTPError as e:
+            log.warning("IG top_media failed for %s: %s", tag, e)
             return None
+
+        media = r2.json().get("data", [])
+        if not media:
+            return {"media_count": None, "avg_engagement": 0.0}
+        eng = [int(m.get("like_count", 0)) + int(m.get("comments_count", 0)) for m in media]
+        return {"media_count": None, "avg_engagement": round(sum(eng) / len(eng), 1)}

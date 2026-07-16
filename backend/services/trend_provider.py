@@ -7,11 +7,14 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Protocol
 
 import httpx
+
+log = logging.getLogger(__name__)
 
 
 class TrendProviderError(Exception):
@@ -115,13 +118,22 @@ class InstagramBusinessDiscoveryProvider:
         self, handles: list[str], limit_per: int = 10
     ) -> list[FetchedMedia]:
         out: list[FetchedMedia] = []
+        failures = 0
         for handle in handles:
             try:
                 items = await self._fetch_one(handle, limit_per)
                 out.extend(items)
-            except TrendProviderError:
-                # Per-handle failure should not abort the whole refresh.
-                continue
+            except TrendProviderError as e:
+                # One bad handle shouldn't abort the refresh, but log it — a silent
+                # continue hid expired tokens as "no trends found".
+                failures += 1
+                log.warning("Trend fetch failed for handle %r: %s", handle, e)
+        # If every handle failed (typically an expired/invalid token), surface it
+        # instead of returning an empty list that reads as a successful zero.
+        if handles and failures == len(handles):
+            raise TrendProviderError(
+                f"All {failures} handle(s) failed — check the Instagram access token."
+            )
         return out
 
     async def _fetch_one(self, handle: str, limit_per: int) -> list[FetchedMedia]:
