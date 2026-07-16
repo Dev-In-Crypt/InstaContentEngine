@@ -16,7 +16,7 @@ python-telegram-bot==21.9
 aiofiles==24.1.0
 pywebview>=5.0
 apscheduler>=3.10,<4
-imageio>=2.34
+imageio>=2.37.3
 imageio-ffmpeg>=0.6.0
 numpy>=1.26
 pytest==8.3.4
