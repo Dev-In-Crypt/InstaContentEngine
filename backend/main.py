@@ -154,11 +154,19 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
+def _docs_urls(app_mode: str) -> dict:
+    """Hide Swagger/ReDoc/OpenAPI on a public deployment; keep them for local dev."""
+    if app_mode == "cloud":
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {}
+
+
 app = FastAPI(
     title="Instagram Content Engine",
     description="AI-powered Instagram post generation and publishing system",
     version="1.0.0",
     lifespan=lifespan,
+    **_docs_urls(settings.app_mode),
 )
 
 app.add_middleware(
