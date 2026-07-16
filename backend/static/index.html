@@ -601,6 +601,22 @@ async function apiFetch(url, opts = {}) {
   return res;
 }
 
+// ===== HTML ESCAPING =====
+// Trend data (captions, hooks, handles, permalinks) comes from competitor
+// Instagram accounts — hostile input. Anything interpolated into innerHTML must
+// go through esc(); any href/src from that data through safeUrl(). Without this a
+// competitor caption like <img src=x onerror=...> is stored XSS, and with the API
+// token in localStorage that means token theft.
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+function safeUrl(u) {
+  u = String(u ?? '');
+  return /^https?:\/\//i.test(u) ? u : '#';   // block javascript:, data:, etc.
+}
+
 // ===== STEP LOGIC =====
 const STEP_LABELS = ['Topic', 'Settings', 'Generating', 'Preview'];
 
@@ -1040,8 +1056,8 @@ function renderReferences(post) {
   // Trend source
   if (post.trend_idea_id && post.trend_source_handle) {
     const linkHtml = post.trend_source_permalink
-      ? `<a href="${post.trend_source_permalink}" target="_blank" class="underline hover:text-pink-200">@${post.trend_source_handle}</a>`
-      : `@${post.trend_source_handle}`;
+      ? `<a href="${esc(safeUrl(post.trend_source_permalink))}" target="_blank" class="underline hover:text-pink-200">@${esc(post.trend_source_handle)}</a>`
+      : `@${esc(post.trend_source_handle)}`;
     trendBlock.innerHTML = `🔥 Inspired by: ${linkHtml}`;
     trendBlock.classList.remove('hidden');
     any = true;
@@ -1057,8 +1073,8 @@ function renderReferences(post) {
     post.sources.forEach(s => {
       const li = document.createElement('li');
       li.innerHTML = s.url
-        ? `<a href="${s.url}" target="_blank" class="text-purple-300 hover:text-purple-200 underline">${s.title || s.url}</a>`
-        : `<span>${s.title || ''}</span>`;
+        ? `<a href="${esc(safeUrl(s.url))}" target="_blank" class="text-purple-300 hover:text-purple-200 underline">${esc(s.title || s.url)}</a>`
+        : `<span>${esc(s.title || '')}</span>`;
       textList.appendChild(li);
     });
     textBlock.classList.remove('hidden');
@@ -1074,11 +1090,11 @@ function renderReferences(post) {
     withAttrib.forEach(s => {
       const a = s.attribution;
       const authorHtml = a.author_profile_url
-        ? `<a href="${a.author_profile_url}" target="_blank" class="text-purple-300 hover:text-purple-200 underline">${a.author_name}</a>`
-        : `<span class="text-purple-300">${a.author_name}</span>`;
+        ? `<a href="${esc(safeUrl(a.author_profile_url))}" target="_blank" class="text-purple-300 hover:text-purple-200 underline">${esc(a.author_name)}</a>`
+        : `<span class="text-purple-300">${esc(a.author_name)}</span>`;
       const sourceHtml = a.source_link
-        ? `<a href="${a.source_link}" target="_blank" class="text-gray-400 hover:text-gray-200 underline">${a.source}</a>`
-        : `<span class="text-gray-400">${a.source}</span>`;
+        ? `<a href="${esc(safeUrl(a.source_link))}" target="_blank" class="text-gray-400 hover:text-gray-200 underline">${esc(a.source)}</a>`
+        : `<span class="text-gray-400">${esc(a.source)}</span>`;
       const li = document.createElement('li');
       li.innerHTML = `<span class="text-gray-500">Slide ${s.slide_number}:</span> Photo by ${authorHtml} on ${sourceHtml}`;
       sourcesList.appendChild(li);
@@ -1873,17 +1889,17 @@ async function loadMedia() {
       card.className = 'bg-gray-800 rounded-xl p-3 border border-gray-700 hover:border-purple-500 transition';
       card.innerHTML = `
         <div class="flex items-start gap-3">
-          ${m.thumbnail_url ? `<img src="${m.thumbnail_url}" class="w-20 h-20 object-cover rounded-lg flex-shrink-0" referrerpolicy="no-referrer" />` : '<div class="w-20 h-20 bg-gray-700 rounded-lg"></div>'}
+          ${m.thumbnail_url ? `<img src="${esc(safeUrl(m.thumbnail_url))}" class="w-20 h-20 object-cover rounded-lg flex-shrink-0" referrerpolicy="no-referrer" />` : '<div class="w-20 h-20 bg-gray-700 rounded-lg"></div>'}
           <div class="flex-1 min-w-0">
             <div class="flex items-center justify-between gap-2 text-xs text-gray-400">
-              <span class="truncate">@${m.source_handle}</span>
-              <span class="uppercase">${m.media_type}</span>
+              <span class="truncate">@${esc(m.source_handle)}</span>
+              <span class="uppercase">${esc(m.media_type)}</span>
             </div>
-            <p class="text-sm font-semibold mt-1 line-clamp-2">${m.extracted_hook || '(no hook)'}</p>
-            <div class="text-xs text-gray-500 mt-1">❤️ ${m.likes} · 💬 ${m.comments}${m.views ? ' · ▶️ ' + m.views : ''} · score ${Math.round(m.engagement_score)}</div>
+            <p class="text-sm font-semibold mt-1 line-clamp-2">${esc(m.extracted_hook || '(no hook)')}</p>
+            <div class="text-xs text-gray-500 mt-1">❤️ ${esc(m.likes)} · 💬 ${esc(m.comments)}${m.views ? ' · ▶️ ' + esc(m.views) : ''} · score ${Math.round(m.engagement_score)}</div>
             <div class="flex gap-2 mt-2">
-              ${m.permalink ? `<a href="${m.permalink}" target="_blank" class="text-xs text-blue-400 hover:underline">View</a>` : ''}
-              <button onclick="openAdaptModal('${m.id}', '@${m.source_handle}')" class="ml-auto bg-purple-600 hover:bg-purple-500 transition rounded-lg px-3 py-1 text-xs font-semibold">✨ Adapt</button>
+              ${m.permalink ? `<a href="${esc(safeUrl(m.permalink))}" target="_blank" class="text-xs text-blue-400 hover:underline">View</a>` : ''}
+              <button data-adapt data-media-id="${esc(m.id)}" data-handle="@${esc(m.source_handle)}" class="ml-auto bg-purple-600 hover:bg-purple-500 transition rounded-lg px-3 py-1 text-xs font-semibold">✨ Adapt</button>
             </div>
           </div>
         </div>`;
@@ -1944,26 +1960,26 @@ async function loadIdeas() {
       const card = document.createElement('div');
       card.className = 'bg-gray-800 rounded-xl p-4 border border-gray-700 space-y-2';
       const sourceLink = idea.source_permalink
-        ? `<a href="${idea.source_permalink}" target="_blank" class="hover:underline">@${idea.source_handle}</a>`
-        : '@' + (idea.source_handle || '');
+        ? `<a href="${esc(safeUrl(idea.source_permalink))}" target="_blank" class="hover:underline">@${esc(idea.source_handle)}</a>`
+        : '@' + esc(idea.source_handle || '');
       card.innerHTML = `
         <div class="flex items-start justify-between gap-2">
           <div class="flex-1">
-            <p class="text-sm font-semibold">${idea.hook}</p>
-            <p class="text-xs text-gray-500 mt-1">From ${sourceLink} · ${idea.platform} · ${idea.length_tier}</p>
+            <p class="text-sm font-semibold">${esc(idea.hook)}</p>
+            <p class="text-xs text-gray-500 mt-1">From ${sourceLink} · ${esc(idea.platform)} · ${esc(idea.length_tier)}</p>
           </div>
           <div class="flex gap-2">
-            <button onclick="useIdea('${idea.id}')" class="bg-purple-600 hover:bg-purple-500 rounded-lg px-3 py-1.5 text-xs font-semibold">📝 Use</button>
-            <button onclick="deleteIdea('${idea.id}')" class="text-red-400 hover:text-red-300 text-sm">🗑</button>
+            <button onclick="useIdea('${esc(idea.id)}')" class="bg-purple-600 hover:bg-purple-500 rounded-lg px-3 py-1.5 text-xs font-semibold">📝 Use</button>
+            <button onclick="deleteIdea('${esc(idea.id)}')" class="text-red-400 hover:text-red-300 text-sm">🗑</button>
           </div>
         </div>
         <details class="text-xs text-gray-300">
           <summary class="cursor-pointer text-gray-400">Show script + shots + caption</summary>
           <div class="mt-2 space-y-2">
-            ${idea.short_script ? `<div><b class="text-purple-300">Script:</b><pre class="whitespace-pre-wrap font-sans text-gray-300">${idea.short_script}</pre></div>` : ''}
-            ${idea.shot_list && idea.shot_list.length ? `<div><b class="text-purple-300">Shots:</b><ul class="list-disc list-inside text-gray-300">${idea.shot_list.map(s => `<li>${s}</li>`).join('')}</ul></div>` : ''}
-            ${idea.caption ? `<div><b class="text-purple-300">Caption:</b><p class="text-gray-300 whitespace-pre-wrap">${idea.caption}</p></div>` : ''}
-            ${idea.hashtags && idea.hashtags.length ? `<div><b class="text-purple-300">Hashtags:</b> <span class="text-gray-400">${idea.hashtags.join(' ')}</span></div>` : ''}
+            ${idea.short_script ? `<div><b class="text-purple-300">Script:</b><pre class="whitespace-pre-wrap font-sans text-gray-300">${esc(idea.short_script)}</pre></div>` : ''}
+            ${idea.shot_list && idea.shot_list.length ? `<div><b class="text-purple-300">Shots:</b><ul class="list-disc list-inside text-gray-300">${idea.shot_list.map(s => `<li>${esc(s)}</li>`).join('')}</ul></div>` : ''}
+            ${idea.caption ? `<div><b class="text-purple-300">Caption:</b><p class="text-gray-300 whitespace-pre-wrap">${esc(idea.caption)}</p></div>` : ''}
+            ${idea.hashtags && idea.hashtags.length ? `<div><b class="text-purple-300">Hashtags:</b> <span class="text-gray-400">${esc(idea.hashtags.join(' '))}</span></div>` : ''}
           </div>
         </details>`;
       wrap.appendChild(card);
@@ -2004,6 +2020,13 @@ async function deleteIdea(id) {
 document.addEventListener('click', e => {
   const btn = e.target.closest('[data-trend-tab]');
   if (btn) setTrendTab(btn.dataset.trendTab);
+});
+
+// Adapt buttons (rendered from hostile trend data — values live in data-* attrs,
+// not an inline onclick, so a crafted handle can't break into a JS string).
+document.addEventListener('click', e => {
+  const btn = e.target.closest('[data-adapt]');
+  if (btn) openAdaptModal(btn.dataset.mediaId, btn.dataset.handle);
 });
 
 // ===== INIT =====
