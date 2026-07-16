@@ -156,12 +156,14 @@ async def test_wait_for_container_polls_until_finished(httpx_mock: HTTPXMock):
 @pytest.mark.asyncio
 @pytest.mark.httpx_mock(assert_all_requests_were_expected=False)
 async def test_wait_for_container_timeout(httpx_mock: HTTPXMock):
-    # 3 retries all return IN_PROGRESS → TimeoutError raised after loop
+    # 3 retries all return IN_PROGRESS → InstagramError after the loop. It must be
+    # InstagramError (not builtin TimeoutError) so the publish flow catches it and
+    # marks the post failed instead of leaving it stuck 'scheduled'.
     for _ in range(3):
         httpx_mock.add_response(method="GET", url=_poll_url("c1"), json={"status_code": "IN_PROGRESS"})
 
     pub = make_publisher()
     with patch("services.instagram.asyncio.sleep", new_callable=AsyncMock):
-        with pytest.raises(TimeoutError):
+        with pytest.raises(InstagramError):
             await pub._wait_for_container("c1", max_retries=3, poll_interval=0)
     await pub.close()

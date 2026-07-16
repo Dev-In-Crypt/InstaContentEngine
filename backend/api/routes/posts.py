@@ -360,6 +360,9 @@ async def publish_post(
 ) -> PublishResult:
     """Publish immediately: slides → imgbb (public URLs) → Instagram."""
     from services.publisher_flow import publish_now, PublishError
+    from services.scheduler import cancel_publish
+    # Drop any pending scheduled job so it can't fire and double-publish.
+    cancel_publish(post_id)
     sessionmaker = req.app.state.sessionmaker
     try:
         media_id = await publish_now(sessionmaker, post_id)

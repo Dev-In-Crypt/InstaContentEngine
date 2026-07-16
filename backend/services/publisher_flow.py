@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from config import get_settings
 from models.database import Post as PostModel
-from services.image_host import ImgbbUploader, ImageHostError
+from services.image_host import ImgbbUploader
 from services.instagram import InstagramPublisher, InstagramError
 
 
@@ -43,6 +43,12 @@ async def publish_now(sessionmaker, post_id: str) -> str:
         post = result.scalar_one_or_none()
         if not post:
             raise PublishError(f"Post {post_id} not found")
+
+        # Idempotency: if it's already live, return the existing media id instead
+        # of publishing a second time. Covers the double-click and the race where
+        # a manual publish and the scheduled job both fire.
+        if post.status == "published" and post.instagram_media_id:
+            return post.instagram_media_id
 
         # Read slide images from disk in slide order.
         slides = sorted(post.slides, key=lambda s: s.slide_number)
@@ -74,7 +80,10 @@ async def publish_now(sessionmaker, post_id: str) -> str:
                 media_id = await publisher.publish_carousel(
                     image_urls=image_urls, caption=caption,
                 )
-        except (ImageHostError, InstagramError) as e:
+        except Exception as e:
+            # Any failure (imgbb, IG, timeout, network) marks the post failed so it
+            # never sits stuck 'scheduled'. ImageHostError/InstagramError carry
+            # useful messages; the rest still get recorded.
             await _mark_failed(db, post, str(e))
             raise PublishError(str(e)) from e
         finally:

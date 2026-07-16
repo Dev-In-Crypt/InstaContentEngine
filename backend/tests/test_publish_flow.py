@@ -1,0 +1,149 @@
+"""Publish flow: no duplicate publishes, no posts stuck 'scheduled' on timeout."""
+import asyncio
+import io
+import uuid
+from pathlib import Path
+from unittest.mock import AsyncMock
+
+import pytest
+from PIL import Image
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+import services.publisher_flow as pf
+from config import Settings
+from models.database import Base, Post as PostModel, Slide as SlideModel
+from services.instagram import InstagramError, InstagramPublisher
+
+
+def _jpeg() -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGB", (50, 50), "red").save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+# ── IG container timeout raises the flow's own error type ───────────────────
+
+async def test_wait_for_container_timeout_raises_instagram_error():
+    """It used to raise builtin TimeoutError, which publisher_flow doesn't catch,
+    so a slow-to-process post stayed 'scheduled' forever with images already up."""
+    pub = InstagramPublisher(access_token="t", ig_user_id="u")
+    try:
+        with pytest.raises(InstagramError):
+            await pub._wait_for_container("cid", max_retries=0)
+    finally:
+        await pub.close()
+
+
+# ── publish_now DB-backed tests ─────────────────────────────────────────────
+
+@pytest.fixture
+def db_url(tmp_path):
+    return f"sqlite+aiosqlite:///{tmp_path / 'pub.db'}"
+
+
+@pytest.fixture
+def sessionmaker(db_url):
+    eng = create_async_engine(db_url)
+
+    async def _ensure():
+        async with eng.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+    asyncio.run(_ensure())
+    return async_sessionmaker(eng, expire_on_commit=False)
+
+
+async def _seed(sm, **cols):
+    async with sm() as s:
+        s.add(PostModel(**cols))
+        await s.commit()
+
+
+def _fake_settings():
+    return Settings(
+        instagram_access_token="tok", instagram_user_id="uid", imgbb_api_key="key",
+    )
+
+
+async def test_publish_now_idempotent_when_already_published(sessionmaker, monkeypatch):
+    """A post already published must not be uploaded/published a second time —
+    guards against the double-click and the manual+scheduled-job race."""
+    pid = str(uuid.uuid4())
+    await _seed(sessionmaker, id=pid, topic="t", format="single", status="published",
+                instagram_media_id="existing-123")
+
+    monkeypatch.setattr(pf, "get_settings", _fake_settings)
+
+    def boom(*a, **k):
+        raise AssertionError("should not publish an already-published post")
+
+    monkeypatch.setattr(pf, "ImgbbUploader", boom)
+    monkeypatch.setattr(pf, "InstagramPublisher", boom)
+
+    media_id = await pf.publish_now(sessionmaker, pid)
+    assert media_id == "existing-123"
+
+
+async def test_publish_now_marks_failed_on_non_ig_error(sessionmaker, monkeypatch, tmp_path):
+    """A non-InstagramError during upload/publish must still mark the post failed.
+    Before the broad except, a RuntimeError from imgbb escaped and left the post
+    'scheduled' with no error recorded."""
+    pid = str(uuid.uuid4())
+    img_path = tmp_path / "slide_1.jpg"
+    img_path.write_bytes(_jpeg())
+    await _seed(sessionmaker, id=pid, topic="t", format="single", status="scheduled")
+    async with sessionmaker() as s:
+        s.add(SlideModel(post_id=pid, slide_number=1, image_source="stock",
+                         image_path=str(img_path)))
+        await s.commit()
+
+    monkeypatch.setattr(pf, "get_settings", _fake_settings)
+
+    class FakeUploader:
+        def __init__(self, *a, **k): ...
+        async def upload_many(self, *a, **k):
+            raise RuntimeError("imgbb exploded")   # NOT an ImageHostError
+        async def close(self): ...
+
+    class FakePublisher:
+        def __init__(self, *a, **k): ...
+        async def close(self): ...
+
+    monkeypatch.setattr(pf, "ImgbbUploader", FakeUploader)
+    monkeypatch.setattr(pf, "InstagramPublisher", FakePublisher)
+
+    with pytest.raises(pf.PublishError):
+        await pf.publish_now(sessionmaker, pid)
+
+    async with sessionmaker() as s:
+        post = await s.get(PostModel, pid)
+        assert post.status == "failed"
+        assert post.schedule_error
+
+
+# ── manual publish cancels the pending scheduled job ────────────────────────
+
+def test_publish_endpoint_cancels_scheduled_job(sessionmaker, monkeypatch):
+    """A manual publish must drop the pending APScheduler job, or the job fires
+    later and double-publishes (the idempotency guard is the backstop, not the
+    only line of defence)."""
+    from fastapi.testclient import TestClient
+
+    import services.scheduler as sched
+    from api.deps import get_settings
+    from main import app
+
+    cancelled = {}
+    monkeypatch.setattr(sched, "cancel_publish", lambda pid: cancelled.setdefault("pid", pid))
+    monkeypatch.setattr(pf, "publish_now", AsyncMock(return_value="media-9"))
+
+    app.state.sessionmaker = sessionmaker
+    app.dependency_overrides[get_settings] = lambda: Settings(api_token="")
+    try:
+        tc = TestClient(app)
+        res = tc.post(f"/api/posts/{uuid.uuid4()}/publish")
+        assert res.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+
+    assert "pid" in cancelled   # cancel_publish was called before publishing

@@ -141,6 +141,8 @@ class InstagramPublisher:
             raise InstagramError(
                 f"Failed to create media container: {e.response.status_code} {e.response.text}"
             ) from e
+        except httpx.RequestError as e:
+            raise InstagramError(f"Network error creating media container: {e}") from e
         return resp.json()["id"]
 
     async def _wait_for_container(
@@ -155,6 +157,8 @@ class InstagramPublisher:
                 resp.raise_for_status()
             except httpx.HTTPStatusError as e:
                 raise InstagramError(f"Container status check failed: {e.response.status_code}") from e
+            except httpx.RequestError as e:
+                raise InstagramError(f"Network error checking container: {e}") from e
 
             status = resp.json().get("status_code")
             if status == "FINISHED":
@@ -163,7 +167,12 @@ class InstagramPublisher:
                 raise InstagramError(f"Container processing failed: {resp.json()}")
             await asyncio.sleep(poll_interval)
 
-        raise TimeoutError(f"Container {container_id} did not finish within {max_retries} retries")
+        # InstagramError, not builtin TimeoutError: the publish flow catches
+        # InstagramError and marks the post failed. A bare TimeoutError escaped
+        # that net and left the post stuck 'scheduled' with images already up.
+        raise InstagramError(
+            f"Container {container_id} did not finish within {max_retries} retries"
+        )
 
     async def _publish_container(self, container_id: str) -> str:
         url = f"{self.BASE_URL}/{self.API_VERSION}/{self.ig_user_id}/media_publish"
@@ -177,6 +186,8 @@ class InstagramPublisher:
             raise InstagramError(
                 f"Failed to publish container: {e.response.status_code} {e.response.text}"
             ) from e
+        except httpx.RequestError as e:
+            raise InstagramError(f"Network error publishing container: {e}") from e
         return resp.json()["id"]
 
     async def close(self) -> None:
