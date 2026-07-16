@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 from config import get_settings
 from models.database import Post as PostModel
 from services.image_host import ImgbbUploader
-from services.instagram import InstagramPublisher, InstagramError
+from services.instagram import InstagramPublisher
 
 
 class PublishError(Exception):
@@ -115,6 +115,11 @@ async def publish_reel_now(sessionmaker, post_id: str, video_url: str) -> str:
         if not post:
             raise PublishError(f"Post {post_id} not found")
 
+        # Idempotency: already live → return the existing media id (mirrors
+        # publish_now; guards double-click and manual+job races).
+        if post.status == "published" and post.instagram_media_id:
+            return post.instagram_media_id
+
         caption = f"{post.caption or ''}\n\n{' '.join(post.hashtags or [])}".strip()
         publisher = InstagramPublisher(
             access_token=settings.instagram_access_token,
@@ -122,7 +127,9 @@ async def publish_reel_now(sessionmaker, post_id: str, video_url: str) -> str:
         )
         try:
             media_id = await publisher.publish_reel(video_url=video_url, caption=caption)
-        except InstagramError as e:
+        except Exception as e:
+            # Any failure (IG, timeout, network) marks the post failed so it never
+            # sits stuck in its prior status.
             await _mark_failed(db, post, str(e))
             raise PublishError(str(e)) from e
         finally:

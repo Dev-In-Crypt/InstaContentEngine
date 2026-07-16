@@ -147,3 +147,44 @@ def test_publish_endpoint_cancels_scheduled_job(sessionmaker, monkeypatch):
         app.dependency_overrides.pop(get_settings, None)
 
     assert "pid" in cancelled   # cancel_publish was called before publishing
+
+
+# ── publish_reel_now: symmetry with publish_now (X.5) ───────────────────────
+
+async def test_publish_reel_idempotent_when_already_published(sessionmaker, monkeypatch):
+    pid = str(uuid.uuid4())
+    await _seed(sessionmaker, id=pid, topic="t", format="reel", status="published",
+                instagram_media_id="reel-existing")
+    monkeypatch.setattr(pf, "get_settings", _fake_settings)
+
+    def boom(*a, **k):
+        raise AssertionError("should not re-publish a published reel")
+
+    monkeypatch.setattr(pf, "InstagramPublisher", boom)
+
+    media_id = await pf.publish_reel_now(sessionmaker, pid, "https://x/v.mp4")
+    assert media_id == "reel-existing"
+
+
+async def test_publish_reel_marks_failed_on_non_ig_error(sessionmaker, monkeypatch):
+    """A non-InstagramError (network/timeout) during the reel publish must mark
+    the post failed, not leave it hanging in its current status."""
+    pid = str(uuid.uuid4())
+    await _seed(sessionmaker, id=pid, topic="t", format="reel", status="scheduled")
+    monkeypatch.setattr(pf, "get_settings", _fake_settings)
+
+    class FakePublisher:
+        def __init__(self, *a, **k): ...
+        async def publish_reel(self, *a, **k):
+            raise RuntimeError("network reset")   # NOT an InstagramError
+        async def close(self): ...
+
+    monkeypatch.setattr(pf, "InstagramPublisher", FakePublisher)
+
+    with pytest.raises(pf.PublishError):
+        await pf.publish_reel_now(sessionmaker, pid, "https://x/v.mp4")
+
+    async with sessionmaker() as s:
+        post = await s.get(PostModel, pid)
+        assert post.status == "failed"
+        assert post.schedule_error
