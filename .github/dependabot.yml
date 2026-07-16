@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # Python deps in backend/requirements.txt — CVE patches for Pillow, cryptography,
+  # fastapi, etc. don't go stale silently.
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  # GitHub Actions used in the CI workflow.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
