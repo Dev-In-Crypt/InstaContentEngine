@@ -6,7 +6,7 @@ from services.brand_engine import PillowBrandEngine, BrandConfig
 from services.exporter import TemplateExporter
 from services.stock import UnsplashClient, PexelsClient, StockClient
 from services.content_engine import ContentEngine
-from services.http_utils import setup_tls
+from services.http_utils import setup_logging, setup_tls
 from bot.telegram_bot import InstaBot
 
 
@@ -34,9 +34,10 @@ def build_engine(settings) -> ContentEngine:
 
 
 def main() -> None:
-    # This process never runs main.py's lifespan, so it installs its own TLS hook.
-    # It must come before InstaBot(), which builds telegram's httpx client in its
-    # constructor.
+    # This process never runs main.py's lifespan, so it installs its own hooks.
+    # setup_tls must come before InstaBot(), which builds telegram's httpx client
+    # in its constructor.
+    setup_logging(get_settings().log_level)
     setup_tls()
 
     settings = get_settings()

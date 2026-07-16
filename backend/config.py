@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./insta.db"
     secret_key: str = "change-me-in-production"
     api_token: str = ""  # if set, all API calls require Bearer <token>
+    log_level: str = "INFO"  # DEBUG | INFO | WARNING | ERROR
 
     # Certificates are ALWAYS verified against the OS trust store — see
     # services/http_utils.setup_tls, installed at every process entry point — so an

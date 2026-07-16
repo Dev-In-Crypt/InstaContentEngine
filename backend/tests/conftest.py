@@ -1,5 +1,18 @@
+import logging
+
 import pytest
 import truststore
+
+
+@pytest.fixture(autouse=True)
+def _restore_root_logger():
+    """setup_logging() mutates the root logger's level and handlers process-wide;
+    restore it so a test asserting a level can't pass on another test's setup."""
+    root = logging.getLogger()
+    level, handlers = root.level, root.handlers[:]
+    yield
+    root.setLevel(level)
+    root.handlers[:] = handlers
 
 
 @pytest.fixture(autouse=True)

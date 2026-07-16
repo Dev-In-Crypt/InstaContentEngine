@@ -1,9 +1,24 @@
-"""Shared HTTP helpers."""
+"""Shared startup + HTTP helpers."""
 
 from __future__ import annotations
 
+import logging
+
 import httpx
 import truststore
+
+
+def setup_logging(level: str = "INFO") -> None:
+    """Send app logs to stderr at the configured level.
+
+    Without this the getLogger(__name__) loggers across services/ only surface at
+    WARNING via the last-resort handler, so a scheduled-publish INFO/ERROR on a
+    24/7 box (services/scheduler.py) goes unseen. Installed at every process entry
+    point, before anything logs. Idempotent.
+    """
+    lvl = getattr(logging, level.upper(), logging.INFO)
+    logging.basicConfig(level=lvl, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger().setLevel(lvl)   # ensure our level wins even if a handler was added first
 
 SSL_HINT = (
     "SSL certificate verification failed. If you are behind a corporate proxy or "
