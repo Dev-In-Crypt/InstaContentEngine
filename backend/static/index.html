@@ -3,10 +3,51 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>InstaContentEngine</title>
-  <!-- Tailwind Play CDN, vendored locally so the desktop app is styled offline. -->
+  <title>Content Engine</title>
+  <!-- Tailwind Play CDN, vendored locally so the app is styled offline. -->
   <script src="/static/vendor/tailwind.js"></script>
   <style>
+    /* ===== Inter (vendored, offline-safe) ===== */
+    @font-face { font-family:'Inter'; font-weight:400; font-display:swap; src:url('/static/vendor/inter-400.woff2') format('woff2'); }
+    @font-face { font-family:'Inter'; font-weight:500; font-display:swap; src:url('/static/vendor/inter-500.woff2') format('woff2'); }
+    @font-face { font-family:'Inter'; font-weight:600; font-display:swap; src:url('/static/vendor/inter-600.woff2') format('woff2'); }
+    @font-face { font-family:'Inter'; font-weight:700; font-display:swap; src:url('/static/vendor/inter-700.woff2') format('woff2'); }
+
+    /* ===== Content Engine theme (indigo bg + lavender accent) ===== */
+    :root{
+      --bg:#161826; --panel:#232532; --panel2:#2b2d3e; --panel3:#33364a;
+      --border:#3a3d4d; --text:#e9e9ed; --muted:#9a9db0; --accent:#9184d9;
+      --accent-strong:#a99ff0; --accent-dim:rgba(145,132,217,.14);
+    }
+    html,body,.font-sans{ font-family:'Inter',system-ui,-apple-system,sans-serif !important; }
+    body{ background:var(--bg) !important; color:var(--text); }
+
+    /* recolor the Tailwind shades the app uses → design palette */
+    .bg-gray-950{ background-color:var(--bg) !important; }
+    .bg-gray-900{ background-color:var(--panel) !important; }
+    .bg-gray-800{ background-color:var(--panel2) !important; }
+    .bg-gray-700{ background-color:var(--panel3) !important; }
+    .hover\:bg-gray-600:hover{ background-color:var(--panel3) !important; }
+    .border-gray-700,.border-gray-800{ border-color:var(--border) !important; }
+    .bg-purple-600,.bg-purple-700{ background-color:var(--accent) !important; }
+    .hover\:bg-purple-500:hover,.hover\:bg-purple-600:hover{ background-color:var(--accent-strong) !important; }
+    .bg-purple-900{ background-color:var(--accent-dim) !important; }
+    .border-purple-500{ border-color:var(--accent) !important; }
+    .text-purple-200,.text-purple-300,.text-purple-400{ color:var(--accent) !important; }
+    .ring-purple-500,.focus\:ring-purple-500:focus{ --tw-ring-color:var(--accent) !important; }
+    .from-purple-900{ --tw-gradient-from:var(--panel) var(--tw-gradient-from-position) !important; --tw-gradient-to:rgba(35,37,50,0) var(--tw-gradient-to-position) !important; --tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to) !important; }
+    .to-pink-900{ --tw-gradient-to:var(--panel) var(--tw-gradient-to-position) !important; }
+    .bg-blue-700,.bg-blue-600{ background-color:var(--accent) !important; }
+    .hover\:bg-blue-600:hover{ background-color:var(--accent-strong) !important; }
+
+    /* reusable component bits for the new screens */
+    .ce-btn{ background:var(--accent); color:#fff; border-radius:10px; font-weight:600; transition:background .15s; }
+    .ce-btn:hover{ background:var(--accent-strong); }
+    .ce-btn-ghost{ background:var(--accent-dim); color:var(--accent); border-radius:10px; font-weight:600; }
+    .ce-card{ background:var(--panel); border:1px solid var(--border); border-radius:16px; }
+    .ce-input{ background:var(--panel2); border:1px solid var(--border); border-radius:10px; color:var(--text); }
+    .ce-input:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-dim); }
+
     .slide-img { transition: opacity .3s; }
     .spinner { animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -30,23 +71,109 @@
 </header>
 
 <!-- ===== AUTH SCREEN (cloud mode only) ===== -->
-<div id="auth-screen" class="hidden fixed inset-0 z-50 bg-gray-950 flex items-center justify-center p-4">
-  <div class="bg-gray-900 border border-gray-700 rounded-2xl p-8 max-w-sm w-full space-y-4 shadow-2xl">
+<!-- ===== LANDING (guests, cloud mode) ===== -->
+<div id="landing-screen" class="hidden fixed inset-0 z-40 overflow-y-auto" style="background:var(--bg)">
+  <header class="max-w-6xl mx-auto px-6 py-5 flex items-center gap-2">
+    <span class="text-xl" style="color:var(--accent)">✦</span>
+    <span class="font-bold tracking-tight text-lg">Content Engine</span>
+    <div class="ml-auto flex gap-2">
+      <button onclick="showAuthScreen('login')" class="px-4 py-2 rounded-lg text-sm font-semibold text-gray-200 hover:bg-white/5 transition">Log in</button>
+      <button onclick="showAuthScreen('register')" class="ce-btn px-4 py-2 text-sm">Sign up</button>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="max-w-3xl mx-auto px-6 pt-14 pb-12 text-center">
+    <h1 class="text-4xl sm:text-5xl font-bold tracking-tight leading-tight">AI social content, on autopilot</h1>
+    <p class="mt-5 text-lg" style="color:var(--accent)">AI writes and publishes your content for you.</p>
+    <p class="mt-4 text-gray-400 leading-relaxed max-w-2xl mx-auto">Give it a topic. Content Engine writes the copy, designs your branded slides, and posts to Instagram and X — 24/7, even when your computer is off.</p>
+    <div class="mt-8 flex flex-wrap justify-center gap-3">
+      <button onclick="showAuthScreen('register')" class="ce-btn px-6 py-3 text-sm">Start free →</button>
+      <button onclick="showAuthScreen('login')" class="ce-btn-ghost px-6 py-3 text-sm">See a live demo</button>
+    </div>
+    <div class="mt-7 flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs text-gray-400">
+      <span>◆ Instagram &amp; X</span><span>◆ Your own API keys</span><span>◆ Encrypted &amp; isolated</span>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section class="max-w-5xl mx-auto px-6 py-10">
+    <div class="text-xs font-semibold tracking-[0.2em] text-gray-500 text-center">HOW IT WORKS</div>
+    <div class="mt-8 grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="ce-card p-5"><div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mb-3" style="background:var(--accent-dim);color:var(--accent)">1</div><div class="font-semibold mb-1">Connect your keys</div><div class="text-sm text-gray-400">OpenRouter for generation, Instagram/X for publishing. Encrypted and isolated.</div></div>
+      <div class="ce-card p-5"><div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mb-3" style="background:var(--accent-dim);color:var(--accent)">2</div><div class="font-semibold mb-1">Set a topic</div><div class="text-sm text-gray-400">Niche, audience, tone and length — that's all the AI needs.</div></div>
+      <div class="ce-card p-5"><div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mb-3" style="background:var(--accent-dim);color:var(--accent)">3</div><div class="font-semibold mb-1">AI writes &amp; designs</div><div class="text-sm text-gray-400">Copy, hashtags, SEO, plus branded slides in your style.</div></div>
+      <div class="ce-card p-5"><div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mb-3" style="background:var(--accent-dim);color:var(--accent)">4</div><div class="font-semibold mb-1">Publish or schedule</div><div class="text-sm text-gray-400">Post now or queue it — the server publishes 24/7.</div></div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="max-w-5xl mx-auto px-6 py-10">
+    <div class="text-xs font-semibold tracking-[0.2em] text-gray-500 text-center">EVERYTHING YOU NEED</div>
+    <div class="mt-8 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div class="ce-card p-5"><div class="text-2xl mb-2">✍</div><div class="font-semibold mb-1">AI copywriting</div><div class="text-sm text-gray-400">Hook, caption, hashtags and SEO keywords, tuned to your tone.</div></div>
+      <div class="ce-card p-5"><div class="text-2xl mb-2">🎴</div><div class="font-semibold mb-1">Branded slides</div><div class="text-sm text-gray-400">Carousels in your template — niche plate, title plate, logo.</div></div>
+      <div class="ce-card p-5"><div class="text-2xl mb-2">▶</div><div class="font-semibold mb-1">Reels video</div><div class="text-sm text-gray-400">Turn a topic into a short-form video script and shot list.</div></div>
+      <div class="ce-card p-5"><div class="text-2xl mb-2">🗓</div><div class="font-semibold mb-1">24/7 scheduler</div><div class="text-sm text-gray-400">Publishes from the server even when your computer is off.</div></div>
+      <div class="ce-card p-5"><div class="text-2xl mb-2">📈</div><div class="font-semibold mb-1">Competitor trends</div><div class="text-sm text-gray-400">Find sticky posts and adapt them to your brand in a click.</div></div>
+      <div class="ce-card p-5"><div class="text-2xl mb-2">📊</div><div class="font-semibold mb-1">Post analytics</div><div class="text-sm text-gray-400">Reach, saves, shares and comments pulled from the network.</div></div>
+    </div>
+  </section>
+
+  <!-- Built for -->
+  <section class="max-w-4xl mx-auto px-6 py-10 text-center">
+    <div class="text-sm text-gray-400 mb-4">Built for</div>
+    <div class="flex flex-wrap justify-center gap-3 text-sm">
+      <span class="ce-card px-4 py-2">SMM specialists</span>
+      <span class="ce-card px-4 py-2">Brands</span>
+      <span class="ce-card px-4 py-2">Bloggers</span>
+      <span class="ce-card px-4 py-2">Small business</span>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="max-w-3xl mx-auto px-6 py-14 text-center">
+    <h2 class="text-2xl sm:text-3xl font-bold">Start creating in minutes.</h2>
+    <p class="mt-3 text-gray-400">Free to start. Bring your own keys. Publish everywhere.</p>
+    <button onclick="showAuthScreen('register')" class="ce-btn px-7 py-3 text-sm mt-7">Start free →</button>
+  </section>
+
+  <!-- Footer -->
+  <footer class="border-t" style="border-color:var(--border)">
+    <div class="max-w-6xl mx-auto px-6 py-6 flex flex-wrap items-center gap-4 text-sm text-gray-500">
+      <span>© 2026 Content Engine</span>
+      <div class="ml-auto flex gap-5">
+        <a href="#" class="hover:text-gray-300">Product</a>
+        <a href="#" class="hover:text-gray-300">Pricing</a>
+        <a href="#" class="hover:text-gray-300">Docs</a>
+        <a href="#" class="hover:text-gray-300">Contact</a>
+      </div>
+    </div>
+  </footer>
+</div>
+
+<!-- ===== AUTH (login / register) ===== -->
+<div id="auth-screen" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background:var(--bg)">
+  <div class="ce-card p-8 max-w-sm w-full space-y-4 shadow-2xl">
     <div class="flex items-center gap-2">
-      <span class="text-2xl">📸</span>
-      <h2 class="text-lg font-bold text-purple-300">InstaContentEngine</h2>
+      <span class="text-xl" style="color:var(--accent)">✦</span>
+      <h2 class="text-lg font-bold">Content Engine</h2>
+    </div>
+    <div>
+      <div class="text-xl font-semibold" id="auth-heading">Welcome back</div>
+      <div class="text-sm text-gray-400" id="auth-subhead">Log in to your workspace.</div>
     </div>
     <div class="flex gap-2 text-sm">
       <button id="auth-tab-login" onclick="switchAuthTab('login')" class="flex-1 rounded-lg py-2 font-semibold border-2 border-purple-500 bg-purple-900 text-white">Log in</button>
-      <button id="auth-tab-register" onclick="switchAuthTab('register')" class="flex-1 rounded-lg py-2 font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300">Register</button>
+      <button id="auth-tab-register" onclick="switchAuthTab('register')" class="flex-1 rounded-lg py-2 font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300">Sign up</button>
     </div>
-    <input id="auth-email" type="email" placeholder="you@example.com" autocomplete="username"
-      class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500" />
-    <input id="auth-password" type="password" placeholder="Password (min 8 chars)" autocomplete="current-password"
-      class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500" />
+    <input id="auth-email" type="email" placeholder="you@brand.com" autocomplete="username"
+      class="ce-input w-full px-4 py-3" />
+    <input id="auth-password" type="password" placeholder="••••••••" autocomplete="current-password"
+      class="ce-input w-full px-4 py-3" />
     <p id="auth-error" class="hidden text-red-400 text-xs"></p>
-    <button id="auth-submit" onclick="submitAuth()" class="w-full bg-purple-600 hover:bg-purple-500 transition rounded-xl py-3 font-semibold text-white">Log in</button>
-    <p class="text-xs text-gray-500">Your API keys stay private to your account and are stored encrypted.</p>
+    <button id="auth-submit" onclick="submitAuth()" class="ce-btn w-full py-3">Log in</button>
+    <button onclick="backToHome()" class="w-full text-xs text-gray-400 hover:text-gray-200 transition">← Back to home</button>
   </div>
 </div>
 
@@ -597,18 +724,31 @@ function authHeader() {
   return t ? { 'Authorization': `Bearer ${t}` } : {};
 }
 
-// ---- boot gate: who am I? (cloud shows login; local resolves silently) ----
+// ---- boot gate: who am I? (cloud shows landing; local resolves silently) ----
 async function initAuth() {
   try {
     const res = await fetch(`${API}/api/auth/me`, { headers: authHeader() });
     if (!res.ok) throw new Error('unauthenticated');
     S.user = await res.json();
     hideAuthScreen();
+    hideLanding();
     renderUserChrome();
     startApp();
   } catch {
-    showAuthScreen();
+    showLanding();   // guests see the marketing page first, not the form
   }
+}
+
+function showLanding() {
+  hideAuthScreen();
+  document.getElementById('landing-screen').classList.remove('hidden');
+}
+function hideLanding() {
+  document.getElementById('landing-screen').classList.add('hidden');
+}
+function backToHome() {
+  hideAuthScreen();
+  showLanding();
 }
 
 // One-time app bootstrap after a user is known (intervals registered once).
@@ -635,8 +775,11 @@ function renderUserChrome() {
   if (backup) backup.classList.toggle('hidden', !(S.user && (S.user.is_admin || S.user.is_local)));
 }
 
-function showAuthScreen() {
+function showAuthScreen(tab) {
+  hideLanding();
   document.getElementById('auth-screen').classList.remove('hidden');
+  switchAuthTab(tab || 'login');
+  document.getElementById('auth-email').focus();
 }
 function hideAuthScreen() {
   document.getElementById('auth-screen').classList.add('hidden');
@@ -654,6 +797,8 @@ function switchAuthTab(tab) {
     b.classList.toggle('bg-gray-800', !on);
     b.classList.toggle('text-gray-300', !on);
   }
+  document.getElementById('auth-heading').textContent = login ? 'Welcome back' : 'Create your account';
+  document.getElementById('auth-subhead').textContent = login ? 'Log in to your workspace.' : 'Free to start — bring your own keys.';
   document.getElementById('auth-password').setAttribute(
     'autocomplete', login ? 'current-password' : 'new-password');
   document.getElementById('auth-submit').textContent = login ? 'Log in' : 'Create account';
@@ -685,14 +830,14 @@ function logout() {
   S.user = null;
   document.getElementById('user-chip').classList.add('hidden');
   document.getElementById('logout-btn').classList.add('hidden');
-  showAuthScreen();
+  showLanding();
 }
 
-// A 401 mid-session means the token expired/was revoked — back to the login screen.
+// A 401 mid-session means the token expired/was revoked — back to the landing page.
 function handleAuthExpired() {
   localStorage.removeItem('api_token');
   S.user = null;
-  showAuthScreen();
+  showLanding();
 }
 
 async function apiFetch(url, opts = {}) {
