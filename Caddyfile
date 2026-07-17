@@ -1,0 +1,9 @@
+# Caddy reverse proxy — terminates TLS (auto Let's Encrypt) and forwards to the app.
+# {$DOMAIN} is read from the DOMAIN env var (set in .env / docker-compose).
+{$DOMAIN} {
+	reverse_proxy app:8000
+	# Slide/reel uploads can be a few MB; allow generous request bodies.
+	request_body {
+		max_size 30MB
+	}
+}

@@ -1,0 +1,60 @@
+# Self-hosted deploy on a cheap VPS (~$5/mo): app + Postgres + Caddy (auto-HTTPS).
+# One command:  docker compose up -d
+# First copy compose.env.example → .env (same folder) and fill it in. See SELFHOST.md.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: insta
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      POSTGRES_DB: insta
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U insta"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .                      # uses ./Dockerfile (context = repo root)
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_MODE: cloud
+      # Signs login tokens AND encrypts stored user keys — strong & STABLE, never change.
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      DATABASE_URL: postgresql+asyncpg://insta:${DB_PASSWORD}@db:5432/insta
+      DEFAULT_TEXT_MODEL: anthropic/claude-sonnet-4
+      DEFAULT_IMAGE_MODEL: google/gemini-2.5-flash-image-preview
+      PORT: "8000"
+    volumes:
+      - uploads:/app/uploads      # generated slides / raw images / reel mp4s
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data          # Let's Encrypt certificates (persisted)
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:
+  caddy_config:
