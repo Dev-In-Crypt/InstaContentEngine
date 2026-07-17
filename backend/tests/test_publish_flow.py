@@ -65,9 +65,27 @@ def _fake_settings():
     )
 
 
+class _FakePublisher:
+    """Records the images/caption it was handed, returns a canned outcome."""
+    def __init__(self, outcome=None, error=None):
+        from services.publishing.base import PublishOutcome
+        self.outcome = outcome or PublishOutcome(media_id="pub-1", permalink="https://x/1")
+        self.error = error
+        self.called_with = None
+
+    async def publish(self, images, caption, alt_text=None):
+        self.called_with = (images, caption, alt_text)
+        if self.error:
+            raise self.error
+        return self.outcome
+
+    async def close(self):
+        ...
+
+
 async def test_publish_now_idempotent_when_already_published(sessionmaker, monkeypatch):
-    """A post already published must not be uploaded/published a second time —
-    guards against the double-click and the manual+scheduled-job race."""
+    """A post already published must not be published a second time — guards the
+    double-click and the manual+scheduled-job race."""
     pid = str(uuid.uuid4())
     await _seed(sessionmaker, id=pid, topic="t", format="single", status="published",
                 instagram_media_id="existing-123")
@@ -75,19 +93,51 @@ async def test_publish_now_idempotent_when_already_published(sessionmaker, monke
     monkeypatch.setattr(pf, "get_settings", _fake_settings)
 
     def boom(*a, **k):
-        raise AssertionError("should not publish an already-published post")
+        raise AssertionError("should not build a publisher for an already-published post")
 
-    monkeypatch.setattr(pf, "ImgbbUploader", boom)
-    monkeypatch.setattr(pf, "InstagramPublisher", boom)
+    monkeypatch.setattr(pf, "make_publisher_for", boom)
 
     media_id = await pf.publish_now(sessionmaker, pid)
     assert media_id == "existing-123"
 
 
-async def test_publish_now_marks_failed_on_non_ig_error(sessionmaker, monkeypatch, tmp_path):
-    """A non-InstagramError during upload/publish must still mark the post failed.
-    Before the broad except, a RuntimeError from imgbb escaped and left the post
-    'scheduled' with no error recorded."""
+async def test_publish_now_routes_to_platform_publisher(sessionmaker, monkeypatch, tmp_path):
+    """publish_now hands the slide bytes to the publisher built for the post's
+    platform, and records the returned id + permalink."""
+    from services.publishing.base import PublishOutcome
+    pid = str(uuid.uuid4())
+    img_path = tmp_path / "slide_1.jpg"
+    img_path.write_bytes(_jpeg())
+    await _seed(sessionmaker, id=pid, topic="t", format="single", status="preview", platform="x")
+    async with sessionmaker() as s:
+        s.add(SlideModel(post_id=pid, slide_number=1, image_source="stock",
+                         image_path=str(img_path)))
+        await s.commit()
+
+    fake = _FakePublisher(PublishOutcome(media_id="tw9", permalink="https://x.com/i/web/status/tw9"))
+    seen = {}
+
+    def factory(platform, settings, name_prefix="slide"):
+        seen["platform"] = platform
+        return fake
+
+    monkeypatch.setattr(pf, "get_settings", _fake_settings)
+    monkeypatch.setattr(pf, "make_publisher_for", factory)
+
+    media_id = await pf.publish_now(sessionmaker, pid)
+
+    assert seen["platform"] == "x"          # routed by post.platform
+    assert media_id == "tw9"
+    assert fake.called_with[0] == [_jpeg()]  # slide bytes handed over
+    async with sessionmaker() as s:
+        post = await s.get(PostModel, pid)
+        assert post.status == "published"
+        assert post.instagram_media_id == "tw9"
+        assert post.published_url == "https://x.com/i/web/status/tw9"
+
+
+async def test_publish_now_marks_failed_on_publisher_error(sessionmaker, monkeypatch, tmp_path):
+    """Any publisher failure marks the post failed, not left stuck 'scheduled'."""
     pid = str(uuid.uuid4())
     img_path = tmp_path / "slide_1.jpg"
     img_path.write_bytes(_jpeg())
@@ -97,20 +147,9 @@ async def test_publish_now_marks_failed_on_non_ig_error(sessionmaker, monkeypatc
                          image_path=str(img_path)))
         await s.commit()
 
+    fake = _FakePublisher(error=RuntimeError("platform exploded"))
     monkeypatch.setattr(pf, "get_settings", _fake_settings)
-
-    class FakeUploader:
-        def __init__(self, *a, **k): ...
-        async def upload_many(self, *a, **k):
-            raise RuntimeError("imgbb exploded")   # NOT an ImageHostError
-        async def close(self): ...
-
-    class FakePublisher:
-        def __init__(self, *a, **k): ...
-        async def close(self): ...
-
-    monkeypatch.setattr(pf, "ImgbbUploader", FakeUploader)
-    monkeypatch.setattr(pf, "InstagramPublisher", FakePublisher)
+    monkeypatch.setattr(pf, "make_publisher_for", lambda *a, **k: fake)
 
     with pytest.raises(pf.PublishError):
         await pf.publish_now(sessionmaker, pid)
@@ -188,3 +227,12 @@ async def test_publish_reel_marks_failed_on_non_ig_error(sessionmaker, monkeypat
         post = await s.get(PostModel, pid)
         assert post.status == "failed"
         assert post.schedule_error
+
+
+async def test_publish_reel_rejects_non_instagram(sessionmaker, monkeypatch):
+    """Reels are Instagram-only; an X post must not go down the reel path."""
+    pid = str(uuid.uuid4())
+    await _seed(sessionmaker, id=pid, topic="t", format="reel", status="preview", platform="x")
+    monkeypatch.setattr(pf, "get_settings", _fake_settings)
+    with pytest.raises(pf.PublishError, match="Instagram only"):
+        await pf.publish_reel_now(sessionmaker, pid, "https://x/v.mp4")

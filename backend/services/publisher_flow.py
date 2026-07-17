@@ -1,8 +1,8 @@
 """Shared publish pipeline used by both immediate publish and scheduled jobs.
 
-Flow: load post → read slide JPEGs → upload to imgbb (public URLs IG can fetch)
-→ create IG media container(s) → publish → record media_id / published_at, or
-mark the post failed with the error.
+Flow: load post → read slide JPEGs → hand them to the platform's Publisher
+(Instagram, X, …) → record the published id / permalink, or mark the post failed.
+The platform-specific upload+publish lives in services/publishing/*.
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from sqlalchemy.orm import selectinload
 
 from config import get_settings
 from models.database import Post as PostModel
-from services.image_host import ImgbbUploader
 from services.instagram import InstagramPublisher
+from services.publishing.factory import make_publisher_for
 
 
 class PublishError(Exception):
@@ -24,16 +24,12 @@ class PublishError(Exception):
 
 
 async def publish_now(sessionmaker, post_id: str) -> str:
-    """Publish a post to Instagram immediately. Returns the IG media id.
+    """Publish a post to its platform immediately. Returns the platform post id.
 
     Raises PublishError on any failure (and marks the post as failed in DB).
     `sessionmaker` is an async_sessionmaker (app.state.sessionmaker).
     """
     settings = get_settings()
-    if not settings.instagram_access_token or not settings.instagram_user_id:
-        raise PublishError("Instagram credentials not configured")
-    if not settings.imgbb_api_key:
-        raise PublishError("IMGBB_API_KEY not configured (needed for public image URLs)")
 
     async with sessionmaker() as db:
         result = await db.execute(
@@ -44,11 +40,19 @@ async def publish_now(sessionmaker, post_id: str) -> str:
         if not post:
             raise PublishError(f"Post {post_id} not found")
 
-        # Idempotency: if it's already live, return the existing media id instead
-        # of publishing a second time. Covers the double-click and the race where
-        # a manual publish and the scheduled job both fire.
+        # Idempotency: if it's already live, return the existing id instead of
+        # publishing a second time. Covers the double-click and the race where a
+        # manual publish and the scheduled job both fire.
         if post.status == "published" and post.instagram_media_id:
             return post.instagram_media_id
+
+        # The factory gates credentials for the post's platform and raises
+        # PublishError if they're missing.
+        platform = post.platform or "instagram"
+        try:
+            publisher = make_publisher_for(platform, settings, name_prefix=post.id[:8])
+        except Exception as e:
+            raise PublishError(str(e)) from e
 
         # Read slide images from disk in slide order.
         slides = sorted(post.slides, key=lambda s: s.slide_number)
@@ -65,38 +69,24 @@ async def publish_now(sessionmaker, post_id: str) -> str:
 
         caption = f"{post.caption or ''}\n\n{' '.join(post.hashtags or [])}".strip()
 
-        uploader = ImgbbUploader(settings.imgbb_api_key)
-        publisher = InstagramPublisher(
-            access_token=settings.instagram_access_token,
-            ig_user_id=settings.instagram_user_id,
-        )
         try:
-            image_urls = await uploader.upload_many(images, name_prefix=post.id[:8])
-            if len(image_urls) == 1:
-                media_id = await publisher.publish_single(
-                    image_url=image_urls[0], caption=caption, alt_text=post.alt_text or "",
-                )
-            else:
-                media_id = await publisher.publish_carousel(
-                    image_urls=image_urls, caption=caption,
-                )
+            outcome = await publisher.publish(images, caption, post.alt_text or "")
         except Exception as e:
-            # Any failure (imgbb, IG, timeout, network) marks the post failed so it
-            # never sits stuck 'scheduled'. ImageHostError/InstagramError carry
-            # useful messages; the rest still get recorded.
+            # Any failure (upload, platform API, timeout, network) marks the post
+            # failed so it never sits stuck 'scheduled'.
             await _mark_failed(db, post, str(e))
             raise PublishError(str(e)) from e
         finally:
-            await uploader.close()
             await publisher.close()
 
         post.status = "published"
-        post.instagram_media_id = media_id
+        post.instagram_media_id = outcome.media_id   # platform post id (name kept for back-compat)
+        post.published_url = outcome.permalink
         post.published_at = datetime.now(timezone.utc)
-        post.published_image_urls = image_urls
+        post.published_image_urls = outcome.image_urls
         post.schedule_error = None
         await db.commit()
-        return media_id
+        return outcome.media_id
 
 
 async def publish_reel_now(sessionmaker, post_id: str, video_url: str) -> str:
@@ -114,6 +104,10 @@ async def publish_reel_now(sessionmaker, post_id: str, video_url: str) -> str:
         post = result.scalar_one_or_none()
         if not post:
             raise PublishError(f"Post {post_id} not found")
+
+        # Reels are Instagram-only for now; other platforms have no video path here.
+        if (post.platform or "instagram") != "instagram":
+            raise PublishError("Reels are supported on Instagram only")
 
         # Idempotency: already live → return the existing media id (mirrors
         # publish_now; guards double-click and manual+job races).

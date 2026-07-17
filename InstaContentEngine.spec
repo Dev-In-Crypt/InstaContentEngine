@@ -30,6 +30,7 @@ hiddenimports += [
     "PIL", "PIL._imaging", "numpy",
     "imageio", "imageio.plugins.ffmpeg",
     "aiofiles", "anyio", "h11", "sniffio",
+    "authlib", "authlib.oauth1",   # X/Twitter OAuth 1.0a signing
 ]
 # Dynamic submodules PyInstaller commonly misses (imported by string / lazily):
 hiddenimports += collect_submodules("uvicorn")
