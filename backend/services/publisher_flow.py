@@ -13,10 +13,10 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from config import get_settings
 from models.database import Post as PostModel
 from services.instagram import InstagramPublisher
 from services.publishing.factory import make_publisher_for
+from services.user_settings import settings_for_post_owner
 
 
 class PublishError(Exception):
@@ -29,8 +29,6 @@ async def publish_now(sessionmaker, post_id: str) -> str:
     Raises PublishError on any failure (and marks the post as failed in DB).
     `sessionmaker` is an async_sessionmaker (app.state.sessionmaker).
     """
-    settings = get_settings()
-
     async with sessionmaker() as db:
         result = await db.execute(
             select(PostModel).where(PostModel.id == post_id)
@@ -45,6 +43,10 @@ async def publish_now(sessionmaker, post_id: str) -> str:
         # manual publish and the scheduled job both fire.
         if post.status == "published" and post.instagram_media_id:
             return post.instagram_media_id
+
+        # Publish with the POST OWNER's own keys (multi-tenant), falling back to
+        # the platform .env for the local desktop user / unowned posts.
+        settings = await settings_for_post_owner(db, post)
 
         # The factory gates credentials for the post's platform and raises
         # PublishError if they're missing.
@@ -95,10 +97,6 @@ async def publish_reel_now(sessionmaker, post_id: str, video_url: str) -> str:
     `video_url` must be publicly reachable by Instagram — in cloud mode this is
     PUBLIC_BASE_URL + /api/posts/{id}/reel/video. Raises PublishError on failure.
     """
-    settings = get_settings()
-    if not settings.instagram_access_token or not settings.instagram_user_id:
-        raise PublishError("Instagram credentials not configured")
-
     async with sessionmaker() as db:
         result = await db.execute(select(PostModel).where(PostModel.id == post_id))
         post = result.scalar_one_or_none()
@@ -113,6 +111,12 @@ async def publish_reel_now(sessionmaker, post_id: str, video_url: str) -> str:
         # publish_now; guards double-click and manual+job races).
         if post.status == "published" and post.instagram_media_id:
             return post.instagram_media_id
+
+        # Publish with the post owner's Instagram credentials (platform .env for
+        # the local desktop user / unowned posts).
+        settings = await settings_for_post_owner(db, post)
+        if not settings.instagram_access_token or not settings.instagram_user_id:
+            raise PublishError("Instagram credentials not configured")
 
         caption = f"{post.caption or ''}\n\n{' '.join(post.hashtags or [])}".strip()
         publisher = InstagramPublisher(

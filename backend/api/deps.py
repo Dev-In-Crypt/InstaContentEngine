@@ -12,13 +12,14 @@ from models.database import (
     BrandConfig as BrandConfigModel,
     Post as PostModel,
     User as UserModel,
-    UserCredentials as UserCredentialsModel,
 )
 # The acting user's id for the current async task (set in get_current_user).
 # Defined in services.openrouter to avoid a circular import; re-exported here.
 from services.openrouter import current_user_id
+# Per-user effective Settings live in the services layer; re-exported so
+# api/routes/settings.py (imports _CRED_FIELDS) and get_effective_settings work.
+from services.user_settings import _CRED_FIELDS, build_settings_for_user  # noqa: F401
 from services.auth import decode_access_token
-from services.secrets import decrypt
 from services.openrouter import OpenRouterClient
 from services.caption_generator import CaptionGenerator
 from services.image_router import ImageRouter
@@ -105,21 +106,6 @@ async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
 
 LOCAL_USER_EMAIL = "local@localhost"
 
-# Every field of Settings a user may override with their own key, mapped to the
-# UserCredentials column that stores it (encrypted).
-_CRED_FIELDS: dict[str, str] = {
-    "openrouter_api_key": "openrouter_api_key_enc",
-    "instagram_access_token": "instagram_access_token_enc",
-    "instagram_user_id": "instagram_user_id_enc",
-    "imgbb_api_key": "imgbb_api_key_enc",
-    "x_api_key": "x_api_key_enc",
-    "x_api_secret": "x_api_secret_enc",
-    "x_access_token": "x_access_token_enc",
-    "x_access_token_secret": "x_access_token_secret_enc",
-    "unsplash_access_key": "unsplash_access_key_enc",
-    "pexels_api_key": "pexels_api_key_enc",
-}
-
 
 async def _get_or_create_local_user(db: AsyncSession) -> UserModel:
     """The single implicit owner used in local (desktop) mode — no login there."""
@@ -156,24 +142,6 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Not authenticated")
     current_user_id.set(user.id)
     return user
-
-
-async def build_settings_for_user(db: AsyncSession, user: Optional[UserModel]) -> Settings:
-    """Platform Settings overlaid with the user's own decrypted API keys. Usable
-    both as a FastAPI dependency (get_effective_settings) and from the scheduler /
-    publisher_flow, which run outside a request. Local user → platform .env as-is."""
-    base = get_settings()
-    if user is None or user.is_local:
-        return base
-    creds = await db.get(UserCredentialsModel, user.id)
-    if creds is None:
-        return base
-    overrides: dict[str, str] = {}
-    for field, column in _CRED_FIELDS.items():
-        decrypted = decrypt(getattr(creds, column) or "")
-        if decrypted:   # None (tamper) or "" (unset) → keep platform default
-            overrides[field] = decrypted
-    return base.model_copy(update=overrides) if overrides else base
 
 
 async def get_effective_settings(

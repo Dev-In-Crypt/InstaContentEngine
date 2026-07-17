@@ -90,7 +90,7 @@ async def test_publish_now_idempotent_when_already_published(sessionmaker, monke
     await _seed(sessionmaker, id=pid, topic="t", format="single", status="published",
                 instagram_media_id="existing-123")
 
-    monkeypatch.setattr(pf, "get_settings", _fake_settings)
+    monkeypatch.setattr(pf, "settings_for_post_owner", AsyncMock(return_value=_fake_settings()))
 
     def boom(*a, **k):
         raise AssertionError("should not build a publisher for an already-published post")
@@ -121,7 +121,7 @@ async def test_publish_now_routes_to_platform_publisher(sessionmaker, monkeypatc
         seen["platform"] = platform
         return fake
 
-    monkeypatch.setattr(pf, "get_settings", _fake_settings)
+    monkeypatch.setattr(pf, "settings_for_post_owner", AsyncMock(return_value=_fake_settings()))
     monkeypatch.setattr(pf, "make_publisher_for", factory)
 
     media_id = await pf.publish_now(sessionmaker, pid)
@@ -148,7 +148,7 @@ async def test_publish_now_marks_failed_on_publisher_error(sessionmaker, monkeyp
         await s.commit()
 
     fake = _FakePublisher(error=RuntimeError("platform exploded"))
-    monkeypatch.setattr(pf, "get_settings", _fake_settings)
+    monkeypatch.setattr(pf, "settings_for_post_owner", AsyncMock(return_value=_fake_settings()))
     monkeypatch.setattr(pf, "make_publisher_for", lambda *a, **k: fake)
 
     with pytest.raises(pf.PublishError):
@@ -158,6 +158,48 @@ async def test_publish_now_marks_failed_on_publisher_error(sessionmaker, monkeyp
         post = await s.get(PostModel, pid)
         assert post.status == "failed"
         assert post.schedule_error
+
+
+async def test_publish_uses_post_owner_credentials(sessionmaker, monkeypatch, tmp_path):
+    """publish_now builds the publisher from the POST OWNER's stored (encrypted)
+    keys, not the global platform settings — the core of per-user publishing."""
+    from services.secrets import encrypt
+    from models.database import User, UserCredentials
+
+    pid = str(uuid.uuid4())
+    img_path = tmp_path / "slide_1.jpg"
+    img_path.write_bytes(_jpeg())
+
+    owner_id = str(uuid.uuid4())
+    async with sessionmaker() as s:
+        s.add(User(id=owner_id, email="owner@ex.com"))
+        s.add(UserCredentials(
+            user_id=owner_id,
+            instagram_access_token_enc=encrypt("owner-ig-token"),
+            instagram_user_id_enc=encrypt("owner-ig-uid"),
+            imgbb_api_key_enc=encrypt("owner-imgbb"),
+        ))
+        await s.commit()
+    await _seed(sessionmaker, id=pid, user_id=owner_id, topic="t", format="single",
+                status="preview", platform="instagram")
+    async with sessionmaker() as s:
+        s.add(SlideModel(post_id=pid, slide_number=1, image_source="stock",
+                         image_path=str(img_path)))
+        await s.commit()
+
+    captured = {}
+
+    def factory(platform, settings, name_prefix="slide"):
+        captured["ig_token"] = settings.instagram_access_token
+        captured["imgbb"] = settings.imgbb_api_key
+        return _FakePublisher()
+
+    # Real settings_for_post_owner (exercises cred loading); only the publisher mocked.
+    monkeypatch.setattr(pf, "make_publisher_for", factory)
+
+    await pf.publish_now(sessionmaker, pid)
+    assert captured["ig_token"] == "owner-ig-token"
+    assert captured["imgbb"] == "owner-imgbb"
 
 
 # ── manual publish cancels the pending scheduled job ────────────────────────
@@ -198,7 +240,7 @@ async def test_publish_reel_idempotent_when_already_published(sessionmaker, monk
     pid = str(uuid.uuid4())
     await _seed(sessionmaker, id=pid, topic="t", format="reel", status="published",
                 instagram_media_id="reel-existing")
-    monkeypatch.setattr(pf, "get_settings", _fake_settings)
+    monkeypatch.setattr(pf, "settings_for_post_owner", AsyncMock(return_value=_fake_settings()))
 
     def boom(*a, **k):
         raise AssertionError("should not re-publish a published reel")
@@ -214,7 +256,7 @@ async def test_publish_reel_marks_failed_on_non_ig_error(sessionmaker, monkeypat
     the post failed, not leave it hanging in its current status."""
     pid = str(uuid.uuid4())
     await _seed(sessionmaker, id=pid, topic="t", format="reel", status="scheduled")
-    monkeypatch.setattr(pf, "get_settings", _fake_settings)
+    monkeypatch.setattr(pf, "settings_for_post_owner", AsyncMock(return_value=_fake_settings()))
 
     class FakePublisher:
         def __init__(self, *a, **k): ...
@@ -237,6 +279,6 @@ async def test_publish_reel_rejects_non_instagram(sessionmaker, monkeypatch):
     """Reels are Instagram-only; an X post must not go down the reel path."""
     pid = str(uuid.uuid4())
     await _seed(sessionmaker, id=pid, topic="t", format="reel", status="preview", platform="x")
-    monkeypatch.setattr(pf, "get_settings", _fake_settings)
+    monkeypatch.setattr(pf, "settings_for_post_owner", AsyncMock(return_value=_fake_settings()))
     with pytest.raises(pf.PublishError, match="Instagram only"):
         await pf.publish_reel_now(sessionmaker, pid, "https://x/v.mp4")
