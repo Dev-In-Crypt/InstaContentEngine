@@ -50,7 +50,7 @@ a = Analysis(
         # Test-only and non-desktop deps.
         "pytest", "pytest_asyncio", "pytest_httpx", "respx",
         "telegram",   # Telegram bot is a separate entry point
-        "asyncpg",    # Postgres/cloud only; desktop uses sqlite
+        "asyncpg", "psycopg2",   # Postgres/cloud only; desktop uses sqlite
         # Heavy ML/scientific stack installed on the dev machine but never used by
         # this app (only numpy is). Without these excludes PyInstaller drags in
         # torch alone at ~3.5GB via transitive references. The app imports none of
