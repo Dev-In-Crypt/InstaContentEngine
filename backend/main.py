@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from config import get_settings
@@ -61,6 +61,32 @@ _MIGRATIONS: dict[str, dict[str, str]] = {
         "show_logo": "BOOLEAN DEFAULT TRUE",   # TRUE, not 1 — 1 is a syntax error in Postgres
     },
 }
+
+
+def _async_db_url(url: str) -> str:
+    """Normalize a database URL to an async driver for create_async_engine.
+
+    Render/Heroku hand out `postgres://` or `postgresql://` (the psycopg2/sync
+    driver), which create_async_engine rejects. Map both to asyncpg. sqlite and
+    already-async URLs are left untouched.
+    """
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+    return url
+
+
+async def _apply_admin_emails(sessionmaker, emails_csv: str) -> None:
+    """Grant is_admin to the configured emails (cloud has no local owner). Idempotent."""
+    emails = [e.strip().lower() for e in emails_csv.split(",") if e.strip()]
+    if not emails:
+        return
+    async with sessionmaker() as session:
+        await session.execute(
+            update(UserModel).where(UserModel.email.in_(emails)).values(is_admin=True)
+        )
+        await session.commit()
 
 
 async def _apply_migrations(conn) -> None:
@@ -152,7 +178,7 @@ async def lifespan(app: FastAPI):
             "all stored keys)."
         )
 
-    engine = create_async_engine(settings.database_url, echo=False)
+    engine = create_async_engine(_async_db_url(settings.database_url), echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await _apply_migrations(conn)
@@ -160,6 +186,7 @@ async def lifespan(app: FastAPI):
     await _seed_brand_preset(app.state.sessionmaker)
     if settings.app_mode != "cloud":
         await _seed_local_user(app.state.sessionmaker)
+    await _apply_admin_emails(app.state.sessionmaker, settings.admin_emails)
     UPLOADS_DIR.mkdir(exist_ok=True)
 
     # Scheduled publishing (APScheduler). In local mode this only fires while

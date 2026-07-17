@@ -94,6 +94,9 @@ class Settings(BaseSettings):
     # "cloud" (24/7 backend, scheduled posts publish even when user's PC is off)
     app_mode: str = "local"
     public_base_url: str = ""   # e.g. https://myengine.up.railway.app (cloud mode)
+    # Comma-separated emails granted admin (backup/restore) in cloud, where there
+    # is no implicit local owner. e.g. ADMIN_EMAILS=me@example.com
+    admin_emails: str = ""
 
     # Video (Reels) generation provider: "kenburns" (local ffmpeg slideshow) or
     # "ai" (Runway/Kling/Luma — not implemented yet, stub raises).

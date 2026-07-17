@@ -1,6 +1,7 @@
-# Render.com blueprint — one-click 24/7 backend + Postgres.
+# Render.com blueprint — one-click 24/7 multi-tenant backend + Postgres + disk.
 # Push this repo to GitHub, then in Render: New → Blueprint → pick the repo.
-# Fill the env vars marked sync:false in the dashboard after creation.
+# Users register on the live site and enter their OWN API keys (⚙️ Settings), so
+# no per-provider keys live here. Fill the sync:false vars in the dashboard.
 services:
   - type: web
     name: insta-content-engine
@@ -8,6 +9,13 @@ services:
     dockerfilePath: ./Dockerfile
     plan: starter          # ~$7/mo; free tier sleeps and would miss scheduled posts
     healthCheckPath: /health
+    # Persistent storage for generated slides / raw images / reel mp4s. Without it
+    # they vanish on every redeploy (breaks overlay-edit and image serving). A disk
+    # makes the service single-instance with brief restart-on-deploy — fine here.
+    disk:
+      name: uploads
+      mountPath: /app/uploads   # Docker WORKDIR=/app → UPLOADS_DIR=/app/uploads
+      sizeGB: 5
     envVars:
       - key: APP_MODE
         value: cloud
@@ -15,25 +23,24 @@ services:
         fromDatabase:
           name: insta-db
           property: connectionString
-      - key: OPENROUTER_API_KEY
+      # Signs auth JWTs AND derives the key that encrypts users' stored API keys.
+      # Render generates a strong value once and keeps it stable — DO NOT change it
+      # later (rotating it logs everyone out and orphans all stored credentials).
+      - key: SECRET_KEY
+        generateValue: true
+      # Your email(s), comma-separated → granted admin (DB backup/restore) on boot.
+      - key: ADMIN_EMAILS
         sync: false
-      - key: IMGBB_API_KEY
+      # Only needed to publish Reels (Instagram fetches the video by public URL).
+      # After the first deploy, set to https://<your-app>.onrender.com
+      - key: PUBLIC_BASE_URL
         sync: false
-      - key: INSTAGRAM_ACCESS_TOKEN
-        sync: false
-      - key: INSTAGRAM_USER_ID
-        sync: false
+      # Non-secret defaults; each user still supplies their own OpenRouter key.
       - key: DEFAULT_TEXT_MODEL
         value: anthropic/claude-sonnet-4
       - key: DEFAULT_IMAGE_MODEL
         value: google/gemini-2.5-flash-image-preview
-      - key: UNSPLASH_ACCESS_KEY
-        sync: false
-      - key: PEXELS_API_KEY
-        sync: false
-      - key: API_TOKEN
-        sync: false
 
 databases:
   - name: insta-db
-    plan: basic-256mb      # Render Postgres; the connectionString is async-compatible
+    plan: basic-256mb      # Render Postgres; connectionString is normalized to asyncpg on boot
