@@ -23,6 +23,7 @@ class ImageSource(str, Enum):
 class Platform(str, Enum):
     INSTAGRAM = "instagram"
     LINKEDIN = "linkedin"
+    X = "x"
 
 
 class LengthTier(str, Enum):
@@ -226,7 +227,8 @@ class PostSummary(BaseModel):
 
 class PublishResult(BaseModel):
     success: bool
-    instagram_media_id: Optional[str] = None
+    instagram_media_id: Optional[str] = None   # platform post id
+    published_url: Optional[str] = None         # permalink to the published post
     error: Optional[str] = None
 
 

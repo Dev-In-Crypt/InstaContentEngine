@@ -35,6 +35,7 @@ _MIGRATIONS: dict[str, dict[str, str]] = {
         "schedule_error": "TEXT",
         "pillar": "VARCHAR(30)",
         "video_path": "TEXT",
+        "published_url": "TEXT",
     },
     "slides": {
         "page_number": "INTEGER",

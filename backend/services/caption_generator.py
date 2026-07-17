@@ -100,6 +100,26 @@ RULES:
 {json_format}
 """
 
+X_SYSTEM_PROMPT = """\
+Act as an expert X (Twitter) content strategist and punchy copywriter.
+
+BRAND/PERSON CONTEXT:
+{brand_voice}
+
+Tone: {tone}
+
+Write for X. HARD RULES:
+- The "caption" field is the full tweet and MUST be 280 characters or fewer, hashtags included.
+- One sharp hook, one idea, natural English, no em-dash.
+- 1-2 relevant hashtags maximum (X posts do not use hashtag walls).
+- A single image accompanies the post; no carousels.
+- Ready to copy-paste, no preamble.
+
+{length_instruction}
+
+{json_format}
+"""
+
 CAPTION_USER_PROMPT = """\
 Create a {platform} post about: {topic}
 
@@ -169,9 +189,10 @@ class CaptionGenerator:
         length_tier: LengthTier = LengthTier.SWEET_SPOT,
         web_grounded: bool = True,
     ) -> GeneratedCaption:
-        template = (
-            LINKEDIN_SYSTEM_PROMPT if platform == Platform.LINKEDIN else INSTAGRAM_SYSTEM_PROMPT
-        )
+        template = {
+            Platform.LINKEDIN: LINKEDIN_SYSTEM_PROMPT,
+            Platform.X: X_SYSTEM_PROMPT,
+        }.get(platform, INSTAGRAM_SYSTEM_PROMPT)
         system = template.format(
             brand_voice=brand_voice,
             tone=tone,

@@ -210,3 +210,21 @@ async def test_deep_dive_raises_max_tokens(httpx_mock: HTTPXMock):
     request = httpx_mock.get_requests()[-1]
     assert json.loads(request.content)["max_tokens"] == 3000
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_x_platform_uses_x_prompt(httpx_mock: HTTPXMock):
+    """platform=X must send the X system prompt (280-char rule), not the IG one."""
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(GOOD_JSON)}}]},
+    )
+    client = OpenRouterClient(api_key="test-key")
+    gen = CaptionGenerator(client)
+    await gen.generate(topic="Running", format="single", num_slides=1, platform=Platform.X)
+    await client.close()
+
+    body = json.loads(httpx_mock.get_requests()[0].content)
+    system = body["messages"][0]["content"]
+    assert "280 characters" in system
+    assert "X (Twitter)" in system

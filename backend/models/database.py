@@ -29,7 +29,8 @@ class Post(Base):
     image_model = Column(String(100))
     brand_engine = Column(String(20), default="pillow")
     trend_idea_id = Column(String(36), ForeignKey("trend_ideas.id", ondelete="SET NULL"))
-    instagram_media_id = Column(String(100))
+    instagram_media_id = Column(String(100))   # platform post id (name kept for back-compat)
+    published_url = Column(Text)                # permalink to the published post
     scheduled_at = Column(DateTime(timezone=True))
     published_at = Column(DateTime(timezone=True))
     published_image_urls = Column(JSON)   # imgbb public URLs used for publishing

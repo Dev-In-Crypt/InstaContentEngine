@@ -97,6 +97,7 @@
         <label class="block text-sm text-gray-400 mb-2">Platform</label>
         <div class="flex gap-2" id="platform-btns">
           <button data-val="instagram" class="plt-btn">📸 Instagram</button>
+          <button data-val="x"         class="plt-btn">𝕏 X</button>
           <button data-val="linkedin"  class="plt-btn">💼 LinkedIn</button>
         </div>
       </div>
@@ -1331,14 +1332,18 @@ async function openExportedFolder(path) {
 async function publishPost() {
   if (!S.postId) return;
   if (S.publishing) return;          // block a double-click from publishing twice
-  if (!confirm('Publish this post to Instagram now?')) return;
+  const names = { instagram: 'Instagram', x: 'X', linkedin: 'LinkedIn' };
+  const platform = (S.currentPost && S.currentPost.platform) || 'instagram';
+  const label = names[platform] || platform;
+  if (!confirm(`Publish this post to ${label} now?`)) return;
   S.publishing = true;
   toast('📤 Publishing…', 'info');
   try {
     const res = await apiFetch(`${API}/api/posts/${S.postId}/publish`, { method: 'POST' });
     const data = await res.json();
     if (!res.ok || !data.success) throw new Error(data.error || 'Publish failed');
-    toast('✅ Published! Media ID: ' + data.instagram_media_id, 'success');
+    const link = data.published_url ? ` — ${data.published_url}` : (' — ' + (data.instagram_media_id || ''));
+    toast(`✅ Published to ${label}!${link}`, 'success');
   } catch(e) {
     toast('❌ ' + e.message, 'error');
   } finally {

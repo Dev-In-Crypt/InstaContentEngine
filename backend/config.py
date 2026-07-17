@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     meta_app_id: str = ""
     meta_app_secret: str = ""
 
+    # X / Twitter — OAuth 1.0a user context (single brand account).
+    # From the X developer portal (needs a paid Basic tier to post).
+    x_api_key: str = ""            # consumer key
+    x_api_secret: str = ""         # consumer secret
+    x_access_token: str = ""
+    x_access_token_secret: str = ""
+
     # Telegram
     telegram_bot_token: str = ""
 

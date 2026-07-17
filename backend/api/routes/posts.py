@@ -366,7 +366,9 @@ async def publish_post(
     sessionmaker = req.app.state.sessionmaker
     try:
         media_id = await publish_now(sessionmaker, post_id)
-        return PublishResult(success=True, instagram_media_id=media_id)
+        row = await db.execute(select(PostModel.published_url).where(PostModel.id == post_id))
+        return PublishResult(success=True, instagram_media_id=media_id,
+                             published_url=row.scalar_one_or_none())
     except PublishError as e:
         return PublishResult(success=False, error=str(e))
     except Exception as e:
