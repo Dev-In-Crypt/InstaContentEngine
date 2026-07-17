@@ -16,18 +16,29 @@ async def _run_lifespan(monkeypatch, tmp_path, **settings_kwargs):
         pass
 
 
-async def test_cloud_mode_without_token_refuses_to_start(tmp_path, monkeypatch):
-    with pytest.raises(RuntimeError, match="API_TOKEN is required in cloud mode"):
-        await _run_lifespan(monkeypatch, tmp_path, app_mode="cloud", api_token="")
+async def test_cloud_mode_without_secret_refuses_to_start(tmp_path, monkeypatch):
+    # SECRET_KEY signs JWTs and derives the credential-encryption key; the default
+    # value is forgeable, so cloud must refuse to boot with it.
+    with pytest.raises(RuntimeError, match="SECRET_KEY must be set in cloud mode"):
+        await _run_lifespan(
+            monkeypatch, tmp_path, app_mode="cloud",
+            secret_key="change-me-in-production",
+        )
 
 
-async def test_cloud_mode_with_token_starts(tmp_path, monkeypatch):
-    await _run_lifespan(monkeypatch, tmp_path, app_mode="cloud", api_token="secret")
+async def test_cloud_mode_with_secret_starts(tmp_path, monkeypatch):
+    await _run_lifespan(
+        monkeypatch, tmp_path, app_mode="cloud",
+        secret_key="a-real-and-stable-secret-value",
+    )
 
 
-async def test_local_mode_without_token_starts(tmp_path, monkeypatch):
-    # Local binds to 127.0.0.1 only — an open token is fine and must not block boot.
-    await _run_lifespan(monkeypatch, tmp_path, app_mode="local", api_token="")
+async def test_local_mode_default_secret_starts(tmp_path, monkeypatch):
+    # Local binds to 127.0.0.1 only — the default secret is fine and must not block boot.
+    await _run_lifespan(
+        monkeypatch, tmp_path, app_mode="local",
+        secret_key="change-me-in-production",
+    )
 
 
 # ── /docs gating in cloud mode ──────────────────────────────────────────────

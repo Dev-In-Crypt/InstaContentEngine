@@ -8,7 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import Settings, get_settings
-from models.database import BrandConfig as BrandConfigModel
+from models.database import (
+    BrandConfig as BrandConfigModel,
+    User as UserModel,
+    UserCredentials as UserCredentialsModel,
+)
+from services.auth import decode_access_token
+from services.secrets import decrypt
 from services.openrouter import OpenRouterClient
 from services.caption_generator import CaptionGenerator
 from services.image_router import ImageRouter
@@ -82,21 +88,6 @@ async def load_brand_config(
 
 # ---- FastAPI dependencies ----
 
-def get_openrouter(settings: Annotated[Settings, Depends(get_settings)]) -> OpenRouterClient:
-    return _get_openrouter(
-        settings.openrouter_api_key,
-        settings.openrouter_referer,
-        settings.openrouter_app_title,
-        settings.ssl_verify,
-    )
-
-
-def get_stock(settings: Annotated[Settings, Depends(get_settings)]) -> StockClient:
-    return _get_stock_client(
-        settings.unsplash_access_key, settings.pexels_api_key, settings.ssl_verify,
-    )
-
-
 def get_brand_engine() -> PillowBrandEngine:
     return _get_brand_engine()
 
@@ -106,12 +97,107 @@ async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-def require_token(
+# ---- Authentication (multi-tenant) ----
+
+LOCAL_USER_EMAIL = "local@localhost"
+
+# Every field of Settings a user may override with their own key, mapped to the
+# UserCredentials column that stores it (encrypted).
+_CRED_FIELDS: dict[str, str] = {
+    "openrouter_api_key": "openrouter_api_key_enc",
+    "instagram_access_token": "instagram_access_token_enc",
+    "instagram_user_id": "instagram_user_id_enc",
+    "imgbb_api_key": "imgbb_api_key_enc",
+    "x_api_key": "x_api_key_enc",
+    "x_api_secret": "x_api_secret_enc",
+    "x_access_token": "x_access_token_enc",
+    "x_access_token_secret": "x_access_token_secret_enc",
+    "unsplash_access_key": "unsplash_access_key_enc",
+    "pexels_api_key": "pexels_api_key_enc",
+}
+
+
+async def _get_or_create_local_user(db: AsyncSession) -> UserModel:
+    """The single implicit owner used in local (desktop) mode — no login there."""
+    row = (await db.execute(
+        select(UserModel).where(UserModel.is_local == True)  # noqa: E712
+    )).scalars().first()
+    if row:
+        return row
+    user = UserModel(email=LOCAL_USER_EMAIL, is_local=True, is_active=True)
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+async def get_current_user(
     settings: Annotated[Settings, Depends(get_settings)],
+    db: Annotated[AsyncSession, Depends(get_db)],
     authorization: str = Header(default=""),
-) -> None:
-    if settings.api_token and authorization != f"Bearer {settings.api_token}":
-        raise HTTPException(status_code=401, detail="Unauthorized")
+) -> UserModel:
+    """Resolve the acting user. Local mode → the seeded local owner (no token).
+    Cloud mode → decode the Bearer JWT; 401 if missing/invalid/inactive."""
+    if settings.app_mode != "cloud":
+        return await _get_or_create_local_user(db)
+
+    token = authorization[7:] if authorization.startswith("Bearer ") else ""
+    user_id = decode_access_token(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    user = await db.get(UserModel, user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
+async def build_settings_for_user(db: AsyncSession, user: Optional[UserModel]) -> Settings:
+    """Platform Settings overlaid with the user's own decrypted API keys. Usable
+    both as a FastAPI dependency (get_effective_settings) and from the scheduler /
+    publisher_flow, which run outside a request. Local user → platform .env as-is."""
+    base = get_settings()
+    if user is None or user.is_local:
+        return base
+    creds = await db.get(UserCredentialsModel, user.id)
+    if creds is None:
+        return base
+    overrides: dict[str, str] = {}
+    for field, column in _CRED_FIELDS.items():
+        decrypted = decrypt(getattr(creds, column) or "")
+        if decrypted:   # None (tamper) or "" (unset) → keep platform default
+            overrides[field] = decrypted
+    return base.model_copy(update=overrides) if overrides else base
+
+
+async def get_effective_settings(
+    user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Settings:
+    return await build_settings_for_user(db, user)
+
+
+def require_token(user: Annotated[UserModel, Depends(get_current_user)]) -> None:
+    """Thin auth gate kept under its historical name so the 40+ existing
+    `dependencies=[Depends(require_token)]` sites need no churn. Authentication now
+    means 'a resolvable user' — always true in local mode, JWT-gated in cloud."""
+    return None
+
+
+def get_openrouter(
+    settings: Annotated[Settings, Depends(get_effective_settings)],
+) -> OpenRouterClient:
+    return _get_openrouter(
+        settings.openrouter_api_key,
+        settings.openrouter_referer,
+        settings.openrouter_app_title,
+        settings.ssl_verify,
+    )
+
+
+def get_stock(settings: Annotated[Settings, Depends(get_effective_settings)]) -> StockClient:
+    return _get_stock_client(
+        settings.unsplash_access_key, settings.pexels_api_key, settings.ssl_verify,
+    )
 
 
 def get_content_engine(

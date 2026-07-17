@@ -31,6 +31,8 @@ hiddenimports += [
     "imageio", "imageio.plugins.ffmpeg",
     "aiofiles", "anyio", "h11", "sniffio",
     "authlib", "authlib.oauth1",   # X/Twitter OAuth 1.0a signing
+    "jwt", "argon2", "argon2.low_level",   # multi-tenant auth (JWT + password hashing)
+    "email_validator",             # pydantic EmailStr in the auth router
 ]
 # Dynamic submodules PyInstaller commonly misses (imported by string / lazily):
 hiddenimports += collect_submodules("uvicorn")

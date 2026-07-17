@@ -9,10 +9,52 @@ class Base(AsyncAttrs, DeclarativeBase):
     pass
 
 
+class User(Base):
+    """An account. In cloud mode users register and log in; in local (desktop)
+    mode a single implicit user (is_local=True) is seeded at startup and owns
+    everything, so the desktop keeps working without a login screen."""
+    __tablename__ = "users"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    password_hash = Column(Text)          # argon2; null for the implicit local user
+    is_active = Column(Boolean, default=True)
+    is_local = Column(Boolean, default=False)   # the seeded desktop owner
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    credentials = relationship("UserCredentials", back_populates="user",
+                               uselist=False, cascade="all, delete-orphan")
+
+
+class UserCredentials(Base):
+    """Per-user API keys, encrypted at rest (Fernet). One row per user. The app
+    is custodian of these secrets — they are never logged and never returned to
+    the client in plaintext (see api/routes/settings.py)."""
+    __tablename__ = "user_credentials"
+
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"),
+                     primary_key=True)
+    openrouter_api_key_enc = Column(Text)
+    instagram_access_token_enc = Column(Text)
+    instagram_user_id_enc = Column(Text)
+    imgbb_api_key_enc = Column(Text)
+    x_api_key_enc = Column(Text)
+    x_api_secret_enc = Column(Text)
+    x_access_token_enc = Column(Text)
+    x_access_token_secret_enc = Column(Text)
+    unsplash_access_key_enc = Column(Text)
+    pexels_api_key_enc = Column(Text)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(),
+                        onupdate=func.now())
+
+    user = relationship("User", back_populates="credentials")
+
+
 class Post(Base):
     __tablename__ = "posts"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     topic = Column(Text, nullable=False)
     format = Column(String(20), nullable=False)
     status = Column(String(20), nullable=False, default="draft")

@@ -14,6 +14,9 @@ pillow==11.0.0
 python-multipart==0.0.19
 python-dotenv==1.0.1
 cryptography==49.0.0
+pyjwt>=2.8          # JWT sessions (multi-tenant auth)
+argon2-cffi>=23     # password hashing
+email-validator>=2  # pydantic EmailStr for registration
 python-telegram-bot==21.9
 aiofiles==24.1.0
 pywebview>=5.0

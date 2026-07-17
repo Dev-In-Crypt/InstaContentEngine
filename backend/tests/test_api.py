@@ -118,7 +118,8 @@ def test_get_post_not_found(client):
     assert resp.status_code == 404
 
 
-# ── C1: stock/models must require the token when one is set ─────────────────
+# ── C1: in cloud mode, protected routes require a valid JWT ─────────────────
+# (Local mode has no auth gate — get_current_user returns the implicit local user.)
 
 import pytest as _pytest  # noqa: E402
 from api.deps import get_settings as _get_settings  # noqa: E402
@@ -126,8 +127,8 @@ from config import Settings as _Settings  # noqa: E402
 
 
 @_pytest.fixture
-def token_client(client):
-    app.dependency_overrides[_get_settings] = lambda: _Settings(api_token="secret")
+def cloud_client(client):
+    app.dependency_overrides[_get_settings] = lambda: _Settings(app_mode="cloud")
     yield client
     app.dependency_overrides.pop(_get_settings, None)
 
@@ -138,14 +139,21 @@ def token_client(client):
     "/api/models/image",
     "/api/models/defaults",
 ])
-def test_protected_routes_401_without_token(token_client, path):
-    assert token_client.get(path).status_code == 401
+def test_protected_routes_401_without_jwt(cloud_client, path):
+    assert cloud_client.get(path).status_code == 401
 
 
-def test_protected_route_passes_with_token(token_client):
-    # With the right bearer, require_token lets it through (not a 401).
-    res = token_client.get("/api/models/text", headers={"Authorization": "Bearer secret"})
+def test_protected_route_passes_with_jwt(cloud_client):
+    reg = cloud_client.post("/api/auth/register",
+                            json={"email": "c1@example.com", "password": "password123"})
+    token = reg.json()["access_token"]
+    res = cloud_client.get("/api/models/text", headers={"Authorization": f"Bearer {token}"})
     assert res.status_code != 401
+
+
+def test_local_mode_needs_no_token(client):
+    # Regression guard: the desktop (local mode) must keep working without a login.
+    assert client.get("/api/models/text").status_code == 200
 
 
 # ── C2: unknown /api/* must 404, not fall through to the SPA ─────────────────

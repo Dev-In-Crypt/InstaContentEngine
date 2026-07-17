@@ -1,0 +1,74 @@
+"""The personal cabinet: a user stores their own API keys here (cloud mode).
+
+Keys are encrypted before storage (services/secrets.encrypt) and NEVER returned
+in plaintext — GET reports only which keys are set, plus a short masked tail.
+"""
+from typing import Annotated, Optional
+
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.deps import _CRED_FIELDS, get_current_user, get_db
+from models.database import User as UserModel, UserCredentials as UserCredentialsModel
+from services.secrets import decrypt, encrypt
+
+router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+# The plaintext field names a user may set (same keys as _CRED_FIELDS).
+_FIELDS = list(_CRED_FIELDS.keys())
+
+
+class CredentialsUpdate(BaseModel):
+    """Every field optional. A present empty string clears that key; an omitted
+    field leaves it unchanged."""
+    openrouter_api_key: Optional[str] = None
+    instagram_access_token: Optional[str] = None
+    instagram_user_id: Optional[str] = None
+    imgbb_api_key: Optional[str] = None
+    x_api_key: Optional[str] = None
+    x_api_secret: Optional[str] = None
+    x_access_token: Optional[str] = None
+    x_access_token_secret: Optional[str] = None
+    unsplash_access_key: Optional[str] = None
+    pexels_api_key: Optional[str] = None
+
+
+def _mask(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    tail = value[-4:] if len(value) >= 4 else value
+    return f"••••{tail}"
+
+
+@router.get("/credentials")
+async def get_credentials(
+    user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Report which keys are set (never the raw values)."""
+    creds = await db.get(UserCredentialsModel, user.id)
+    out: dict[str, dict] = {}
+    for field, column in _CRED_FIELDS.items():
+        raw = decrypt(getattr(creds, column) or "") if creds else ""
+        out[field] = {"set": bool(raw), "masked": _mask(raw)}
+    return out
+
+
+@router.put("/credentials")
+async def put_credentials(
+    body: CredentialsUpdate,
+    user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    creds = await db.get(UserCredentialsModel, user.id)
+    if creds is None:
+        creds = UserCredentialsModel(user_id=user.id)
+        db.add(creds)
+    for field in _FIELDS:
+        value = getattr(body, field)
+        if value is None:              # omitted → leave unchanged
+            continue
+        setattr(creds, _CRED_FIELDS[field], encrypt(value))   # "" clears it
+    await db.commit()
+    return {"status": "ok"}

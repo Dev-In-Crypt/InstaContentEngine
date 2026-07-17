@@ -18,8 +18,12 @@ class Settings(BaseSettings):
 
     # Core
     database_url: str = "sqlite+aiosqlite:///./insta.db"
-    secret_key: str = "change-me-in-production"
-    api_token: str = ""  # if set, all API calls require Bearer <token>
+    secret_key: str = "change-me-in-production"  # signs JWTs AND derives the vault key
+    # Optional dedicated key for encrypting user credentials at rest. If empty, the
+    # vault key is derived from secret_key. MUST stay stable — rotating it orphans
+    # every stored user secret. See services/secrets.py.
+    encryption_key: str = ""
+    api_token: str = ""  # legacy single-tenant Bearer; superseded by JWT auth (cloud)
     log_level: str = "INFO"  # DEBUG | INFO | WARNING | ERROR
 
     # Certificates are ALWAYS verified against the OS trust store — see

@@ -11,10 +11,11 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from config import get_settings
-from models.database import Base, BrandConfig as BrandConfigModel
+from models.database import Base, BrandConfig as BrandConfigModel, User as UserModel
 from models.schemas import NICHE_BOX_PALETTE
 from services.http_utils import setup_logging, setup_tls
-from api.routes import posts, models, stock, trends, admin
+from api.deps import LOCAL_USER_EMAIL
+from api.routes import posts, models, stock, trends, admin, auth, settings as settings_routes
 
 STATIC_DIR = Path(__file__).parent / "static"
 UPLOADS_DIR = Path(__file__).parent / "uploads"
@@ -26,6 +27,7 @@ log = logging.getLogger(__name__)
 # tables, so on an already-created sqlite db these are added idempotently here.
 _MIGRATIONS: dict[str, dict[str, str]] = {
     "posts": {
+        "user_id": "VARCHAR(36)",
         "seo_keywords": "JSON",
         "platform": "VARCHAR(20) DEFAULT 'instagram'",
         "template_style": "VARCHAR(20) DEFAULT 'branded_card'",
@@ -111,20 +113,35 @@ async def _seed_brand_preset(sessionmaker) -> None:
         await session.commit()
 
 
+async def _seed_local_user(sessionmaker) -> None:
+    """Local (desktop) mode owns everything under one implicit user, so the
+    desktop needs no login. Insert it once; get_current_user returns it."""
+    async with sessionmaker() as session:
+        result = await session.execute(
+            select(UserModel).where(UserModel.is_local == True)  # noqa: E712
+        )
+        if result.scalar_one_or_none():
+            return
+        session.add(UserModel(email=LOCAL_USER_EMAIL, is_local=True, is_active=True))
+        await session.commit()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging(settings.log_level)
     # Must precede every outbound connection, the database included.
     setup_tls()
 
-    # In cloud mode the app is reachable from the internet, and require_token is a
-    # no-op when api_token is empty — which would expose /api/admin/backup (the
-    # whole DB, including Instagram/Canva tokens) to anyone. Refuse to start.
-    if settings.app_mode == "cloud" and not settings.api_token:
+    # In cloud mode the app is publicly reachable and multi-tenant: SECRET_KEY
+    # signs every session JWT AND derives the key that encrypts users' stored API
+    # keys. With the default value both are trivially forgeable/decryptable, so a
+    # real one is mandatory. Refuse to start otherwise.
+    if settings.app_mode == "cloud" and settings.secret_key == "change-me-in-production":
         raise RuntimeError(
-            "API_TOKEN is required in cloud mode: the app is publicly reachable "
-            "and would otherwise serve /api/admin/backup without authentication. "
-            "Set API_TOKEN in the environment."
+            "SECRET_KEY must be set in cloud mode: it signs auth tokens and "
+            "encrypts stored user credentials. Set a strong, stable SECRET_KEY "
+            "in the environment (rotating it later logs everyone out and orphans "
+            "all stored keys)."
         )
 
     engine = create_async_engine(settings.database_url, echo=False)
@@ -133,6 +150,8 @@ async def lifespan(app: FastAPI):
         await _apply_migrations(conn)
     app.state.sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
     await _seed_brand_preset(app.state.sessionmaker)
+    if settings.app_mode != "cloud":
+        await _seed_local_user(app.state.sessionmaker)
     UPLOADS_DIR.mkdir(exist_ok=True)
 
     # Scheduled publishing (APScheduler). In local mode this only fires while
@@ -178,6 +197,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
+app.include_router(settings_routes.router)
 app.include_router(posts.router)
 app.include_router(models.router)
 app.include_router(stock.router)
