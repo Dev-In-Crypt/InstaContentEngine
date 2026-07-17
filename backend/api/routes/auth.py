@@ -36,6 +36,8 @@ class TokenResponse(BaseModel):
 class MeResponse(BaseModel):
     id: str
     email: str
+    is_local: bool = False
+    is_admin: bool = False
 
 
 @router.post("/register", response_model=TokenResponse)
@@ -73,4 +75,7 @@ async def login(
 async def me(
     user: Annotated[UserModel, Depends(get_current_user)],
 ) -> MeResponse:
-    return MeResponse(id=user.id, email=user.email)
+    return MeResponse(
+        id=user.id, email=user.email,
+        is_local=bool(user.is_local), is_admin=bool(user.is_admin),
+    )

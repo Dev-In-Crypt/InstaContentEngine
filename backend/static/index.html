@@ -23,9 +23,32 @@
     <button id="cost-badge" onclick="showCostPopover()" class="ml-auto hidden bg-black/30 hover:bg-black/50 transition rounded-full px-3 py-1 text-xs text-gray-200" title="LLM spend today (click for details)">💰 $0.00</button>
     <span id="status-dot" class="w-3 h-3 rounded-full bg-green-400" title="API connected"></span>
     <span id="status-label" class="text-xs text-gray-300">connecting…</span>
+    <span id="user-chip" class="hidden text-xs text-gray-200 bg-black/30 rounded-full px-3 py-1" title="Signed in"></span>
+    <button id="logout-btn" onclick="logout()" class="hidden text-xs text-gray-200 bg-black/30 hover:bg-black/50 transition rounded-full px-3 py-1" title="Sign out">Log out</button>
   </div>
   <div id="cost-popover" class="hidden max-w-4xl mx-auto px-6 pb-3 text-xs text-gray-300"></div>
 </header>
+
+<!-- ===== AUTH SCREEN (cloud mode only) ===== -->
+<div id="auth-screen" class="hidden fixed inset-0 z-50 bg-gray-950 flex items-center justify-center p-4">
+  <div class="bg-gray-900 border border-gray-700 rounded-2xl p-8 max-w-sm w-full space-y-4 shadow-2xl">
+    <div class="flex items-center gap-2">
+      <span class="text-2xl">📸</span>
+      <h2 class="text-lg font-bold text-purple-300">InstaContentEngine</h2>
+    </div>
+    <div class="flex gap-2 text-sm">
+      <button id="auth-tab-login" onclick="switchAuthTab('login')" class="flex-1 rounded-lg py-2 font-semibold border-2 border-purple-500 bg-purple-900 text-white">Log in</button>
+      <button id="auth-tab-register" onclick="switchAuthTab('register')" class="flex-1 rounded-lg py-2 font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300">Register</button>
+    </div>
+    <input id="auth-email" type="email" placeholder="you@example.com" autocomplete="username"
+      class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500" />
+    <input id="auth-password" type="password" placeholder="Password (min 8 chars)" autocomplete="current-password"
+      class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500" />
+    <p id="auth-error" class="hidden text-red-400 text-xs"></p>
+    <button id="auth-submit" onclick="submitAuth()" class="w-full bg-purple-600 hover:bg-purple-500 transition rounded-xl py-3 font-semibold text-white">Log in</button>
+    <p class="text-xs text-gray-500">Your API keys stay private to your account and are stored encrypted.</p>
+  </div>
+</div>
 
 <main class="max-w-4xl mx-auto px-4 py-8 space-y-6">
 
@@ -35,7 +58,7 @@
     <button id="nav-trends" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('trends')">🔥 Trends</button>
     <button id="nav-calendar" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('calendar')">📅 Calendar</button>
     <button id="nav-grid" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('grid')">▦ Grid</button>
-    <button id="nav-admin" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('admin')">⚙️</button>
+    <button id="nav-admin" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('admin')">⚙️ Settings</button>
   </div>
 
   <!-- ===== CREATE VIEW (wizard) ===== -->
@@ -434,9 +457,22 @@
 
   <!-- ===== ADMIN VIEW ===== -->
   <div id="view-admin" class="hidden space-y-4">
+    <!-- Personal API keys (cloud accounts only) -->
+    <section id="keys-section" class="hidden bg-gray-900 rounded-2xl p-6 space-y-4">
+      <h2 class="text-lg font-semibold text-purple-300">🔑 Your API keys</h2>
+      <p class="text-xs text-gray-500">Stored encrypted and used only for your posts. Leave a field blank to keep the current value; the placeholder shows what's set.</p>
+      <div id="keys-form" class="space-y-4"></div>
+      <button onclick="saveCredentials()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">💾 Save keys</button>
+    </section>
+
     <section class="bg-gray-900 rounded-2xl p-6 space-y-4">
-      <h2 class="text-lg font-semibold text-purple-300">⚙️ Settings & Backup</h2>
+      <h2 class="text-lg font-semibold text-purple-300">📊 Usage</h2>
       <div id="admin-usage" class="text-sm text-gray-300 bg-gray-800 rounded-lg p-3">Loading usage…</div>
+    </section>
+
+    <!-- Whole-DB backup/restore — admin / local desktop only -->
+    <section id="backup-section" class="hidden bg-gray-900 rounded-2xl p-6 space-y-4">
+      <h2 class="text-lg font-semibold text-purple-300">💾 Backup & Restore</h2>
       <div class="flex flex-wrap gap-3">
         <button onclick="downloadBackup()" class="bg-blue-700 hover:bg-blue-600 transition rounded-lg px-4 py-2 text-sm font-semibold">⬇ Download backup</button>
         <label class="bg-gray-700 hover:bg-gray-600 transition rounded-lg px-4 py-2 text-sm font-semibold cursor-pointer">
@@ -444,7 +480,7 @@
           <input type="file" accept=".zip" class="hidden" onchange="restoreBackup(event)" />
         </label>
       </div>
-      <p class="text-xs text-gray-500">Backup contains your database + generated slides/videos. Restore replaces current data (a restart may be required locally).</p>
+      <p class="text-xs text-gray-500">Backup contains the database + generated slides/videos. Restore replaces current data (a restart may be required locally).</p>
     </section>
   </div><!-- /#view-admin -->
 
@@ -526,6 +562,9 @@ const NICHE_BOX_PALETTE = ['#ffbf00','#0076cb','#5e17eb','#00bf63','#000000','#f
 
 const S = {
   step: 1,
+  user: null,              // {email, is_local, is_admin} from /api/auth/me
+  appStarted: false,       // guard so startApp() registers intervals once
+  authTab: 'login',        // 'login' | 'register'
   view: 'create',          // 'create' | 'trends'
   trendTab: 'competitors', // 'competitors' | 'trending' | 'ideas'
   format: 'single',
@@ -558,37 +597,102 @@ function authHeader() {
   return t ? { 'Authorization': `Bearer ${t}` } : {};
 }
 
-function showAuthModal(onSuccess) {
-  let modal = document.getElementById('auth-modal');
-  if (!modal) {
-    modal = document.createElement('div');
-    modal.id = 'auth-modal';
-    modal.className = 'fixed inset-0 bg-black/70 flex items-center justify-center z-50';
-    modal.innerHTML = `
-      <div class="bg-gray-900 border border-gray-700 rounded-2xl p-8 max-w-sm w-full space-y-4 shadow-2xl">
-        <h2 class="text-lg font-bold text-purple-300">🔐 Enter access token</h2>
-        <input id="auth-input" type="password" placeholder="Bearer token…"
-          class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500" />
-        <p id="auth-error" class="hidden text-red-400 text-xs">Wrong token — try again.</p>
-        <button id="auth-submit" class="w-full bg-purple-600 hover:bg-purple-500 transition rounded-xl py-3 font-semibold text-white">
-          Unlock
-        </button>
-      </div>`;
-    document.body.appendChild(modal);
+// ---- boot gate: who am I? (cloud shows login; local resolves silently) ----
+async function initAuth() {
+  try {
+    const res = await fetch(`${API}/api/auth/me`, { headers: authHeader() });
+    if (!res.ok) throw new Error('unauthenticated');
+    S.user = await res.json();
+    hideAuthScreen();
+    renderUserChrome();
+    startApp();
+  } catch {
+    showAuthScreen();
   }
-  modal.classList.remove('hidden');
-  const input = document.getElementById('auth-input');
+}
+
+// One-time app bootstrap after a user is known (intervals registered once).
+function startApp() {
+  if (S.appStarted) return;
+  S.appStarted = true;
+  checkStatus();
+  setInterval(checkStatus, 10000);
+  refreshCost();
+  setInterval(refreshCost, 60000);
+}
+
+function renderUserChrome() {
+  const chip = document.getElementById('user-chip');
+  const logout = document.getElementById('logout-btn');
+  const cloud = S.user && !S.user.is_local;
+  chip.textContent = cloud ? ('👤 ' + (S.user.email || '')) : '';
+  chip.classList.toggle('hidden', !cloud);
+  logout.classList.toggle('hidden', !cloud);
+  // API-keys page: cloud only (local desktop uses .env). Backup: admin/local only.
+  const keys = document.getElementById('keys-section');
+  const backup = document.getElementById('backup-section');
+  if (keys) keys.classList.toggle('hidden', !cloud);
+  if (backup) backup.classList.toggle('hidden', !(S.user && (S.user.is_admin || S.user.is_local)));
+}
+
+function showAuthScreen() {
+  document.getElementById('auth-screen').classList.remove('hidden');
+}
+function hideAuthScreen() {
+  document.getElementById('auth-screen').classList.add('hidden');
+}
+
+function switchAuthTab(tab) {
+  S.authTab = tab;
+  const login = tab === 'login';
+  for (const [id, on] of [['auth-tab-login', login], ['auth-tab-register', !login]]) {
+    const b = document.getElementById(id);
+    b.classList.toggle('border-purple-500', on);
+    b.classList.toggle('bg-purple-900', on);
+    b.classList.toggle('text-white', on);
+    b.classList.toggle('border-gray-700', !on);
+    b.classList.toggle('bg-gray-800', !on);
+    b.classList.toggle('text-gray-300', !on);
+  }
+  document.getElementById('auth-password').setAttribute(
+    'autocomplete', login ? 'current-password' : 'new-password');
+  document.getElementById('auth-submit').textContent = login ? 'Log in' : 'Create account';
+  document.getElementById('auth-error').classList.add('hidden');
+}
+
+async function submitAuth() {
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
   const errEl = document.getElementById('auth-error');
-  input.value = ''; errEl.classList.add('hidden'); input.focus();
-  const submit = () => {
-    const val = input.value.trim();
-    if (!val) return;
-    localStorage.setItem('api_token', val);
-    modal.classList.add('hidden');
-    if (onSuccess) onSuccess();
-  };
-  document.getElementById('auth-submit').onclick = submit;
-  input.onkeydown = e => { if (e.key === 'Enter') submit(); };
+  const show = (m) => { errEl.textContent = m; errEl.classList.remove('hidden'); };
+  if (!email || !password) return show('Email and password are required.');
+  const path = S.authTab === 'register' ? 'register' : 'login';
+  try {
+    const res = await fetch(`${API}/api/auth/${path}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(d.detail ? (typeof d.detail === 'string' ? d.detail : 'Check your input') : 'Failed');
+    localStorage.setItem('api_token', d.access_token);
+    document.getElementById('auth-password').value = '';
+    await initAuth();
+  } catch (e) { show('❌ ' + e.message); }
+}
+
+function logout() {
+  localStorage.removeItem('api_token');
+  S.user = null;
+  document.getElementById('user-chip').classList.add('hidden');
+  document.getElementById('logout-btn').classList.add('hidden');
+  showAuthScreen();
+}
+
+// A 401 mid-session means the token expired/was revoked — back to the login screen.
+function handleAuthExpired() {
+  localStorage.removeItem('api_token');
+  S.user = null;
+  showAuthScreen();
 }
 
 async function apiFetch(url, opts = {}) {
@@ -597,8 +701,8 @@ async function apiFetch(url, opts = {}) {
     headers: { ...authHeader(), ...(opts.headers || {}) },
   });
   if (res.status === 401) {
-    showAuthModal(() => apiFetch(url, opts));
-    throw new Error('Unauthorized — enter your access token.');
+    handleAuthExpired();
+    throw new Error('Session expired — please sign in again.');
   }
   return res;
 }
@@ -1747,10 +1851,65 @@ function showCostPopover() {
 
 // ===== ADMIN / BACKUP =====
 async function loadAdmin() {
+  renderUserChrome();   // keep keys/backup visibility in sync with the role
   await refreshCost();
   const d = S.usage || {today:{},month:{}};
   document.getElementById('admin-usage').innerHTML =
     `💰 LLM spend — today <b>$${(d.today?.cost||0).toFixed(4)}</b>, this month <b>$${(d.month?.cost||0).toFixed(4)}</b> (${d.month?.calls||0} calls)`;
+  if (S.user && !S.user.is_local) await loadCredentials();
+}
+
+// ===== PERSONAL API KEYS (cloud cabinet) =====
+const CRED_FIELDS = [
+  { key: 'openrouter_api_key',      label: 'OpenRouter API key',        group: 'OpenRouter (text + image generation)' },
+  { key: 'instagram_access_token',  label: 'Instagram access token',    group: 'Instagram (publishing)' },
+  { key: 'instagram_user_id',       label: 'Instagram user id',         group: 'Instagram (publishing)' },
+  { key: 'imgbb_api_key',           label: 'imgbb API key',             group: 'imgbb (public image hosting for IG)' },
+  { key: 'x_api_key',               label: 'X API key',                 group: 'X / Twitter (OAuth 1.0a)' },
+  { key: 'x_api_secret',            label: 'X API secret',              group: 'X / Twitter (OAuth 1.0a)' },
+  { key: 'x_access_token',          label: 'X access token',            group: 'X / Twitter (OAuth 1.0a)' },
+  { key: 'x_access_token_secret',   label: 'X access token secret',     group: 'X / Twitter (OAuth 1.0a)' },
+  { key: 'unsplash_access_key',     label: 'Unsplash access key',       group: 'Stock photos (optional)' },
+  { key: 'pexels_api_key',          label: 'Pexels API key',            group: 'Stock photos (optional)' },
+];
+
+async function loadCredentials() {
+  let data = {};
+  try {
+    const res = await apiFetch(`${API}/api/settings/credentials`);
+    if (res.ok) data = await res.json();
+  } catch { /* 401 handled by apiFetch */ }
+  const form = document.getElementById('keys-form');
+  let html = '';
+  let lastGroup = null;
+  for (const f of CRED_FIELDS) {
+    if (f.group !== lastGroup) {
+      html += `<div class="text-xs font-semibold text-gray-400 pt-2">${esc(f.group)}</div>`;
+      lastGroup = f.group;
+    }
+    const info = data[f.key] || {};
+    const ph = info.set ? `set: ${esc(info.masked || '••••')}` : 'not set';
+    html += `<input data-cred="${f.key}" type="password" autocomplete="off" placeholder="${esc(f.label)} — ${ph}"
+      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500" />`;
+  }
+  form.innerHTML = html;
+}
+
+async function saveCredentials() {
+  const body = {};
+  document.querySelectorAll('#keys-form input[data-cred]').forEach(el => {
+    const v = el.value.trim();
+    if (v) body[el.dataset.cred] = v;   // only send changed (non-empty) fields
+  });
+  if (Object.keys(body).length === 0) { toast('Nothing to save — fields are blank', 'warn'); return; }
+  try {
+    const res = await apiFetch(`${API}/api/settings/credentials`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Save failed'); }
+    toast('✅ Keys saved', 'success');
+    await loadCredentials();   // refresh masks, clear inputs
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
 }
 
 async function downloadBackup() {
@@ -2075,15 +2234,15 @@ initToggleGroup('.plt-btn', 'platform', 'instagram');
 initToggleGroup('.tpl-btn', 'templateStyle', 'branded_card');
 initNicheSwatches();
 showStep(1);
-checkStatus();
-setInterval(checkStatus, 10000);
+switchAuthTab('login');
 
 // Autosave draft as the user types the caption
 document.getElementById('caption-edit').addEventListener('input', scheduleDraftSave);
+document.getElementById('auth-password').addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
 
-// Cost badge — poll on load and every 60s
-refreshCost();
-setInterval(refreshCost, 60000);
+// Boot gate: local mode resolves silently and starts the app; cloud shows login.
+// startApp() (called from initAuth on success) registers the status + cost polls.
+initAuth();
 </script>
 </body>
 </html>

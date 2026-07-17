@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.deps import get_current_user, get_db, get_settings, require_token
+from api.deps import get_current_user, get_db, get_settings, require_admin
 from config import Settings
 from models.database import LLMUsage, User as UserModel
 from services.openrouter import drain_usage
@@ -105,7 +105,7 @@ def _sqlite_file(database_url: str) -> Path:
     return p if p.is_absolute() else (_BACKEND_DIR / p).resolve()
 
 
-@router.get("/admin/backup", dependencies=[Depends(require_token)])
+@router.get("/admin/backup", dependencies=[Depends(require_admin)])
 async def backup(settings: Annotated[Settings, Depends(get_settings)]) -> StreamingResponse:
     """Download a backup ZIP.
 
@@ -147,7 +147,7 @@ async def backup(settings: Annotated[Settings, Depends(get_settings)]) -> Stream
     )
 
 
-@router.post("/admin/restore", dependencies=[Depends(require_token)])
+@router.post("/admin/restore", dependencies=[Depends(require_admin)])
 async def restore(
     settings: Annotated[Settings, Depends(get_settings)],
     file: UploadFile = File(...),

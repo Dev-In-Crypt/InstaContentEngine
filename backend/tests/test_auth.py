@@ -85,7 +85,10 @@ def test_register_then_me(cloud_client):
 
     me = cloud_client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert me.status_code == 200
-    assert me.json()["email"] == "a@example.com"
+    body = me.json()
+    assert body["email"] == "a@example.com"
+    assert body["is_local"] is False      # a registered cloud user is neither
+    assert body["is_admin"] is False      # local nor admin by default
 
 
 def test_register_stores_argon2_hash_not_plaintext(cloud_client):

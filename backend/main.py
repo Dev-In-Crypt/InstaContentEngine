@@ -50,6 +50,9 @@ _MIGRATIONS: dict[str, dict[str, str]] = {
     "llm_usage": {
         "user_id": "VARCHAR(36)",
     },
+    "users": {
+        "is_admin": "BOOLEAN DEFAULT FALSE",
+    },
     "brand_configs": {
         "template_style": "VARCHAR(20) DEFAULT 'branded_card'",
         "niche_box_color": "VARCHAR(7) DEFAULT '#ff751f'",

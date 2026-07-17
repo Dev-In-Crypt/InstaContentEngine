@@ -127,6 +127,30 @@ def test_usage_is_scoped_per_user(cloud_client, sm):
     assert cloud_client.get("/api/usage", headers=_hdr(tb)).json()["month"]["cost"] == 0.0
 
 
+# ── admin-only backup + ungated slide images (Phase E) ─────────────────────
+
+def test_backup_forbidden_for_regular_cloud_user(cloud_client):
+    ta = _register(cloud_client, "reg@ex.com")
+    assert cloud_client.get("/api/admin/backup", headers=_hdr(ta)).status_code == 403
+
+
+def test_backup_allowed_for_local_user(local_client):
+    # Local desktop owner is admin — backup must work (returns a zip stream).
+    assert local_client.get("/api/admin/backup").status_code == 200
+
+
+def test_slide_image_is_ungated(cloud_client):
+    # A browser <img> can't send the Bearer token, so this endpoint must NOT 401.
+    # Unknown slide → 404 (proves it's reachable without auth, unlike other routes).
+    r = cloud_client.get(f"/api/posts/{uuid.uuid4()}/slides/1/image")
+    assert r.status_code == 404      # not 401
+
+
+def test_other_post_route_still_requires_auth(cloud_client):
+    # Contrast: a normal post route without a token is still gated.
+    assert cloud_client.get(f"/api/posts/{uuid.uuid4()}").status_code == 401
+
+
 # ── local: single owner sees everything (desktop regression guard) ──────────
 
 def test_local_user_sees_posts_with_any_owner(local_client, sm):

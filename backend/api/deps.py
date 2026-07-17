@@ -158,6 +158,14 @@ def require_token(user: Annotated[UserModel, Depends(get_current_user)]) -> None
     return None
 
 
+def require_admin(user: Annotated[UserModel, Depends(get_current_user)]) -> None:
+    """Gate whole-database operations (backup/restore). The local desktop owner is
+    admin; in cloud only a user flagged is_admin may pull everyone's data."""
+    if not (user.is_local or user.is_admin):
+        raise HTTPException(status_code=403, detail="Admin only")
+    return None
+
+
 async def owned_post(db: AsyncSession, post_id: str, user: UserModel, *, options=()) -> PostModel:
     """Fetch a post the user is allowed to touch, else 404 (not 403 — don't reveal
     that another tenant's post exists). The local desktop user owns everything, so

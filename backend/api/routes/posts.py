@@ -440,9 +440,12 @@ async def get_slide_image(
     post_id: str,
     slide_num: int,
     db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> StreamingResponse:
-    await owned_post(db, post_id, user)   # ownership gate on the parent post
+    # Intentionally UNGATED (like get_reel_video): a browser <img src> cannot send
+    # the Bearer token, so the SPA relies on this being reachable without auth. The
+    # URL carries an unguessable post UUID and the image becomes public on publish
+    # anyway (same posture as the imgbb URLs). Post/list/usage isolation is
+    # unaffected — only raw slide bytes are reachable by UUID.
     result = await db.execute(
         select(SlideModel)
         .where(SlideModel.post_id == post_id, SlideModel.slide_number == slide_num)
