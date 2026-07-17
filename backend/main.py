@@ -47,6 +47,9 @@ _MIGRATIONS: dict[str, dict[str, str]] = {
         "original_overlay_text": "TEXT",
         "original_niche_text": "TEXT",
     },
+    "llm_usage": {
+        "user_id": "VARCHAR(36)",
+    },
     "brand_configs": {
         "template_style": "VARCHAR(20) DEFAULT 'branded_card'",
         "niche_box_color": "VARCHAR(7) DEFAULT '#ff751f'",
@@ -69,6 +72,8 @@ async def _apply_migrations(conn) -> None:
         if dialect == "sqlite":
             existing = await conn.execute(text(f"PRAGMA table_info({table})"))
             present = {row[1] for row in existing.fetchall()}
+            if not present:
+                continue   # table doesn't exist yet (create_all makes it first in prod)
             for col, ddl in columns.items():
                 if col not in present:
                     await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))

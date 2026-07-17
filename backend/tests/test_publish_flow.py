@@ -176,11 +176,15 @@ def test_publish_endpoint_cancels_scheduled_job(sessionmaker, monkeypatch):
     monkeypatch.setattr(sched, "cancel_publish", lambda pid: cancelled.setdefault("pid", pid))
     monkeypatch.setattr(pf, "publish_now", AsyncMock(return_value="media-9"))
 
+    # Publish now verifies ownership first, so the post must exist.
+    pid = str(uuid.uuid4())
+    asyncio.run(_seed(sessionmaker, id=pid, topic="t", format="single", status="preview"))
+
     app.state.sessionmaker = sessionmaker
     app.dependency_overrides[get_settings] = lambda: Settings(api_token="")
     try:
         tc = TestClient(app)
-        res = tc.post(f"/api/posts/{uuid.uuid4()}/publish")
+        res = tc.post(f"/api/posts/{pid}/publish")
         assert res.status_code == 200
     finally:
         app.dependency_overrides.pop(get_settings, None)

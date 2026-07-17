@@ -16,9 +16,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.deps import get_db, get_settings, require_token
+from api.deps import get_current_user, get_db, get_settings, require_token
 from config import Settings
-from models.database import LLMUsage
+from models.database import LLMUsage, User as UserModel
 from services.openrouter import drain_usage
 
 router = APIRouter(prefix="/api", tags=["admin"])
@@ -38,6 +38,7 @@ async def _flush_usage(db: AsyncSession) -> None:
     for rec in records:
         db.add(LLMUsage(
             id=str(uuid.uuid4()),
+            user_id=rec.get("user_id"),
             model=rec.get("model"),
             prompt_tokens=rec.get("prompt_tokens"),
             completion_tokens=rec.get("completion_tokens"),
@@ -48,29 +49,36 @@ async def _flush_usage(db: AsyncSession) -> None:
     await db.commit()
 
 
-@router.get("/usage", dependencies=[Depends(require_token)])
-async def get_usage(db: Annotated[AsyncSession, Depends(get_db)]) -> dict:
-    """Flush buffered LLM usage and return today/month aggregates + by-model."""
+@router.get("/usage")
+async def get_usage(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> dict:
+    """Flush buffered LLM usage and return today/month aggregates + by-model,
+    scoped to the current user (the local desktop user sees everything)."""
     await _flush_usage(db)
     now = datetime.now(timezone.utc)
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
+    def _scope(stmt):
+        return stmt if user.is_local else stmt.where(LLMUsage.user_id == user.id)
+
     async def _agg(since):
-        r = await db.execute(
+        r = await db.execute(_scope(
             select(func.coalesce(func.sum(LLMUsage.cost), 0.0),
                    func.coalesce(func.sum(LLMUsage.total_tokens), 0),
                    func.count(LLMUsage.id))
             .where(LLMUsage.created_at >= since)
-        )
+        ))
         cost, tokens, calls = r.one()
         return {"cost": round(float(cost or 0), 4), "tokens": int(tokens or 0), "calls": int(calls or 0)}
 
-    by_model_rows = await db.execute(
+    by_model_rows = await db.execute(_scope(
         select(LLMUsage.model, func.coalesce(func.sum(LLMUsage.cost), 0.0), func.count(LLMUsage.id))
         .where(LLMUsage.created_at >= month_start)
         .group_by(LLMUsage.model).order_by(func.sum(LLMUsage.cost).desc())
-    )
+    ))
     by_model = [
         {"model": m, "cost": round(float(c or 0), 4), "calls": int(n)}
         for (m, c, n) in by_model_rows.all()

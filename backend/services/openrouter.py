@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import httpx
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -13,12 +14,18 @@ from services.http_utils import describe_request_error
 # the LLMUsage table on demand.
 _USAGE_BUFFER: list[dict] = []
 
+# The acting user's id for the current async task, set by api.deps.get_current_user.
+# Recorded on each usage row so the cost dashboard can be scoped per user. Lives
+# here (not in api.deps) to avoid a circular import — deps imports this module.
+current_user_id: ContextVar[Optional[str]] = ContextVar("current_user_id", default=None)
+
 
 def record_usage(model: str, usage: Optional[dict]) -> None:
     if not usage:
         return
     _USAGE_BUFFER.append({
         "model": model,
+        "user_id": current_user_id.get(),
         "prompt_tokens": usage.get("prompt_tokens"),
         "completion_tokens": usage.get("completion_tokens"),
         "total_tokens": usage.get("total_tokens"),

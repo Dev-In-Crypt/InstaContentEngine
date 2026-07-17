@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from api.deps import (
-    get_content_engine, get_db, get_settings,
+    get_content_engine, get_current_user, get_db, get_settings,
     get_trend_adapter, load_brand_config, make_trend_provider_for, require_token,
 )
 from config import Settings
@@ -27,6 +27,7 @@ from models.database import (
     Slide as SlideModel,
     TrendIdea as TrendIdeaModel,
     TrendingMedia as TrendingMediaModel,
+    User as UserModel,
 )
 from models.schemas import (
     AdaptTrendRequest, CompetitorAccount as CompetitorSchema, CompetitorCreate,
@@ -481,13 +482,14 @@ async def delete_idea(
 
 async def _persist_post(
     generated: GeneratedPost, db: AsyncSession,
-    template_style: str, trend_idea_id: str,
+    template_style: str, trend_idea_id: str, user_id: Optional[str] = None,
 ) -> PostModel:
     post_dir = UPLOADS_DIR / generated.id
     post_dir.mkdir(parents=True, exist_ok=True)
 
     db_post = PostModel(
         id=generated.id,
+        user_id=user_id,
         topic=generated.topic,
         format=generated.format.value,
         status="preview",
@@ -567,13 +569,14 @@ def _post_to_preview(post: PostModel) -> PostPreview:
     )
 
 
-@router.post("/ideas/{idea_id}/generate", dependencies=[Depends(require_token)])
+@router.post("/ideas/{idea_id}/generate")
 async def generate_from_idea(
     idea_id: str,
     body: GenerateFromIdeaRequest,
     engine: Annotated[ContentEngine, Depends(get_content_engine)],
     settings: Annotated[Settings, Depends(get_settings)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> StreamingResponse:
     result = await db.execute(
         select(TrendIdeaModel)
@@ -631,7 +634,7 @@ async def generate_from_idea(
                     progress=progress,
                 )
                 await progress("Saving to database...")
-                db_post = await _persist_post(generated, db, body.template_style.value, idea.id)
+                db_post = await _persist_post(generated, db, body.template_style.value, idea.id, user_id=user.id)
                 preview = _post_to_preview(db_post)
                 await queue.put({"type": "complete", "post": preview.model_dump(mode="json")})
             except Exception as exc:

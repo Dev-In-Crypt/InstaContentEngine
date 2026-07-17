@@ -10,9 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import Settings, get_settings
 from models.database import (
     BrandConfig as BrandConfigModel,
+    Post as PostModel,
     User as UserModel,
     UserCredentials as UserCredentialsModel,
 )
+# The acting user's id for the current async task (set in get_current_user).
+# Defined in services.openrouter to avoid a circular import; re-exported here.
+from services.openrouter import current_user_id
 from services.auth import decode_access_token
 from services.secrets import decrypt
 from services.openrouter import OpenRouterClient
@@ -139,7 +143,9 @@ async def get_current_user(
     """Resolve the acting user. Local mode → the seeded local owner (no token).
     Cloud mode → decode the Bearer JWT; 401 if missing/invalid/inactive."""
     if settings.app_mode != "cloud":
-        return await _get_or_create_local_user(db)
+        user = await _get_or_create_local_user(db)
+        current_user_id.set(user.id)
+        return user
 
     token = authorization[7:] if authorization.startswith("Bearer ") else ""
     user_id = decode_access_token(token)
@@ -148,6 +154,7 @@ async def get_current_user(
     user = await db.get(UserModel, user_id)
     if user is None or not user.is_active:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    current_user_id.set(user.id)
     return user
 
 
@@ -181,6 +188,21 @@ def require_token(user: Annotated[UserModel, Depends(get_current_user)]) -> None
     `dependencies=[Depends(require_token)]` sites need no churn. Authentication now
     means 'a resolvable user' — always true in local mode, JWT-gated in cloud."""
     return None
+
+
+async def owned_post(db: AsyncSession, post_id: str, user: UserModel, *, options=()) -> PostModel:
+    """Fetch a post the user is allowed to touch, else 404 (not 403 — don't reveal
+    that another tenant's post exists). The local desktop user owns everything, so
+    the ownership filter only applies to real cloud accounts."""
+    stmt = select(PostModel).where(PostModel.id == post_id)
+    if not user.is_local:
+        stmt = stmt.where(PostModel.user_id == user.id)
+    if options:
+        stmt = stmt.options(*options)
+    post = (await db.execute(stmt)).scalar_one_or_none()
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return post
 
 
 def get_openrouter(

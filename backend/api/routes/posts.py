@@ -15,12 +15,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from api.deps import get_content_engine, get_db, get_settings, load_brand_config, require_token
+from api.deps import (
+    get_content_engine, get_current_user, get_db, get_settings, load_brand_config,
+    owned_post, require_token,
+)
 from services.brand_engine import PillowBrandEngine
 from config import Settings
 from models.database import (
     Post as PostModel, Slide as SlideModel, TrendIdea as TrendIdeaModel,
-    PostInsight as PostInsightModel,
+    PostInsight as PostInsightModel, User as UserModel,
 )
 from models.schemas import (
     CaptionUpdate, GenerateRequest, ImageSource, OverlayUpdateRequest, Platform,
@@ -38,6 +41,14 @@ from services.stock import StockError
 router = APIRouter(prefix="/api/posts", tags=["posts"])
 
 UPLOADS_DIR = Path(__file__).parent.parent.parent / "uploads" / "posts"
+
+
+def _preview_opts():
+    """Eager-load options for the full PostPreview shape (slides + trend source)."""
+    return (
+        selectinload(PostModel.slides),
+        selectinload(PostModel.trend_idea).selectinload(TrendIdeaModel.source_media),
+    )
 
 
 def _slide_path(post_id: str, slide_num: int) -> Path:
@@ -107,13 +118,14 @@ def _to_preview(post: PostModel) -> PostPreview:
 
 async def _persist(
     generated: GeneratedPost, db: AsyncSession, template_style: str = "branded_card",
-    trend_idea_id: Optional[str] = None,
+    trend_idea_id: Optional[str] = None, user_id: Optional[str] = None,
 ) -> PostModel:
     post_dir = UPLOADS_DIR / generated.id
     post_dir.mkdir(parents=True, exist_ok=True)
 
     db_post = PostModel(
         id=generated.id,
+        user_id=user_id,
         topic=generated.topic,
         format=generated.format.value,
         status="preview",
@@ -173,12 +185,13 @@ def _sse(event: dict) -> str:
     return f"data: {json.dumps(event)}\n\n"
 
 
-@router.post("/generate", dependencies=[Depends(require_token)])
+@router.post("/generate")
 async def generate_post(
     request: GenerateRequest,
     engine: Annotated[ContentEngine, Depends(get_content_engine)],
     settings: Annotated[Settings, Depends(get_settings)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> StreamingResponse:
     slide_configs: Optional[list[SlideImageConfig]] = None
     if request.slides:
@@ -230,7 +243,7 @@ async def generate_post(
                 await progress("Saving to database...")
                 db_post = await _persist(
                     generated, db, request.template_style.value,
-                    trend_idea_id=request.trend_idea_id,
+                    trend_idea_id=request.trend_idea_id, user_id=user.id,
                 )
                 preview = _to_preview(db_post)
                 # Persist any buffered LLM usage from this generation.
@@ -256,12 +269,15 @@ async def generate_post(
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-@router.get("", response_model=list[PostSummary], dependencies=[Depends(require_token)])
-async def list_posts(db: Annotated[AsyncSession, Depends(get_db)]) -> list[PostSummary]:
-    result = await db.execute(
-        select(PostModel).order_by(PostModel.created_at.desc())
-        .options(selectinload(PostModel.slides))
-    )
+@router.get("", response_model=list[PostSummary])
+async def list_posts(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> list[PostSummary]:
+    stmt = select(PostModel).order_by(PostModel.created_at.desc()).options(selectinload(PostModel.slides))
+    if not user.is_local:
+        stmt = stmt.where(PostModel.user_id == user.id)
+    result = await db.execute(stmt)
     posts = result.scalars().all()
     out = []
     for p in posts:
@@ -280,29 +296,24 @@ async def list_posts(db: Annotated[AsyncSession, Depends(get_db)]) -> list[PostS
     return out
 
 
-@router.get("/{post_id}", response_model=PostPreview, dependencies=[Depends(require_token)])
-async def get_post(post_id: str, db: Annotated[AsyncSession, Depends(get_db)]) -> PostPreview:
-    result = await db.execute(
-        select(PostModel).where(PostModel.id == post_id).options(selectinload(PostModel.slides), selectinload(PostModel.trend_idea).selectinload(TrendIdeaModel.source_media))
-    )
-    post = result.scalar_one_or_none()
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
+@router.get("/{post_id}", response_model=PostPreview)
+async def get_post(
+    post_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> PostPreview:
+    post = await owned_post(db, post_id, user, options=_preview_opts())
     return _to_preview(post)
 
 
-@router.put("/{post_id}/caption", response_model=PostPreview, dependencies=[Depends(require_token)])
+@router.put("/{post_id}/caption", response_model=PostPreview)
 async def update_caption(
     post_id: str,
     update: CaptionUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> PostPreview:
-    result = await db.execute(
-        select(PostModel).where(PostModel.id == post_id).options(selectinload(PostModel.slides), selectinload(PostModel.trend_idea).selectinload(TrendIdeaModel.source_media))
-    )
-    post = result.scalar_one_or_none()
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
+    post = await owned_post(db, post_id, user, options=_preview_opts())
     if update.caption is not None:
         post.caption = update.caption
     if update.hashtags is not None:
@@ -312,24 +323,18 @@ async def update_caption(
     if update.seo_keywords is not None:
         post.seo_keywords = update.seo_keywords
     await db.commit()
-    result2 = await db.execute(
-        select(PostModel).where(PostModel.id == post_id).options(selectinload(PostModel.slides), selectinload(PostModel.trend_idea).selectinload(TrendIdeaModel.source_media))
-    )
-    return _to_preview(result2.scalar_one())
+    post = await owned_post(db, post_id, user, options=_preview_opts())
+    return _to_preview(post)
 
 
-@router.post("/{post_id}/export", dependencies=[Depends(require_token)])
+@router.post("/{post_id}/export")
 async def export_post(
     post_id: str,
     engine: Annotated[ContentEngine, Depends(get_content_engine)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> StreamingResponse:
-    result = await db.execute(
-        select(PostModel).where(PostModel.id == post_id).options(selectinload(PostModel.slides), selectinload(PostModel.trend_idea).selectinload(TrendIdeaModel.source_media))
-    )
-    post = result.scalar_one_or_none()
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
+    post = await owned_post(db, post_id, user, options=_preview_opts())
 
     images = []
     for slide in sorted(post.slides, key=lambda s: s.slide_number):
@@ -352,15 +357,17 @@ async def export_post(
     )
 
 
-@router.post("/{post_id}/publish", response_model=PublishResult, dependencies=[Depends(require_token)])
+@router.post("/{post_id}/publish", response_model=PublishResult)
 async def publish_post(
     post_id: str,
     req: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> PublishResult:
     """Publish immediately: slides → imgbb (public URLs) → Instagram."""
     from services.publisher_flow import publish_now, PublishError
     from services.scheduler import cancel_publish
+    await owned_post(db, post_id, user)   # ownership gate before touching the job/publish
     # Drop any pending scheduled job so it can't fire and double-publish.
     cancel_publish(post_id)
     sessionmaker = req.app.state.sessionmaker
@@ -375,24 +382,17 @@ async def publish_post(
         return PublishResult(success=False, error=str(e))
 
 
-@router.post("/{post_id}/schedule", response_model=PostPreview, dependencies=[Depends(require_token)])
+@router.post("/{post_id}/schedule", response_model=PostPreview)
 async def schedule_post_endpoint(
     post_id: str,
     body: ScheduleRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> PostPreview:
     """Schedule a post for future publishing (10 min – 75 days ahead)."""
     from services.scheduler import schedule_publish
 
-    result = await db.execute(
-        select(PostModel).where(PostModel.id == post_id).options(
-            selectinload(PostModel.slides),
-            selectinload(PostModel.trend_idea).selectinload(TrendIdeaModel.source_media),
-        )
-    )
-    post = result.scalar_one_or_none()
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
+    post = await owned_post(db, post_id, user, options=_preview_opts())
 
     when = body.publish_at
     if when.tzinfo is None:
@@ -413,51 +413,36 @@ async def schedule_post_endpoint(
     post.scheduled_at = when
     post.schedule_error = None
     await db.commit()
-    result2 = await db.execute(
-        select(PostModel).where(PostModel.id == post_id).options(
-            selectinload(PostModel.slides),
-            selectinload(PostModel.trend_idea).selectinload(TrendIdeaModel.source_media),
-        )
-    )
-    return _to_preview(result2.scalar_one())
+    post = await owned_post(db, post_id, user, options=_preview_opts())
+    return _to_preview(post)
 
 
-@router.delete("/{post_id}/schedule", response_model=PostPreview, dependencies=[Depends(require_token)])
+@router.delete("/{post_id}/schedule", response_model=PostPreview)
 async def unschedule_post(
     post_id: str,
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> PostPreview:
     from services.scheduler import cancel_publish
 
-    result = await db.execute(
-        select(PostModel).where(PostModel.id == post_id).options(
-            selectinload(PostModel.slides),
-            selectinload(PostModel.trend_idea).selectinload(TrendIdeaModel.source_media),
-        )
-    )
-    post = result.scalar_one_or_none()
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
+    post = await owned_post(db, post_id, user, options=_preview_opts())
     cancel_publish(post_id)
     if post.status == "scheduled":
         post.status = "preview"
     post.scheduled_at = None
     await db.commit()
-    result2 = await db.execute(
-        select(PostModel).where(PostModel.id == post_id).options(
-            selectinload(PostModel.slides),
-            selectinload(PostModel.trend_idea).selectinload(TrendIdeaModel.source_media),
-        )
-    )
-    return _to_preview(result2.scalar_one())
+    post = await owned_post(db, post_id, user, options=_preview_opts())
+    return _to_preview(post)
 
 
-@router.get("/{post_id}/slides/{slide_num}/image", dependencies=[Depends(require_token)])
+@router.get("/{post_id}/slides/{slide_num}/image")
 async def get_slide_image(
     post_id: str,
     slide_num: int,
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> StreamingResponse:
+    await owned_post(db, post_id, user)   # ownership gate on the parent post
     result = await db.execute(
         select(SlideModel)
         .where(SlideModel.post_id == post_id, SlideModel.slide_number == slide_num)
@@ -479,14 +464,10 @@ _MAX_UPLOAD_BYTES = 20 * 1024 * 1024     # 20 MB
 _ACCEPTED_UPLOAD_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 
-async def _slide_with_post(db: AsyncSession, post_id: str, slide_num: int) -> tuple[PostModel, SlideModel]:
-    result = await db.execute(
-        select(PostModel).where(PostModel.id == post_id)
-        .options(selectinload(PostModel.slides))
-    )
-    post = result.scalar_one_or_none()
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
+async def _slide_with_post(
+    db: AsyncSession, post_id: str, slide_num: int, user: UserModel,
+) -> tuple[PostModel, SlideModel]:
+    post = await owned_post(db, post_id, user, options=(selectinload(PostModel.slides),))
     slide = next((s for s in post.slides if s.slide_number == slide_num), None)
     if not slide:
         raise HTTPException(status_code=404, detail="Slide not found")
@@ -517,7 +498,6 @@ def _rebrand_slide_bytes(
 @router.post(
     "/{post_id}/slides/{slide_num}/regenerate",
     response_model=SlidePreview,
-    dependencies=[Depends(require_token)],
 )
 async def regenerate_slide(
     post_id: str,
@@ -526,9 +506,10 @@ async def regenerate_slide(
     engine: Annotated[ContentEngine, Depends(get_content_engine)],
     settings: Annotated[Settings, Depends(get_settings)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> SlidePreview:
     """Replace a single slide's image (stock or AI) WITHOUT touching the rest of the post."""
-    post, slide = await _slide_with_post(db, post_id, slide_num)
+    post, slide = await _slide_with_post(db, post_id, slide_num, user)
 
     # Build a SlideImageConfig from the existing slide, overridden by request body.
     image_source = body.image_source or ImageSource(slide.image_source)
@@ -580,12 +561,12 @@ async def regenerate_slide(
 @router.post(
     "/{post_id}/slides/{slide_num}/upload",
     response_model=SlidePreview,
-    dependencies=[Depends(require_token)],
 )
 async def upload_slide(
     post_id: str,
     slide_num: int,
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
     file: UploadFile = File(...),
 ) -> SlidePreview:
     """Replace a single slide with a user-uploaded image."""
@@ -600,7 +581,7 @@ async def upload_slide(
     if len(raw_bytes) > _MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File too large (max 20 MB)")
 
-    post, slide = await _slide_with_post(db, post_id, slide_num)
+    post, slide = await _slide_with_post(db, post_id, slide_num, user)
 
     brand_cfg = await load_brand_config(db, None)
     brand_engine = PillowBrandEngine(brand_cfg)
@@ -627,18 +608,18 @@ async def upload_slide(
 @router.put(
     "/{post_id}/slides/{slide_num}/overlay",
     response_model=SlidePreview,
-    dependencies=[Depends(require_token)],
 )
 async def update_slide_overlay(
     post_id: str,
     slide_num: int,
     body: OverlayUpdateRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> SlidePreview:
     """Re-render the overlay (niche box + description box) on top of the slide's
     stored raw image — no new image fetch. Used when the user types a new
     overlay caption in the preview UI and hits Apply."""
-    post, slide = await _slide_with_post(db, post_id, slide_num)
+    post, slide = await _slide_with_post(db, post_id, slide_num, user)
 
     if not slide.raw_image_path:
         raise HTTPException(
@@ -690,22 +671,17 @@ def _unique_path(folder: Path, stem: str, suffix: str) -> Path:
     return candidate
 
 
-@router.post("/{post_id}/export-to-disk", dependencies=[Depends(require_token)])
+@router.post("/{post_id}/export-to-disk")
 async def export_post_to_disk(
     post_id: str,
     engine: Annotated[ContentEngine, Depends(get_content_engine)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> dict:
     """Build the ZIP and save it directly to ~/Downloads. Returns the absolute path.
     Used by the desktop window (pywebview) where blob downloads don't surface a
     Save-As dialog and end up in unclear locations."""
-    result = await db.execute(
-        select(PostModel).where(PostModel.id == post_id)
-        .options(selectinload(PostModel.slides))
-    )
-    post = result.scalar_one_or_none()
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
+    post = await owned_post(db, post_id, user, options=(selectinload(PostModel.slides),))
 
     images: list[bytes] = []
     for slide in sorted(post.slides, key=lambda s: s.slide_number):
@@ -757,17 +733,15 @@ async def open_folder(path: str = Body(..., embed=True)) -> dict:
 # Insights (on-demand refresh + history)
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.post("/{post_id}/insights/refresh", response_model=PostInsightSchema,
-             dependencies=[Depends(require_token)])
+@router.post("/{post_id}/insights/refresh", response_model=PostInsightSchema)
 async def refresh_insights(
     post_id: str,
     settings: Annotated[Settings, Depends(get_settings)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> PostInsightSchema:
     """Pull the latest Instagram metrics for a published post and store a snapshot."""
-    post = await db.get(PostModel, post_id)
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
+    post = await owned_post(db, post_id, user)
     if not post.instagram_media_id:
         raise HTTPException(status_code=409, detail="Post is not published to Instagram yet")
     if not settings.instagram_access_token or not settings.instagram_user_id:
@@ -804,12 +778,13 @@ async def refresh_insights(
     return PostInsightSchema.model_validate(snap)
 
 
-@router.get("/{post_id}/insights", response_model=list[PostInsightSchema],
-            dependencies=[Depends(require_token)])
+@router.get("/{post_id}/insights", response_model=list[PostInsightSchema])
 async def list_insights(
     post_id: str,
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> list[PostInsightSchema]:
+    await owned_post(db, post_id, user)   # ownership gate on the parent post
     result = await db.execute(
         select(PostInsightModel).where(PostInsightModel.post_id == post_id)
         .order_by(PostInsightModel.snapshot_at.desc())
@@ -821,20 +796,18 @@ async def list_insights(
 # Regenerate a single field (caption / hook / cta / hashtags / seo_keywords)
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.post("/{post_id}/regenerate-field", response_model=RegenFieldResponse,
-             dependencies=[Depends(require_token)])
+@router.post("/{post_id}/regenerate-field", response_model=RegenFieldResponse)
 async def regenerate_field(
     post_id: str,
     body: RegenFieldRequest,
     engine: Annotated[ContentEngine, Depends(get_content_engine)],
     settings: Annotated[Settings, Depends(get_settings)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> RegenFieldResponse:
     """Cheap targeted regeneration: returns N alternatives for one field.
     Does not persist — the client applies a chosen variant via PUT /caption."""
-    post = await db.get(PostModel, post_id)
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
+    post = await owned_post(db, post_id, user)
 
     current = {
         "caption": post.caption,
@@ -865,9 +838,15 @@ async def regenerate_field(
 # Content pillars mix + "what to post today"
 # ─────────────────────────────────────────────────────────────────────────────
 
-@router.get("/pillars/mix", dependencies=[Depends(require_token)])
-async def pillars_mix(db: Annotated[AsyncSession, Depends(get_db)]) -> dict:
-    result = await db.execute(select(PostModel.pillar, PostModel.topic, PostModel.caption))
+@router.get("/pillars/mix")
+async def pillars_mix(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> dict:
+    stmt = select(PostModel.pillar, PostModel.topic, PostModel.caption)
+    if not user.is_local:
+        stmt = stmt.where(PostModel.user_id == user.id)
+    result = await db.execute(stmt)
     rows = result.all()
     pillars = [
         (p if p else classify_pillar(topic, caption))
@@ -886,21 +865,17 @@ def _reel_path(post_id: str) -> Path:
     return UPLOADS_DIR / post_id / "reel.mp4"
 
 
-@router.post("/{post_id}/reel", dependencies=[Depends(require_token)])
+@router.post("/{post_id}/reel")
 async def make_reel(
     post_id: str,
     settings: Annotated[Settings, Depends(get_settings)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> dict:
     """Render a Reel MP4 from the post's slides and store it on disk."""
     from services.video import get_video_provider, VideoError
 
-    result = await db.execute(
-        select(PostModel).where(PostModel.id == post_id).options(selectinload(PostModel.slides))
-    )
-    post = result.scalar_one_or_none()
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
+    post = await owned_post(db, post_id, user, options=(selectinload(PostModel.slides),))
 
     slides = sorted(post.slides, key=lambda s: s.slide_number)
     images: list[bytes] = []
@@ -930,11 +905,15 @@ async def make_reel(
     return {"video_url": f"/api/posts/{post.id}/reel/video?t={ts}", "size_bytes": len(mp4)}
 
 
-@router.get("/{post_id}/reel/video", dependencies=[Depends(require_token)])
+@router.get("/{post_id}/reel/video")
 async def get_reel_video(
     post_id: str,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> FileResponse:
+    # Intentionally UNGATED: Instagram's servers fetch this URL directly (no auth
+    # header possible) when publishing a Reel in cloud mode. The post_id is an
+    # unguessable UUID and the content is about to be public — same posture as the
+    # imgbb public image URLs used for photo publishing.
     post = await db.get(PostModel, post_id)
     if not post or not post.video_path:
         raise HTTPException(status_code=404, detail="Reel not rendered yet")
@@ -944,21 +923,19 @@ async def get_reel_video(
     return FileResponse(str(p), media_type="video/mp4", filename="reel.mp4")
 
 
-@router.post("/{post_id}/publish-reel", response_model=PublishResult,
-             dependencies=[Depends(require_token)])
+@router.post("/{post_id}/publish-reel", response_model=PublishResult)
 async def publish_reel(
     post_id: str,
     req: Request,
     settings: Annotated[Settings, Depends(get_settings)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> PublishResult:
     """Publish the rendered Reel to Instagram. Requires a publicly reachable
     video URL — only works in cloud mode (PUBLIC_BASE_URL set)."""
     from services.publisher_flow import publish_reel_now, PublishError
 
-    post = await db.get(PostModel, post_id)
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
+    post = await owned_post(db, post_id, user)
     if not post.video_path:
         raise HTTPException(status_code=409, detail="Render the reel first (Make Reel)")
 

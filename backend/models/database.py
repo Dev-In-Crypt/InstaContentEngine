@@ -159,6 +159,7 @@ class LLMUsage(Base):
     __tablename__ = "llm_usage"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
     model = Column(String(120))
     prompt_tokens = Column(Integer)
     completion_tokens = Column(Integer)
