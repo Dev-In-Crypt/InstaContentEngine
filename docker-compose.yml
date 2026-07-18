@@ -29,6 +29,11 @@ services:
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      # Email (Resend) — verification + password reset. Empty = emails only logged.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-Content Engine <onboarding@resend.dev>}
+      REQUIRE_VERIFIED_EMAIL: ${REQUIRE_VERIFIED_EMAIL:-false}
+      SENTRY_DSN: ${SENTRY_DSN:-}
       DATABASE_URL: postgresql+asyncpg://insta:${DB_PASSWORD}@db:5432/insta
       DEFAULT_TEXT_MODEL: anthropic/claude-sonnet-4
       DEFAULT_IMAGE_MODEL: google/gemini-2.5-flash-image-preview
