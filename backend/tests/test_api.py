@@ -50,6 +50,14 @@ def test_health(client):
     assert resp.json()["status"] == "ok"
 
 
+def test_legal_pages_served(client):
+    """ /terms and /privacy serve their own pages, not the SPA fallback. """
+    t = client.get("/terms")
+    assert t.status_code == 200 and "Terms of Service" in t.text
+    p = client.get("/privacy")
+    assert p.status_code == 200 and "Privacy Policy" in p.text
+
+
 # ── model catalogue ─────────────────────────────────────────────────────────
 
 def test_list_text_models(client):

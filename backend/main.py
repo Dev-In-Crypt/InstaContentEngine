@@ -269,6 +269,18 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
+# Standalone legal pages (linked from the landing footer + the sign-up screen).
+# Served explicitly so they don't fall through to the SPA.
+@app.get("/terms", include_in_schema=False)
+async def terms_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "terms.html")
+
+
+@app.get("/privacy", include_in_schema=False)
+async def privacy_page() -> FileResponse:
+    return FileResponse(STATIC_DIR / "privacy.html")
+
+
 # Catch-all: serve the single-page app for any non-API route. An unknown /api/*
 # path must 404 rather than fall through to the SPA with a misleading 200.
 @app.get("/{full_path:path}", include_in_schema=False)
