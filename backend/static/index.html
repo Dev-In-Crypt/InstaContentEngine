@@ -69,6 +69,8 @@
     .sec-btn:hover{ background:var(--accent-dim); color:var(--text); }
     .sec-btn.sec-active{ background:var(--accent-dim); color:var(--text); font-weight:600; }
     .soon-badge{ font-size:9px; font-weight:700; letter-spacing:.04em; padding:1px 4px; border-radius:5px; background:var(--accent-dim); color:var(--muted); text-transform:uppercase; }
+    /* muted status dot (fits the monochrome look) */
+    .bg-green-400{ background-color:#5aa17c !important; }
 
     .slide-img { transition: opacity .3s; }
     .spinner { animation: spin 1s linear infinite; }
@@ -85,7 +87,6 @@
     <div class="flex items-center gap-2 cursor-pointer" onclick="goStep(1)" title="New post">
       <span class="text-lg" style="color:var(--accent)">✦</span>
       <span class="font-bold tracking-tight">Content Engine</span>
-      <span class="soon-badge" style="background:var(--accent-dim)" id="active-net-chip">Instagram</span>
     </div>
     <div class="ml-auto flex items-center gap-2">
       <button onclick="toggleTheme()" id="theme-toggle" class="ce-card px-2.5 py-1 text-xs" title="Toggle light / dark">☾</button>
@@ -118,7 +119,7 @@
     <p class="mt-4 text-gray-400 leading-relaxed max-w-2xl mx-auto">Give it a topic. Content Engine writes the copy, designs your branded slides, and posts to Instagram and X — 24/7, even when your computer is off.</p>
     <div class="mt-8 flex flex-wrap justify-center gap-3">
       <button onclick="showAuthScreen('register')" class="ce-btn px-6 py-3 text-sm">Start free →</button>
-      <button onclick="showAuthScreen('login')" class="ce-btn-ghost px-6 py-3 text-sm">See a live demo</button>
+      <button onclick="showAuthScreen('login')" class="ce-btn-ghost px-6 py-3 text-sm">Log in</button>
     </div>
     <div class="mt-7 flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs text-gray-400">
       <span>◆ Instagram &amp; X</span><span>◆ Your own API keys</span><span>◆ Encrypted &amp; isolated</span>
@@ -2012,7 +2013,6 @@ function setNetwork(net) {
   const trendsBtn = document.getElementById('sec-trends-btn');
   if (trendsBtn) trendsBtn.classList.toggle('hidden', !isIG);   // Trends is IG-only
   const lbl = document.getElementById('net-keys-label'); if (lbl) lbl.textContent = isIG ? 'Instagram' : 'X';
-  const chip = document.getElementById('active-net-chip'); if (chip) chip.textContent = isIG ? 'Instagram' : 'X';
   document.querySelectorAll('.analytics-net').forEach(e => e.textContent = isIG ? 'Instagram' : 'X');
   // sync the (now hidden) wizard platform toggle so generation uses this network
   document.querySelectorAll('.plt-btn').forEach(b => b.classList.toggle('active', b.dataset.val === net));
