@@ -48,6 +48,13 @@
     .ce-input{ background:var(--panel2); border:1px solid var(--border); border-radius:10px; color:var(--text); }
     .ce-input:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-dim); }
 
+    /* network tabs + sidebar sections active states */
+    .net-btn{ color:var(--muted); transition:all .15s; }
+    .net-btn.net-active{ background:var(--accent); color:#fff; }
+    .sec-btn{ color:var(--muted); transition:background .12s,color .12s; }
+    .sec-btn:hover{ background:var(--accent-dim); color:var(--text); }
+    .sec-btn.sec-active{ background:var(--accent-dim); color:var(--accent); font-weight:600; }
+
     .slide-img { transition: opacity .3s; }
     .spinner { animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -57,17 +64,26 @@
 <body class="bg-gray-950 text-gray-100 min-h-screen font-sans">
 
 <!-- ===== HEADER ===== -->
-<header class="bg-gradient-to-r from-purple-900 to-pink-900 shadow-lg">
-  <div class="max-w-4xl mx-auto px-6 py-4 flex items-center gap-3">
-    <span class="text-2xl">📸</span>
-    <h1 class="text-xl font-bold tracking-wide cursor-pointer hover:text-purple-200 transition" onclick="goStep(1)" title="New post">InstaContentEngine</h1>
-    <button id="cost-badge" onclick="showCostPopover()" class="ml-auto hidden bg-black/30 hover:bg-black/50 transition rounded-full px-3 py-1 text-xs text-gray-200" title="LLM spend today (click for details)">💰 $0.00</button>
-    <span id="status-dot" class="w-3 h-3 rounded-full bg-green-400" title="API connected"></span>
-    <span id="status-label" class="text-xs text-gray-300">connecting…</span>
-    <span id="user-chip" class="hidden text-xs text-gray-200 bg-black/30 rounded-full px-3 py-1" title="Signed in"></span>
-    <button id="logout-btn" onclick="logout()" class="hidden text-xs text-gray-200 bg-black/30 hover:bg-black/50 transition rounded-full px-3 py-1" title="Sign out">Log out</button>
+<header class="border-b sticky top-0 z-30" style="border-color:var(--border);background:var(--bg)">
+  <div class="max-w-7xl mx-auto px-5 py-3 flex items-center gap-4">
+    <div class="flex items-center gap-2 cursor-pointer" onclick="goStep(1)" title="New post">
+      <span class="text-lg" style="color:var(--accent)">✦</span>
+      <span class="font-bold tracking-tight">Content Engine</span>
+    </div>
+    <!-- network tabs -->
+    <div class="flex gap-1 ml-1 p-1 rounded-xl" style="background:var(--panel)">
+      <button id="net-instagram" onclick="setNetwork('instagram')" class="net-btn px-3 py-1.5 rounded-lg text-sm font-semibold">📸 Instagram</button>
+      <button id="net-x" onclick="setNetwork('x')" class="net-btn px-3 py-1.5 rounded-lg text-sm font-semibold text-gray-400">𝕏 X</button>
+    </div>
+    <div class="ml-auto flex items-center gap-2">
+      <button id="cost-badge" onclick="showCostPopover()" class="hidden ce-card px-3 py-1 text-xs" title="LLM spend today (click for details)">💰 $0.00</button>
+      <span id="status-dot" class="w-2.5 h-2.5 rounded-full bg-green-400" title="API connected"></span>
+      <span id="status-label" class="text-xs text-gray-400">connecting…</span>
+      <span id="user-chip" class="hidden text-xs text-gray-300 ce-card px-3 py-1" title="Signed in"></span>
+      <button id="logout-btn" onclick="logout()" class="hidden text-xs ce-btn-ghost px-3 py-1" title="Sign out">Log out</button>
+    </div>
   </div>
-  <div id="cost-popover" class="hidden max-w-4xl mx-auto px-6 pb-3 text-xs text-gray-300"></div>
+  <div id="cost-popover" class="hidden max-w-7xl mx-auto px-5 pb-3 text-xs text-gray-400"></div>
 </header>
 
 <!-- ===== AUTH SCREEN (cloud mode only) ===== -->
@@ -177,15 +193,36 @@
   </div>
 </div>
 
-<main class="max-w-4xl mx-auto px-4 py-8 space-y-6">
+<main class="max-w-7xl mx-auto px-4 py-6">
+ <div class="flex gap-6">
+  <!-- ===== SIDEBAR (per-network sections) ===== -->
+  <aside class="w-52 shrink-0 hidden md:block">
+    <nav id="section-nav" class="space-y-1 sticky top-20">
+      <button data-section="create" onclick="setSection('create')" class="sec-btn w-full text-left px-3 py-2 rounded-lg text-sm">✎&nbsp; Create post</button>
+      <button data-section="calendar" onclick="setSection('calendar')" class="sec-btn w-full text-left px-3 py-2 rounded-lg text-sm">▦&nbsp; Calendar</button>
+      <button data-section="feed" onclick="setSection('feed')" class="sec-btn w-full text-left px-3 py-2 rounded-lg text-sm">▤&nbsp; Feed</button>
+      <button id="sec-trends-btn" data-section="trends" onclick="setSection('trends')" class="sec-btn w-full text-left px-3 py-2 rounded-lg text-sm">📈&nbsp; Trends</button>
+      <button data-section="analytics" onclick="setSection('analytics')" class="sec-btn w-full text-left px-3 py-2 rounded-lg text-sm">📊&nbsp; Analytics</button>
+      <button data-section="keys" onclick="setSection('keys')" class="sec-btn w-full text-left px-3 py-2 rounded-lg text-sm">🔑&nbsp; <span id="net-keys-label">Instagram</span> keys</button>
+      <div class="pt-2 mt-2 border-t" style="border-color:var(--border)">
+        <button data-section="account" onclick="setSection('account')" class="sec-btn w-full text-left px-3 py-2 rounded-lg text-sm">⚙&nbsp; Account &amp; keys</button>
+      </div>
+    </nav>
+    <!-- mobile: horizontal fallback handled by md:hidden bar below -->
+  </aside>
 
-  <!-- ===== TOP-LEVEL VIEW SWITCH ===== -->
-  <div class="flex justify-center gap-2 select-none">
-    <button id="nav-create" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-purple-500 bg-purple-900 text-white" onclick="setView('create')">📝 Create</button>
-    <button id="nav-trends" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('trends')">🔥 Trends</button>
-    <button id="nav-calendar" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('calendar')">📅 Calendar</button>
-    <button id="nav-grid" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('grid')">▦ Grid</button>
-    <button id="nav-admin" class="nav-btn px-4 py-2 rounded-xl font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300" onclick="setView('admin')">⚙️ Settings</button>
+  <!-- ===== CONTENT ===== -->
+  <div id="app-content" class="flex-1 min-w-0 space-y-6">
+
+  <!-- mobile section switch -->
+  <div id="mobile-secnav" class="md:hidden flex gap-2 overflow-x-auto pb-1 text-xs">
+    <button onclick="setSection('create')" class="ce-card px-3 py-1.5 whitespace-nowrap">✎ Create</button>
+    <button onclick="setSection('calendar')" class="ce-card px-3 py-1.5 whitespace-nowrap">▦ Calendar</button>
+    <button onclick="setSection('feed')" class="ce-card px-3 py-1.5 whitespace-nowrap">▤ Feed</button>
+    <button onclick="setSection('trends')" class="ce-card px-3 py-1.5 whitespace-nowrap">📈 Trends</button>
+    <button onclick="setSection('analytics')" class="ce-card px-3 py-1.5 whitespace-nowrap">📊 Analytics</button>
+    <button onclick="setSection('keys')" class="ce-card px-3 py-1.5 whitespace-nowrap">🔑 Keys</button>
+    <button onclick="setSection('account')" class="ce-card px-3 py-1.5 whitespace-nowrap">⚙ Account</button>
   </div>
 
   <!-- ===== CREATE VIEW (wizard) ===== -->
@@ -242,9 +279,9 @@
       </div>
     </div>
 
-    <div class="grid grid-cols-2 gap-4">
-      <div>
-        <label class="block text-sm text-gray-400 mb-2">Platform</label>
+    <div class="grid grid-cols-1 gap-4">
+      <!-- Platform is chosen by the active network tab; kept hidden for state sync -->
+      <div class="hidden">
         <div class="flex gap-2" id="platform-btns">
           <button data-val="instagram" class="plt-btn">📸 Instagram</button>
           <button data-val="x"         class="plt-btn">𝕏 X</button>
@@ -586,13 +623,13 @@
   <div id="view-admin" class="hidden space-y-4">
     <!-- Personal API keys (cloud accounts only) -->
     <section id="keys-section" class="hidden bg-gray-900 rounded-2xl p-6 space-y-4">
-      <h2 class="text-lg font-semibold text-purple-300">🔑 Your API keys</h2>
+      <h2 id="keys-title" class="text-lg font-semibold text-purple-300">🔑 Your API keys</h2>
       <p class="text-xs text-gray-500">Stored encrypted and used only for your posts. Leave a field blank to keep the current value; the placeholder shows what's set.</p>
       <div id="keys-form" class="space-y-4"></div>
       <button onclick="saveCredentials()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">💾 Save keys</button>
     </section>
 
-    <section class="bg-gray-900 rounded-2xl p-6 space-y-4">
+    <section id="usage-section" class="bg-gray-900 rounded-2xl p-6 space-y-4">
       <h2 class="text-lg font-semibold text-purple-300">📊 Usage</h2>
       <div id="admin-usage" class="text-sm text-gray-300 bg-gray-800 rounded-lg p-3">Loading usage…</div>
     </section>
@@ -610,6 +647,15 @@
       <p class="text-xs text-gray-500">Backup contains the database + generated slides/videos. Restore replaces current data (a restart may be required locally).</p>
     </section>
   </div><!-- /#view-admin -->
+
+  <!-- ===== ANALYTICS VIEW ===== -->
+  <div id="view-analytics" class="hidden space-y-4">
+    <div class="ce-card p-5">
+      <h2 class="text-lg font-semibold" style="color:var(--accent)">📊 Analytics</h2>
+      <p class="text-xs text-gray-400 mt-1">Published posts on <span class="analytics-net">Instagram</span> and their latest metrics.</p>
+      <div id="analytics-list" class="mt-4 space-y-2 text-sm text-gray-400">Loading…</div>
+    </div>
+  </div>
 
   <!-- ===== Edit Slide Modal ===== -->
   <div id="edit-slide-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4">
@@ -681,6 +727,8 @@
     </div>
   </div>
 
+ </div><!-- /#app-content -->
+ </div><!-- /flex row -->
 </main>
 
 <script>
@@ -755,6 +803,7 @@ function backToHome() {
 function startApp() {
   if (S.appStarted) return;
   S.appStarted = true;
+  setNetwork('instagram');   // default network tab → drives sections + platform
   checkStatus();
   setInterval(checkStatus, 10000);
   refreshCost();
@@ -1928,25 +1977,60 @@ function initNicheSwatches() {
 }
 
 // ===== VIEW SWITCH =====
+// ===== NETWORK TABS (Instagram / X) =====
+function setNetwork(net) {
+  S.network = net;
+  S.platform = net;                 // generation + publish target follow the tab
+  document.getElementById('net-instagram').classList.toggle('net-active', net === 'instagram');
+  document.getElementById('net-instagram').classList.toggle('text-gray-400', net !== 'instagram');
+  document.getElementById('net-x').classList.toggle('net-active', net === 'x');
+  document.getElementById('net-x').classList.toggle('text-gray-400', net !== 'x');
+  const isIG = net === 'instagram';
+  const trendsBtn = document.getElementById('sec-trends-btn');
+  if (trendsBtn) trendsBtn.classList.toggle('hidden', !isIG);   // Trends is IG-only
+  const lbl = document.getElementById('net-keys-label'); if (lbl) lbl.textContent = isIG ? 'Instagram' : 'X';
+  document.querySelectorAll('.analytics-net').forEach(e => e.textContent = isIG ? 'Instagram' : 'X');
+  // sync the (now hidden) wizard platform toggle so generation uses this network
+  document.querySelectorAll('.plt-btn').forEach(b => b.classList.toggle('active', b.dataset.val === net));
+  setSection((S.section === 'trends' && !isIG) ? 'create' : (S.section || 'create'));
+}
+
+// ===== SIDEBAR SECTIONS =====
+function setSection(sec) {
+  if (sec === 'trends' && S.network !== 'instagram') sec = 'create';
+  S.section = sec;
+  const map = { create:'view-create', calendar:'view-calendar', feed:'view-grid',
+                trends:'view-trends', analytics:'view-analytics', keys:'view-admin', account:'view-admin' };
+  for (const v of ['view-create','view-trends','view-calendar','view-grid','view-admin','view-analytics']) {
+    const el = document.getElementById(v); if (el) el.classList.toggle('hidden', map[sec] !== v);
+  }
+  document.querySelectorAll('#section-nav .sec-btn').forEach(b => b.classList.toggle('sec-active', b.dataset.section === sec));
+  if (sec === 'calendar') renderCalendar();
+  else if (sec === 'feed') loadGrid();
+  else if (sec === 'trends') setTrendTab(S.trendTab);
+  else if (sec === 'analytics') loadAnalytics();
+  else if (sec === 'keys' || sec === 'account') loadAdmin();
+}
+
+// Back-compat alias for any old callers (grid click etc.).
 function setView(view) {
-  S.view = view;
-  for (const v of ['create','trends','calendar','grid','admin']) {
-    document.getElementById('view-' + v).classList.toggle('hidden', view !== v);
-  }
-  for (const id of ['nav-create','nav-trends','nav-calendar','nav-grid','nav-admin']) {
-    const btn = document.getElementById(id);
-    const active = id === ('nav-' + view);
-    btn.classList.toggle('border-purple-500', active);
-    btn.classList.toggle('bg-purple-900', active);
-    btn.classList.toggle('text-white', active);
-    btn.classList.toggle('border-gray-700', !active);
-    btn.classList.toggle('bg-gray-800', !active);
-    btn.classList.toggle('text-gray-300', !active);
-  }
-  if (view === 'trends') setTrendTab(S.trendTab);
-  if (view === 'calendar') renderCalendar();
-  if (view === 'grid') loadGrid();
-  if (view === 'admin') loadAdmin();
+  setSection({ create:'create', trends:'trends', calendar:'calendar', grid:'feed', admin:'account' }[view] || 'create');
+}
+
+async function loadAnalytics() {
+  const box = document.getElementById('analytics-list');
+  box.innerHTML = 'Loading…';
+  try {
+    const res = await apiFetch(`${API}/api/posts`);
+    const posts = (await res.json()).filter(p =>
+      p.status === 'published' && ((p.platform || 'instagram') === S.network));
+    if (!posts.length) { box.innerHTML = '<span class="text-gray-500">No published posts on this network yet.</span>'; return; }
+    box.innerHTML = posts.map(p => `<div class="ce-card p-3 flex items-center gap-3">
+      <div class="flex-1 min-w-0"><div class="text-sm text-gray-200 truncate">${esc(p.topic || 'post')}</div>
+      <div class="text-xs text-gray-500">${p.published_at ? new Date(p.published_at).toLocaleString() : ''}</div></div>
+      ${p.published_url ? `<a href="${esc(safeUrl(p.published_url))}" target="_blank" class="ce-btn-ghost px-3 py-1 text-xs">View post ↗</a>` : ''}
+    </div>`).join('');
+  } catch (e) { box.innerHTML = '<span class="text-red-400">' + esc(e.message) + '</span>'; }
 }
 
 // ===== GRID MODE (responsive preview) =====
@@ -1996,46 +2080,53 @@ function showCostPopover() {
 
 // ===== ADMIN / BACKUP =====
 async function loadAdmin() {
-  renderUserChrome();   // keep keys/backup visibility in sync with the role
-  await refreshCost();
-  const d = S.usage || {today:{},month:{}};
-  document.getElementById('admin-usage').innerHTML =
-    `💰 LLM spend — today <b>$${(d.today?.cost||0).toFixed(4)}</b>, this month <b>$${(d.month?.cost||0).toFixed(4)}</b> (${d.month?.calls||0} calls)`;
-  if (S.user && !S.user.is_local) await loadCredentials();
+  renderUserChrome();
+  // Section-driven layout: "keys" = this network's publishing keys only;
+  // "account" = global OpenRouter/stock keys + usage + backup.
+  const account = S.section !== 'keys';
+  const keysH = document.getElementById('keys-title');
+  if (keysH) keysH.textContent = account ? '🔑 Account keys' : ('🔑 ' + (S.network === 'x' ? 'X' : 'Instagram') + ' keys');
+  document.getElementById('usage-section').classList.toggle('hidden', !account);
+  document.getElementById('backup-section').classList.toggle('hidden', !(account && S.user && (S.user.is_admin || S.user.is_local)));
+  if (account) {
+    await refreshCost();
+    const d = S.usage || {today:{},month:{}};
+    document.getElementById('admin-usage').innerHTML =
+      `💰 LLM spend — today <b>$${(d.today?.cost||0).toFixed(4)}</b>, this month <b>$${(d.month?.cost||0).toFixed(4)}</b> (${d.month?.calls||0} calls)`;
+  }
+  const keysSec = document.getElementById('keys-section');
+  if (S.user && !S.user.is_local) { keysSec.classList.remove('hidden'); await loadCredentials(account ? 'account' : S.network); }
+  else keysSec.classList.add('hidden');
 }
 
-// ===== PERSONAL API KEYS (cloud cabinet) =====
+// ===== PER-USER API KEYS ===== (scope: 'account' | 'instagram' | 'x')
 const CRED_FIELDS = [
-  { key: 'openrouter_api_key',      label: 'OpenRouter API key',        group: 'OpenRouter (text + image generation)' },
-  { key: 'instagram_access_token',  label: 'Instagram access token',    group: 'Instagram (publishing)' },
-  { key: 'instagram_user_id',       label: 'Instagram user id',         group: 'Instagram (publishing)' },
-  { key: 'imgbb_api_key',           label: 'imgbb API key',             group: 'imgbb (public image hosting for IG)' },
-  { key: 'x_api_key',               label: 'X API key',                 group: 'X / Twitter (OAuth 1.0a)' },
-  { key: 'x_api_secret',            label: 'X API secret',              group: 'X / Twitter (OAuth 1.0a)' },
-  { key: 'x_access_token',          label: 'X access token',            group: 'X / Twitter (OAuth 1.0a)' },
-  { key: 'x_access_token_secret',   label: 'X access token secret',     group: 'X / Twitter (OAuth 1.0a)' },
-  { key: 'unsplash_access_key',     label: 'Unsplash access key',       group: 'Stock photos (optional)' },
-  { key: 'pexels_api_key',          label: 'Pexels API key',            group: 'Stock photos (optional)' },
+  { key: 'openrouter_api_key',      label: 'OpenRouter API key',      scope: 'account',   group: 'OpenRouter — text + image generation' },
+  { key: 'unsplash_access_key',     label: 'Unsplash access key',     scope: 'account',   group: 'Stock photos (optional)' },
+  { key: 'pexels_api_key',          label: 'Pexels API key',          scope: 'account',   group: 'Stock photos (optional)' },
+  { key: 'instagram_access_token',  label: 'Instagram access token',  scope: 'instagram', group: 'Instagram publishing' },
+  { key: 'instagram_user_id',       label: 'Instagram user id',       scope: 'instagram', group: 'Instagram publishing' },
+  { key: 'imgbb_api_key',           label: 'imgbb API key',           scope: 'instagram', group: 'imgbb — public image hosting for IG' },
+  { key: 'x_api_key',               label: 'X API key',               scope: 'x',         group: 'X / Twitter (OAuth 1.0a)' },
+  { key: 'x_api_secret',            label: 'X API secret',            scope: 'x',         group: 'X / Twitter (OAuth 1.0a)' },
+  { key: 'x_access_token',          label: 'X access token',          scope: 'x',         group: 'X / Twitter (OAuth 1.0a)' },
+  { key: 'x_access_token_secret',   label: 'X access token secret',   scope: 'x',         group: 'X / Twitter (OAuth 1.0a)' },
 ];
 
-async function loadCredentials() {
+async function loadCredentials(scope) {
   let data = {};
   try {
     const res = await apiFetch(`${API}/api/settings/credentials`);
     if (res.ok) data = await res.json();
   } catch { /* 401 handled by apiFetch */ }
+  const fields = CRED_FIELDS.filter(f => f.scope === (scope || 'account'));
   const form = document.getElementById('keys-form');
-  let html = '';
-  let lastGroup = null;
-  for (const f of CRED_FIELDS) {
-    if (f.group !== lastGroup) {
-      html += `<div class="text-xs font-semibold text-gray-400 pt-2">${esc(f.group)}</div>`;
-      lastGroup = f.group;
-    }
+  let html = '', lastGroup = null;
+  for (const f of fields) {
+    if (f.group !== lastGroup) { html += `<div class="text-xs font-semibold text-gray-400 pt-2">${esc(f.group)}</div>`; lastGroup = f.group; }
     const info = data[f.key] || {};
     const ph = info.set ? `set: ${esc(info.masked || '••••')}` : 'not set';
-    html += `<input data-cred="${f.key}" type="password" autocomplete="off" placeholder="${esc(f.label)} — ${ph}"
-      class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500" />`;
+    html += `<input data-cred="${f.key}" type="password" autocomplete="off" placeholder="${esc(f.label)} — ${ph}" class="ce-input w-full px-3 py-2 text-sm" />`;
   }
   form.innerHTML = html;
 }
