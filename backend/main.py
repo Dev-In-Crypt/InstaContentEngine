@@ -10,11 +10,15 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
 from config import get_settings
 from models.database import Base, BrandConfig as BrandConfigModel, User as UserModel
 from models.schemas import NICHE_BOX_PALETTE
 from services.http_utils import setup_logging, setup_tls
 from api.deps import LOCAL_USER_EMAIL
+from api.ratelimit import limiter
 from api.routes import posts, models, stock, trends, admin, auth, settings as settings_routes
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -52,6 +56,7 @@ _MIGRATIONS: dict[str, dict[str, str]] = {
     },
     "users": {
         "is_admin": "BOOLEAN DEFAULT FALSE",
+        "email_verified": "BOOLEAN DEFAULT FALSE",
     },
     "brand_configs": {
         "template_style": "VARCHAR(20) DEFAULT 'branded_card'",
@@ -84,7 +89,8 @@ async def _apply_admin_emails(sessionmaker, emails_csv: str) -> None:
         return
     async with sessionmaker() as session:
         await session.execute(
-            update(UserModel).where(UserModel.email.in_(emails)).values(is_admin=True)
+            update(UserModel).where(UserModel.email.in_(emails))
+            .values(is_admin=True, email_verified=True)
         )
         await session.commit()
 
@@ -156,13 +162,22 @@ async def _seed_local_user(sessionmaker) -> None:
         )
         if result.scalar_one_or_none():
             return
-        session.add(UserModel(email=LOCAL_USER_EMAIL, is_local=True, is_active=True))
+        session.add(UserModel(email=LOCAL_USER_EMAIL, is_local=True, is_active=True,
+                              email_verified=True))
         await session.commit()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging(settings.log_level)
+    # Optional error monitoring.
+    if settings.sentry_dsn:
+        try:
+            import sentry_sdk
+            sentry_sdk.init(dsn=settings.sentry_dsn, traces_sample_rate=0.1)
+            log.info("Sentry initialized")
+        except Exception as exc:  # pragma: no cover
+            log.warning("Sentry init failed: %s", exc)
     # Must precede every outbound connection, the database included.
     setup_tls()
 
@@ -223,6 +238,10 @@ app = FastAPI(
     lifespan=lifespan,
     **_docs_urls(settings.app_mode),
 )
+
+# Rate limiting (per-IP). 429 on exceed via slowapi's handler.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,

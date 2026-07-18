@@ -17,7 +17,7 @@ from sqlalchemy.orm import selectinload
 
 from api.deps import (
     get_content_engine, get_current_user, get_db, get_settings, load_brand_config,
-    owned_post, require_token,
+    owned_post, require_token, require_verified,
 )
 from services.brand_engine import PillowBrandEngine
 from config import Settings
@@ -357,7 +357,8 @@ async def export_post(
     )
 
 
-@router.post("/{post_id}/publish", response_model=PublishResult)
+@router.post("/{post_id}/publish", response_model=PublishResult,
+             dependencies=[Depends(require_verified)])
 async def publish_post(
     post_id: str,
     req: Request,
@@ -382,7 +383,8 @@ async def publish_post(
         return PublishResult(success=False, error=str(e))
 
 
-@router.post("/{post_id}/schedule", response_model=PostPreview)
+@router.post("/{post_id}/schedule", response_model=PostPreview,
+             dependencies=[Depends(require_verified)])
 async def schedule_post_endpoint(
     post_id: str,
     body: ScheduleRequest,
@@ -926,7 +928,8 @@ async def get_reel_video(
     return FileResponse(str(p), media_type="video/mp4", filename="reel.mp4")
 
 
-@router.post("/{post_id}/publish-reel", response_model=PublishResult)
+@router.post("/{post_id}/publish-reel", response_model=PublishResult,
+             dependencies=[Depends(require_verified)])
 async def publish_reel(
     post_id: str,
     req: Request,

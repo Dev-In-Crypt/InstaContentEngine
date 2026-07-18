@@ -50,5 +50,34 @@ def decode_access_token(token: str) -> str | None:
         payload = jwt.decode(token, get_settings().secret_key, algorithms=[_ALGO])
     except jwt.PyJWTError:
         return None
+    if payload.get("purpose") not in (None, "access"):
+        return None   # a verify/reset token must not authenticate API calls
+    sub = payload.get("sub")
+    return sub if isinstance(sub, str) else None
+
+
+# ── single-use purpose tokens (email verification, password reset) ──────────
+
+def create_purpose_token(user_id: str, purpose: str, ttl: timedelta,
+                         *, now: datetime | None = None) -> str:
+    issued = now or datetime.now(timezone.utc)
+    payload = {
+        "sub": user_id, "purpose": purpose,
+        "iat": int(issued.timestamp()),
+        "exp": int((issued + ttl).timestamp()),
+    }
+    return jwt.encode(payload, get_settings().secret_key, algorithm=_ALGO)
+
+
+def decode_purpose_token(token: str, purpose: str) -> str | None:
+    """Return the user id if the token is valid AND carries the expected purpose."""
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, get_settings().secret_key, algorithms=[_ALGO])
+    except jwt.PyJWTError:
+        return None
+    if payload.get("purpose") != purpose:
+        return None
     sub = payload.get("sub")
     return sub if isinstance(sub, str) else None

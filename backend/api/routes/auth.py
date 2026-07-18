@@ -1,21 +1,29 @@
-"""Registration, login, and 'who am I' for the multi-tenant SaaS.
+"""Registration, login, email verification, password reset.
 
-In local (desktop) mode these are unused — get_current_user returns the implicit
-local owner without a token. In cloud mode the frontend registers/logs in and
-stores the returned JWT.
+Local (desktop) mode never uses these — get_current_user returns the implicit
+local owner. Cloud mode: register/login → JWT; verify/reset via emailed tokens.
 """
+from datetime import timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_current_user, get_db
+from api.ratelimit import limiter
 from models.database import User as UserModel
-from services.auth import create_access_token, hash_password, verify_password
+from services.auth import (
+    create_access_token, create_purpose_token, decode_purpose_token,
+    hash_password, verify_password,
+)
+from services.email import send_reset_email, send_verify_email
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+_VERIFY_TTL = timedelta(hours=24)
+_RESET_TTL = timedelta(hours=1)
 
 
 class RegisterRequest(BaseModel):
@@ -38,10 +46,22 @@ class MeResponse(BaseModel):
     email: str
     is_local: bool = False
     is_admin: bool = False
+    email_verified: bool = False
+
+
+class ForgotRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetRequest(BaseModel):
+    token: str
+    password: str = Field(..., min_length=8, max_length=200)
 
 
 @router.post("/register", response_model=TokenResponse)
+@limiter.limit("5/minute;30/hour")
 async def register(
+    request: Request,
     body: RegisterRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TokenResponse:
@@ -55,11 +75,14 @@ async def register(
     db.add(user)
     await db.commit()
     await db.refresh(user)
+    await send_verify_email(email, create_purpose_token(user.id, "verify", _VERIFY_TTL))
     return TokenResponse(access_token=create_access_token(user.id))
 
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit("10/minute;50/hour")
 async def login(
+    request: Request,
     body: LoginRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TokenResponse:
@@ -71,6 +94,65 @@ async def login(
     return TokenResponse(access_token=create_access_token(user.id))
 
 
+@router.get("/verify")
+async def verify_email(token: str, db: Annotated[AsyncSession, Depends(get_db)]) -> dict:
+    user_id = decode_purpose_token(token, "verify")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid or expired link")
+    user = await db.get(UserModel, user_id)
+    if user is None:
+        raise HTTPException(status_code=400, detail="Invalid or expired link")
+    user.email_verified = True
+    await db.commit()
+    return {"status": "verified"}
+
+
+@router.post("/resend-verification")
+@limiter.limit("3/minute;10/hour")
+async def resend_verification(
+    request: Request,
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> dict:
+    if not user.email_verified:
+        await send_verify_email(user.email, create_purpose_token(user.id, "verify", _VERIFY_TTL))
+    return {"status": "ok"}
+
+
+@router.post("/forgot")
+@limiter.limit("3/minute;10/hour")
+async def forgot_password(
+    request: Request,
+    body: ForgotRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    user = (await db.execute(
+        select(UserModel).where(UserModel.email == body.email.lower())
+    )).scalars().first()
+    if user and user.password_hash:   # local user has no password → skip
+        await send_reset_email(user.email, create_purpose_token(user.id, "reset", _RESET_TTL))
+    # Always 200 — don't reveal whether an email is registered.
+    return {"status": "ok"}
+
+
+@router.post("/reset")
+@limiter.limit("5/minute;20/hour")
+async def reset_password(
+    request: Request,
+    body: ResetRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    user_id = decode_purpose_token(body.token, "reset")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid or expired link")
+    user = await db.get(UserModel, user_id)
+    if user is None:
+        raise HTTPException(status_code=400, detail="Invalid or expired link")
+    user.password_hash = hash_password(body.password)
+    user.email_verified = True   # resetting via emailed link proves email ownership
+    await db.commit()
+    return {"status": "ok"}
+
+
 @router.get("/me", response_model=MeResponse)
 async def me(
     user: Annotated[UserModel, Depends(get_current_user)],
@@ -78,4 +160,5 @@ async def me(
     return MeResponse(
         id=user.id, email=user.email,
         is_local=bool(user.is_local), is_admin=bool(user.is_admin),
+        email_verified=bool(user.email_verified),
     )

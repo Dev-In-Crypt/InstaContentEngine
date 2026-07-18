@@ -16,6 +16,18 @@ def _restore_root_logger():
 
 
 @pytest.fixture(autouse=True)
+def _disable_rate_limiter():
+    """slowapi's limiter keeps in-memory per-IP counters. The TestClient always
+    presents the same host ('testclient'), so counters accumulate across tests
+    and unrelated suites trip the auth limits. Disable globally; the one test
+    that asserts 429 re-enables it locally."""
+    from api.ratelimit import limiter
+    limiter.enabled = False
+    yield
+    limiter.enabled = True
+
+
+@pytest.fixture(autouse=True)
 def _restore_ssl_context():
     """Undo any TLS injection a test performed.
 

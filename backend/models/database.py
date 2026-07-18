@@ -21,6 +21,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     is_local = Column(Boolean, default=False)   # the seeded desktop owner
     is_admin = Column(Boolean, default=False)   # may download/restore the whole DB
+    email_verified = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     credentials = relationship("UserCredentials", back_populates="user",

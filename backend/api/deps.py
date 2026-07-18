@@ -166,6 +166,18 @@ def require_admin(user: Annotated[UserModel, Depends(get_current_user)]) -> None
     return None
 
 
+def require_verified(
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> None:
+    """Gate publishing on a verified email — only when enforcement is enabled
+    (require_verified_email) and the user is a real cloud account. Off by default
+    until a real sending domain is configured; the desktop/local user is exempt."""
+    if settings.require_verified_email and not user.is_local and not user.email_verified:
+        raise HTTPException(status_code=403, detail="Please verify your email before publishing")
+    return None
+
+
 async def owned_post(db: AsyncSession, post_id: str, user: UserModel, *, options=()) -> PostModel:
     """Fetch a post the user is allowed to touch, else 404 (not 403 — don't reveal
     that another tenant's post exists). The local desktop user owns everything, so

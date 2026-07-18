@@ -203,8 +203,44 @@
       class="ce-input w-full px-4 py-3" />
     <p id="auth-error" class="hidden text-red-400 text-xs"></p>
     <button id="auth-submit" onclick="submitAuth()" class="ce-btn w-full py-3">Log in</button>
+    <button id="auth-forgot-link" onclick="showForgotScreen()" class="w-full text-xs text-gray-400 hover:text-gray-200 transition">Forgot password?</button>
+    <button onclick="backToHome()" class="w-full text-xs text-gray-400 hover:text-gray-200 transition">← Back to home</button>
+    <p class="text-[11px] text-gray-500 text-center leading-snug">By continuing you agree to our
+      <a href="/terms" class="underline hover:text-gray-300">Terms</a> and
+      <a href="/privacy" class="underline hover:text-gray-300">Privacy Policy</a>.</p>
+  </div>
+</div>
+
+<!-- ===== FORGOT PASSWORD ===== -->
+<div id="forgot-screen" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background:var(--bg)">
+  <div class="ce-card p-8 max-w-sm w-full space-y-4 shadow-2xl">
+    <div class="text-xl font-semibold">Reset your password</div>
+    <div class="text-sm text-gray-400">Enter your email and we'll send a reset link.</div>
+    <input id="forgot-email" type="email" placeholder="you@brand.com" autocomplete="username"
+      class="ce-input w-full px-4 py-3" />
+    <p id="forgot-msg" class="hidden text-xs"></p>
+    <button onclick="submitForgot()" class="ce-btn w-full py-3">Send reset link</button>
+    <button onclick="showAuthScreen('login')" class="w-full text-xs text-gray-400 hover:text-gray-200 transition">← Back to login</button>
+  </div>
+</div>
+
+<!-- ===== RESET PASSWORD (arrived via emailed link) ===== -->
+<div id="reset-screen" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background:var(--bg)">
+  <div class="ce-card p-8 max-w-sm w-full space-y-4 shadow-2xl">
+    <div class="text-xl font-semibold">Choose a new password</div>
+    <div class="text-sm text-gray-400">At least 8 characters.</div>
+    <input id="reset-password" type="password" placeholder="••••••••" autocomplete="new-password"
+      class="ce-input w-full px-4 py-3" />
+    <p id="reset-msg" class="hidden text-xs"></p>
+    <button onclick="submitReset()" class="ce-btn w-full py-3">Set new password</button>
     <button onclick="backToHome()" class="w-full text-xs text-gray-400 hover:text-gray-200 transition">← Back to home</button>
   </div>
+</div>
+
+<!-- ===== EMAIL-VERIFY BANNER (shown in-app when unverified) ===== -->
+<div id="verify-banner" class="hidden fixed top-0 inset-x-0 z-40 bg-yellow-900/90 border-b border-yellow-700 text-yellow-100 text-sm px-4 py-2 flex items-center justify-center gap-3">
+  <span>📧 Please verify your email to enable publishing.</span>
+  <button onclick="resendVerification()" class="underline font-semibold hover:text-white">Resend email</button>
 </div>
 
 <main class="max-w-7xl mx-auto px-3 py-5">
@@ -812,7 +848,9 @@ async function initAuth() {
 }
 
 function showLanding() {
-  hideAuthScreen();
+  document.getElementById('auth-screen').classList.add('hidden');
+  document.getElementById('forgot-screen').classList.add('hidden');
+  document.getElementById('reset-screen').classList.add('hidden');
   document.getElementById('landing-screen').classList.remove('hidden');
 }
 function hideLanding() {
@@ -846,10 +884,15 @@ function renderUserChrome() {
   const backup = document.getElementById('backup-section');
   if (keys) keys.classList.toggle('hidden', !cloud);
   if (backup) backup.classList.toggle('hidden', !(S.user && (S.user.is_admin || S.user.is_local)));
+  // Nudge cloud users to verify their email (publishing is gated on it in prod).
+  const banner = document.getElementById('verify-banner');
+  if (banner) banner.classList.toggle('hidden', !(cloud && S.user.email_verified === false));
 }
 
 function showAuthScreen(tab) {
   hideLanding();
+  document.getElementById('forgot-screen').classList.add('hidden');
+  document.getElementById('reset-screen').classList.add('hidden');
   document.getElementById('auth-screen').classList.remove('hidden');
   switchAuthTab(tab || 'login');
   document.getElementById('auth-email').focus();
@@ -875,6 +918,7 @@ function switchAuthTab(tab) {
   document.getElementById('auth-password').setAttribute(
     'autocomplete', login ? 'current-password' : 'new-password');
   document.getElementById('auth-submit').textContent = login ? 'Log in' : 'Create account';
+  document.getElementById('auth-forgot-link').classList.toggle('hidden', !login);
   document.getElementById('auth-error').classList.add('hidden');
 }
 
@@ -911,6 +955,88 @@ function handleAuthExpired() {
   localStorage.removeItem('api_token');
   S.user = null;
   showLanding();
+}
+
+// ---- email verification & password reset ----
+
+function _hideAllAuthScreens() {
+  for (const id of ['landing-screen', 'auth-screen', 'forgot-screen', 'reset-screen'])
+    document.getElementById(id).classList.add('hidden');
+}
+
+function showForgotScreen() {
+  _hideAllAuthScreens();
+  document.getElementById('forgot-msg').classList.add('hidden');
+  document.getElementById('forgot-screen').classList.remove('hidden');
+  document.getElementById('forgot-email').focus();
+}
+
+async function submitForgot() {
+  const email = document.getElementById('forgot-email').value.trim();
+  const msg = document.getElementById('forgot-msg');
+  const show = (m, cls) => { msg.textContent = m; msg.className = 'text-xs ' + cls; };
+  if (!email) return show('Enter your email.', 'text-red-400');
+  try {
+    await fetch(`${API}/api/auth/forgot`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    // Always success-shaped — the server never reveals whether the email exists.
+    show('✅ If that email is registered, a reset link is on its way.', 'text-green-400');
+  } catch { show('Network error, try again.', 'text-red-400'); }
+}
+
+async function submitReset() {
+  const password = document.getElementById('reset-password').value;
+  const msg = document.getElementById('reset-msg');
+  const show = (m, cls) => { msg.textContent = m; msg.className = 'text-xs ' + cls; };
+  if (!password || password.length < 8) return show('Password must be at least 8 characters.', 'text-red-400');
+  try {
+    const res = await fetch(`${API}/api/auth/reset`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: S.resetToken, password }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(typeof d.detail === 'string' ? d.detail : 'Reset failed');
+    show('✅ Password updated — you can log in now.', 'text-green-400');
+    setTimeout(() => { _clearAuthQuery(); showAuthScreen('login'); }, 1200);
+  } catch (e) { show('❌ ' + e.message, 'text-red-400'); }
+}
+
+async function resendVerification() {
+  try {
+    await apiFetch(`${API}/api/auth/resend-verification`, { method: 'POST' });
+    toast('📧 Verification email sent — check your inbox.', 'success');
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function _clearAuthQuery() {
+  // Drop /verify?token / /reset?token from the address bar without a reload.
+  try { history.replaceState(null, '', '/'); } catch {}
+}
+
+// Handle links that land on /verify?token=… or /reset?token=… before the app boots.
+async function handleAuthLink() {
+  const path = window.location.pathname;
+  const token = new URLSearchParams(window.location.search).get('token');
+  if (!token) return false;
+  if (path === '/verify') {
+    try {
+      const res = await fetch(`${API}/api/auth/verify?token=${encodeURIComponent(token)}`);
+      toast(res.ok ? '✅ Email verified — you can log in.' : '❌ Invalid or expired link.',
+            res.ok ? 'success' : 'error');
+    } catch { toast('Network error verifying email.', 'error'); }
+    _clearAuthQuery();
+    return false;   // continue normal boot (initAuth)
+  }
+  if (path === '/reset') {
+    S.resetToken = token;
+    _hideAllAuthScreens();
+    document.getElementById('reset-screen').classList.remove('hidden');
+    document.getElementById('reset-password').focus();
+    return true;    // stop normal boot — user is resetting
+  }
+  return false;
 }
 
 async function apiFetch(url, opts = {}) {
@@ -2503,7 +2629,9 @@ document.getElementById('auth-password').addEventListener('keydown', e => { if (
 
 // Boot gate: local mode resolves silently and starts the app; cloud shows login.
 // startApp() (called from initAuth on success) registers the status + cost polls.
-initAuth();
+// A /verify or /reset link is handled first; /reset stops here (user sets a new
+// password), everything else falls through to the normal who-am-I boot.
+(async () => { if (!await handleAuthLink()) initAuth(); })();
 </script>
 </body>
 </html>

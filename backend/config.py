@@ -98,6 +98,16 @@ class Settings(BaseSettings):
     # is no implicit local owner. e.g. ADMIN_EMAILS=me@example.com
     admin_emails: str = ""
 
+    # === Email (Resend) — for verification + password reset ===
+    resend_api_key: str = ""                       # empty → emails become no-ops (dev)
+    email_from: str = "Content Engine <onboarding@resend.dev>"
+    # Enforce a verified email before publishing. Keep FALSE until a real sending
+    # domain is verified in Resend (shared sender has weak deliverability).
+    require_verified_email: bool = False
+
+    # Error monitoring (optional). Empty → Sentry not initialized.
+    sentry_dsn: str = ""
+
     # Video (Reels) generation provider: "kenburns" (local ffmpeg slideshow) or
     # "ai" (Runway/Kling/Luma — not implemented yet, stub raises).
     video_provider: str = "kenburns"
