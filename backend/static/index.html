@@ -7,59 +7,70 @@
   <!-- Tailwind Play CDN, vendored locally so the app is styled offline. -->
   <script src="/static/vendor/tailwind.js"></script>
   <style>
-    /* ===== Inter (vendored, offline-safe) ===== */
-    @font-face { font-family:'Inter'; font-weight:400; font-display:swap; src:url('/static/vendor/inter-400.woff2') format('woff2'); }
-    @font-face { font-family:'Inter'; font-weight:500; font-display:swap; src:url('/static/vendor/inter-500.woff2') format('woff2'); }
-    @font-face { font-family:'Inter'; font-weight:600; font-display:swap; src:url('/static/vendor/inter-600.woff2') format('woff2'); }
-    @font-face { font-family:'Inter'; font-weight:700; font-display:swap; src:url('/static/vendor/inter-700.woff2') format('woff2'); }
+    /* ===== Barlow (vendored, offline-safe) ===== */
+    @font-face { font-family:'Barlow'; font-weight:400; font-display:swap; src:url('/static/vendor/barlow-400.woff2') format('woff2'); }
+    @font-face { font-family:'Barlow'; font-weight:500; font-display:swap; src:url('/static/vendor/barlow-500.woff2') format('woff2'); }
+    @font-face { font-family:'Barlow'; font-weight:600; font-display:swap; src:url('/static/vendor/barlow-600.woff2') format('woff2'); }
+    @font-face { font-family:'Barlow'; font-weight:700; font-display:swap; src:url('/static/vendor/barlow-700.woff2') format('woff2'); }
 
-    /* ===== Content Engine theme (indigo bg + lavender accent) ===== */
+    /* ===== Content Engine — "ink" monochrome theme (light default, dark toggle) ===== */
     :root{
-      --bg:#161826; --panel:#232532; --panel2:#2b2d3e; --panel3:#33364a;
-      --border:#3a3d4d; --text:#e9e9ed; --muted:#9a9db0; --accent:#9184d9;
-      --accent-strong:#a99ff0; --accent-dim:rgba(145,132,217,.14);
+      --bg:#f2f2f3; --panel:#ffffff; --panel2:#ececee; --panel3:#e2e2e5;
+      --border:#dcdce0; --text:#18181a; --muted:#5f5f66; --faint:#9a9aa2;
+      --accent:#18181a; --accent-strong:#000000; --accent-dim:rgba(0,0,0,.06); --on-accent:#ffffff;
     }
-    html,body,.font-sans{ font-family:'Inter',system-ui,-apple-system,sans-serif !important; }
+    :root[data-theme="dark"]{
+      --bg:#141416; --panel:#1d1d20; --panel2:#26262a; --panel3:#303036;
+      --border:#34343a; --text:#f2f2f3; --muted:#a2a2aa; --faint:#6c6c74;
+      --accent:#f2f2f3; --accent-strong:#ffffff; --accent-dim:rgba(255,255,255,.09); --on-accent:#141416;
+    }
+    html,body,.font-sans{ font-family:'Barlow',system-ui,-apple-system,sans-serif !important; }
     body{ background:var(--bg) !important; color:var(--text); }
 
-    /* recolor the Tailwind shades the app uses → design palette */
+    /* backgrounds + borders → theme vars */
     .bg-gray-950{ background-color:var(--bg) !important; }
     .bg-gray-900{ background-color:var(--panel) !important; }
     .bg-gray-800{ background-color:var(--panel2) !important; }
-    .bg-gray-700{ background-color:var(--panel3) !important; }
-    .hover\:bg-gray-600:hover{ background-color:var(--panel3) !important; }
+    .bg-gray-700,.hover\:bg-gray-600:hover{ background-color:var(--panel3) !important; }
     .border-gray-700,.border-gray-800{ border-color:var(--border) !important; }
-    .bg-purple-600,.bg-purple-700{ background-color:var(--accent) !important; }
-    .hover\:bg-purple-500:hover,.hover\:bg-purple-600:hover{ background-color:var(--accent-strong) !important; }
+    /* text shades → theme vars (so light theme is readable) */
+    .text-white,.text-gray-100,.text-gray-200{ color:var(--text) !important; }
+    .text-gray-300,.text-gray-400{ color:var(--muted) !important; }
+    .text-gray-500{ color:var(--faint) !important; }
+    .text-purple-200,.text-purple-300,.text-purple-400{ color:var(--text) !important; }
+    /* accent (ink) buttons — declared AFTER text rules so button text wins */
+    .bg-purple-600,.bg-purple-700,.bg-blue-600,.bg-blue-700{ background-color:var(--accent) !important; color:var(--on-accent) !important; }
+    .hover\:bg-purple-500:hover,.hover\:bg-purple-600:hover,.hover\:bg-blue-600:hover{ background-color:var(--accent-strong) !important; }
     .bg-purple-900{ background-color:var(--accent-dim) !important; }
     .border-purple-500{ border-color:var(--accent) !important; }
-    .text-purple-200,.text-purple-300,.text-purple-400{ color:var(--accent) !important; }
     .ring-purple-500,.focus\:ring-purple-500:focus{ --tw-ring-color:var(--accent) !important; }
-    .from-purple-900{ --tw-gradient-from:var(--panel) var(--tw-gradient-from-position) !important; --tw-gradient-to:rgba(35,37,50,0) var(--tw-gradient-to-position) !important; --tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to) !important; }
+    .from-purple-900{ --tw-gradient-from:var(--panel) var(--tw-gradient-from-position) !important; --tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to) !important; }
     .to-pink-900{ --tw-gradient-to:var(--panel) var(--tw-gradient-to-position) !important; }
-    .bg-blue-700,.bg-blue-600{ background-color:var(--accent) !important; }
-    .hover\:bg-blue-600:hover{ background-color:var(--accent-strong) !important; }
 
-    /* reusable component bits for the new screens */
-    .ce-btn{ background:var(--accent); color:#fff; border-radius:10px; font-weight:600; transition:background .15s; }
+    /* reusable component bits */
+    .ce-btn{ background:var(--accent); color:var(--on-accent); border-radius:10px; font-weight:600; transition:background .15s; }
     .ce-btn:hover{ background:var(--accent-strong); }
-    .ce-btn-ghost{ background:var(--accent-dim); color:var(--accent); border-radius:10px; font-weight:600; }
+    .ce-btn-ghost{ background:var(--accent-dim); color:var(--text); border-radius:10px; font-weight:600; }
     .ce-card{ background:var(--panel); border:1px solid var(--border); border-radius:16px; }
-    .ce-input{ background:var(--panel2); border:1px solid var(--border); border-radius:10px; color:var(--text); }
+    .ce-input{ background:var(--panel); border:1px solid var(--border); border-radius:10px; color:var(--text); }
+    .ce-input::placeholder{ color:var(--faint); }
     .ce-input:focus{ outline:none; border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-dim); }
 
-    /* network tabs + sidebar sections active states */
+    /* network tabs + sidebar sections */
     .net-btn{ color:var(--muted); transition:all .15s; }
-    .net-btn.net-active{ background:var(--accent); color:#fff; }
+    .net-btn.net-active{ background:var(--accent); color:var(--on-accent); }
+    .net-btn[disabled]{ opacity:.55; cursor:not-allowed; }
     .sec-btn{ color:var(--muted); transition:background .12s,color .12s; }
     .sec-btn:hover{ background:var(--accent-dim); color:var(--text); }
-    .sec-btn.sec-active{ background:var(--accent-dim); color:var(--accent); font-weight:600; }
+    .sec-btn.sec-active{ background:var(--accent-dim); color:var(--text); font-weight:600; }
+    .soon-badge{ font-size:9px; font-weight:700; letter-spacing:.04em; padding:1px 4px; border-radius:5px; background:var(--accent-dim); color:var(--muted); text-transform:uppercase; }
 
     .slide-img { transition: opacity .3s; }
     .spinner { animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .step-dot { transition: background .2s; }
   </style>
+  <script>try{var _t=localStorage.getItem('theme')||'light';document.documentElement.setAttribute('data-theme',_t==='dark'?'dark':'light');}catch(e){}</script>
 </head>
 <body class="bg-gray-950 text-gray-100 min-h-screen font-sans">
 
@@ -71,11 +82,16 @@
       <span class="font-bold tracking-tight">Content Engine</span>
     </div>
     <!-- network tabs -->
-    <div class="flex gap-1 ml-1 p-1 rounded-xl" style="background:var(--panel)">
-      <button id="net-instagram" onclick="setNetwork('instagram')" class="net-btn px-3 py-1.5 rounded-lg text-sm font-semibold">📸 Instagram</button>
-      <button id="net-x" onclick="setNetwork('x')" class="net-btn px-3 py-1.5 rounded-lg text-sm font-semibold text-gray-400">𝕏 X</button>
+    <div class="flex gap-1 ml-1 p-1 rounded-xl overflow-x-auto" style="background:var(--panel)">
+      <button id="net-instagram" onclick="setNetwork('instagram')" class="net-btn px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap">📸 Instagram</button>
+      <button id="net-x" onclick="setNetwork('x')" class="net-btn px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap">𝕏 X</button>
+      <button disabled onclick="soonNetwork('TikTok')" class="net-btn px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap" title="Coming soon">♪ TikTok <span class="soon-badge">soon</span></button>
+      <button disabled onclick="soonNetwork('LinkedIn')" class="net-btn px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap" title="Coming soon">in LinkedIn <span class="soon-badge">soon</span></button>
+      <button disabled onclick="soonNetwork('Facebook')" class="net-btn px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap" title="Coming soon">f Facebook <span class="soon-badge">soon</span></button>
+      <button disabled onclick="soonNetwork('YouTube')" class="net-btn px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap" title="Coming soon">▶ YouTube <span class="soon-badge">soon</span></button>
     </div>
     <div class="ml-auto flex items-center gap-2">
+      <button onclick="toggleTheme()" id="theme-toggle" class="ce-card px-2.5 py-1 text-xs" title="Toggle light / dark">☾</button>
       <button id="cost-badge" onclick="showCostPopover()" class="hidden ce-card px-3 py-1 text-xs" title="LLM spend today (click for details)">💰 $0.00</button>
       <span id="status-dot" class="w-2.5 h-2.5 rounded-full bg-green-400" title="API connected"></span>
       <span id="status-label" class="text-xs text-gray-400">connecting…</span>
@@ -765,6 +781,19 @@ const S = {
 };
 
 const API = window.location.origin;
+
+// ===== THEME (ink light / dark) =====
+function applyTheme(t) {
+  const theme = (t || localStorage.getItem('theme') || 'light') === 'dark' ? 'dark' : 'light';
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('theme', theme);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = theme === 'dark' ? '☀' : '☾';
+}
+function toggleTheme() {
+  applyTheme((localStorage.getItem('theme') || 'light') === 'dark' ? 'light' : 'dark');
+}
+function soonNetwork(name) { toast((name || 'That network') + ' publishing is coming soon', 'info'); }
 
 // ===== AUTH =====
 function authHeader() {
@@ -2464,6 +2493,7 @@ document.addEventListener('click', e => {
 });
 
 // ===== INIT =====
+applyTheme();
 initToggleGroup('.fmt-btn', 'format', 'single');
 initToggleGroup('.src-btn', 'source', 'stock');
 initToggleGroup('.plt-btn', 'platform', 'instagram');
