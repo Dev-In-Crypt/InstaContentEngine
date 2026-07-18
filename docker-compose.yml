@@ -43,6 +43,22 @@ services:
     expose:
       - "8000"
 
+  # Daily Postgres dumps → the `backups` volume, pruned to BACKUP_KEEP_DAYS.
+  # Reuses the postgres image (already pulled) so there's no extra dependency.
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+    volumes:
+      - backups:/backups
+      - ./scripts/backup.sh:/backup.sh:ro
+    entrypoint: ["sh", "/backup.sh"]
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -61,5 +77,6 @@ services:
 volumes:
   pgdata:
   uploads:
+  backups:
   caddy_data:
   caddy_config:

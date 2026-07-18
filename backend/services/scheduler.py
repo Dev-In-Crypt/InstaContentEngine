@@ -42,6 +42,13 @@ def init_scheduler(database_url: str, sessionmaker) -> AsyncIOScheduler:
         timezone="UTC",
     )
     _scheduler.start()
+    # Daily disk housekeeping: drop upload dirs whose post was deleted.
+    # replace_existing keeps it idempotent across restarts.
+    _scheduler.add_job(
+        _run_cleanup_job, trigger="interval", hours=24,
+        id="upload_cleanup", replace_existing=True,
+        misfire_grace_time=3600,
+    )
     log.info("APScheduler started with %d pending job(s)", len(_scheduler.get_jobs()))
     return _scheduler
 
@@ -104,3 +111,13 @@ async def _run_publish_job(post_id: str) -> None:
         # publish_now already marked the post failed with the error; don't let the
         # exception escape into APScheduler, where the outcome would be invisible.
         log.error("Scheduled publish FAILED: post=%s error=%s", post_id, e)
+
+
+async def _run_cleanup_job() -> None:
+    """Daily orphaned-uploads sweep. Never lets an error escape into APScheduler."""
+    from services.cleanup import run_upload_cleanup
+
+    try:
+        await run_upload_cleanup(_sessionmaker)
+    except Exception as e:
+        log.error("Upload cleanup FAILED: %s", e)

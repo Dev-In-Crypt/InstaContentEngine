@@ -68,17 +68,43 @@ docker compose pull && docker compose up -d --build   # update to latest code (g
 docker compose down                 # stop (data survives in named volumes)
 ```
 
-**Backups.** The database and uploads live in Docker named volumes (`pgdata`,
-`uploads`). Back them up regularly:
+**Automatic database backups.** The `backup` service dumps Postgres **daily**
+(gzipped) into the `backups` volume and prunes anything older than
+`BACKUP_KEEP_DAYS` (default 7). Nothing to schedule — it runs on `up -d`.
 
 ```bash
-# database dump
-docker compose exec db pg_dump -U insta insta > insta_$(date +%F).sql
-# uploaded media
+# list dumps
+docker compose exec backup ls -lh /backups
+# copy the latest dump to the host
+docker compose cp backup:/backups ./db-backups
+# restore a dump into the running DB
+gunzip -c ./db-backups/insta_YYYYMMDD_HHMMSS.sql.gz | docker compose exec -T db psql -U insta insta
+```
+
+The dumps live in a Docker volume on the same VPS, so also pull them **off the box**
+periodically (a machine failure loses the volume too):
+
+```bash
+docker compose cp backup:/backups ./db-backups   # then scp/rclone ./db-backups elsewhere
+```
+
+**Uploads** (generated slides, raw images, reels) live in the `uploads` volume.
+A daily in-app job removes files for deleted posts automatically; back the rest up with:
+
+```bash
 docker run --rm -v instacontentengine_uploads:/u -v "$PWD":/b alpine tar czf /b/uploads_$(date +%F).tgz -C /u .
 ```
 
+**⚠️ Back up your `.env` too — especially `SECRET_KEY`.** It signs every login token
+AND derives the key that decrypts every user's stored API keys. Lose it and all
+stored keys become unreadable and everyone is logged out. Keep a copy of `.env`
+somewhere safe and separate from the server.
+
 (Admins listed in `ADMIN_EMAILS` can also use the in-app **Backup/Restore** under ⚙️ Settings.)
+
+**Uptime monitoring.** Point a free external monitor (e.g. UptimeRobot) at
+`https://<your-domain>/health` — it returns `{"status":"ok"}`. You'll get an alert
+if the site goes down. Set `SENTRY_DSN` in `.env` to also capture backend errors.
 
 ## Notes
 
