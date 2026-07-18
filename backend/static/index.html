@@ -60,6 +60,11 @@
     .net-btn{ color:var(--muted); transition:all .15s; }
     .net-btn.net-active{ background:var(--accent); color:var(--on-accent); }
     .net-btn[disabled]{ opacity:.55; cursor:not-allowed; }
+    /* left vertical network rail */
+    .rail-net{ width:44px; height:44px; border-radius:13px; display:flex; align-items:center; justify-content:center; font-size:18px; line-height:1; background:var(--panel); border:1px solid var(--border); color:var(--text); transition:all .15s; }
+    .rail-net:hover:not([disabled]){ border-color:var(--accent); }
+    .rail-net.net-active{ background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
+    .rail-soon{ opacity:.4; cursor:not-allowed; }
     .sec-btn{ color:var(--muted); transition:background .12s,color .12s; }
     .sec-btn:hover{ background:var(--accent-dim); color:var(--text); }
     .sec-btn.sec-active{ background:var(--accent-dim); color:var(--text); font-weight:600; }
@@ -80,15 +85,7 @@
     <div class="flex items-center gap-2 cursor-pointer" onclick="goStep(1)" title="New post">
       <span class="text-lg" style="color:var(--accent)">✦</span>
       <span class="font-bold tracking-tight">Content Engine</span>
-    </div>
-    <!-- network tabs -->
-    <div class="flex gap-1 ml-1 p-1 rounded-xl overflow-x-auto" style="background:var(--panel)">
-      <button id="net-instagram" onclick="setNetwork('instagram')" class="net-btn px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap">📸 Instagram</button>
-      <button id="net-x" onclick="setNetwork('x')" class="net-btn px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap">𝕏 X</button>
-      <button disabled onclick="soonNetwork('TikTok')" class="net-btn px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap" title="Coming soon">♪ TikTok <span class="soon-badge">soon</span></button>
-      <button disabled onclick="soonNetwork('LinkedIn')" class="net-btn px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap" title="Coming soon">in LinkedIn <span class="soon-badge">soon</span></button>
-      <button disabled onclick="soonNetwork('Facebook')" class="net-btn px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap" title="Coming soon">f Facebook <span class="soon-badge">soon</span></button>
-      <button disabled onclick="soonNetwork('YouTube')" class="net-btn px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap" title="Coming soon">▶ YouTube <span class="soon-badge">soon</span></button>
+      <span class="soon-badge" style="background:var(--accent-dim)" id="active-net-chip">Instagram</span>
     </div>
     <div class="ml-auto flex items-center gap-2">
       <button onclick="toggleTheme()" id="theme-toggle" class="ce-card px-2.5 py-1 text-xs" title="Toggle light / dark">☾</button>
@@ -209,36 +206,33 @@
   </div>
 </div>
 
-<main class="max-w-7xl mx-auto px-4 py-6">
- <div class="flex gap-6">
-  <!-- ===== SIDEBAR (per-network sections) ===== -->
-  <aside class="w-52 shrink-0 hidden md:block">
-    <nav id="section-nav" class="space-y-1 sticky top-20">
-      <button data-section="create" onclick="setSection('create')" class="sec-btn w-full text-left px-3 py-2 rounded-lg text-sm">✎&nbsp; Create post</button>
-      <button data-section="calendar" onclick="setSection('calendar')" class="sec-btn w-full text-left px-3 py-2 rounded-lg text-sm">▦&nbsp; Calendar</button>
-      <button data-section="feed" onclick="setSection('feed')" class="sec-btn w-full text-left px-3 py-2 rounded-lg text-sm">▤&nbsp; Feed</button>
-      <button id="sec-trends-btn" data-section="trends" onclick="setSection('trends')" class="sec-btn w-full text-left px-3 py-2 rounded-lg text-sm">📈&nbsp; Trends</button>
-      <button data-section="analytics" onclick="setSection('analytics')" class="sec-btn w-full text-left px-3 py-2 rounded-lg text-sm">📊&nbsp; Analytics</button>
-      <button data-section="keys" onclick="setSection('keys')" class="sec-btn w-full text-left px-3 py-2 rounded-lg text-sm">🔑&nbsp; <span id="net-keys-label">Instagram</span> keys</button>
-      <div class="pt-2 mt-2 border-t" style="border-color:var(--border)">
-        <button data-section="account" onclick="setSection('account')" class="sec-btn w-full text-left px-3 py-2 rounded-lg text-sm">⚙&nbsp; Account &amp; keys</button>
-      </div>
+<main class="max-w-7xl mx-auto px-3 py-5">
+ <div class="flex gap-5">
+  <!-- ===== LEFT NETWORK RAIL (switch active network) ===== -->
+  <aside class="shrink-0">
+    <nav class="flex flex-col gap-2 items-center sticky top-20">
+      <button id="net-instagram" onclick="setNetwork('instagram')" title="Instagram" class="rail-net">📸</button>
+      <button id="net-x" onclick="setNetwork('x')" title="X" class="rail-net">𝕏</button>
+      <button disabled onclick="soonNetwork('TikTok')" title="TikTok — coming soon" class="rail-net rail-soon">♪</button>
+      <button disabled onclick="soonNetwork('LinkedIn')" title="LinkedIn — coming soon" class="rail-net rail-soon text-sm font-bold">in</button>
+      <button disabled onclick="soonNetwork('Facebook')" title="Facebook — coming soon" class="rail-net rail-soon font-bold">f</button>
+      <button disabled onclick="soonNetwork('YouTube')" title="YouTube — coming soon" class="rail-net rail-soon">▶</button>
+      <button onclick="soonNetwork('More networks')" title="Add network" class="rail-net" style="color:var(--muted)">+</button>
     </nav>
-    <!-- mobile: horizontal fallback handled by md:hidden bar below -->
   </aside>
 
   <!-- ===== CONTENT ===== -->
-  <div id="app-content" class="flex-1 min-w-0 space-y-6">
+  <div id="app-content" class="flex-1 min-w-0 space-y-5">
 
-  <!-- mobile section switch -->
-  <div id="mobile-secnav" class="md:hidden flex gap-2 overflow-x-auto pb-1 text-xs">
-    <button onclick="setSection('create')" class="ce-card px-3 py-1.5 whitespace-nowrap">✎ Create</button>
-    <button onclick="setSection('calendar')" class="ce-card px-3 py-1.5 whitespace-nowrap">▦ Calendar</button>
-    <button onclick="setSection('feed')" class="ce-card px-3 py-1.5 whitespace-nowrap">▤ Feed</button>
-    <button onclick="setSection('trends')" class="ce-card px-3 py-1.5 whitespace-nowrap">📈 Trends</button>
-    <button onclick="setSection('analytics')" class="ce-card px-3 py-1.5 whitespace-nowrap">📊 Analytics</button>
-    <button onclick="setSection('keys')" class="ce-card px-3 py-1.5 whitespace-nowrap">🔑 Keys</button>
-    <button onclick="setSection('account')" class="ce-card px-3 py-1.5 whitespace-nowrap">⚙ Account</button>
+  <!-- top section nav (scoped to the active network) -->
+  <div id="section-nav" class="flex gap-1 overflow-x-auto pb-1 border-b" style="border-color:var(--border)">
+    <button data-section="create" onclick="setSection('create')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">✎ Create</button>
+    <button data-section="calendar" onclick="setSection('calendar')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">▦ Calendar</button>
+    <button data-section="feed" onclick="setSection('feed')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">▤ Feed</button>
+    <button id="sec-trends-btn" data-section="trends" onclick="setSection('trends')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">📈 Trends</button>
+    <button data-section="analytics" onclick="setSection('analytics')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">📊 Analytics</button>
+    <button data-section="keys" onclick="setSection('keys')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">🔑 <span id="net-keys-label">Instagram</span> keys</button>
+    <button data-section="account" onclick="setSection('account')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap ml-auto">⚙ Account</button>
   </div>
 
   <!-- ===== CREATE VIEW (wizard) ===== -->
@@ -2018,6 +2012,7 @@ function setNetwork(net) {
   const trendsBtn = document.getElementById('sec-trends-btn');
   if (trendsBtn) trendsBtn.classList.toggle('hidden', !isIG);   // Trends is IG-only
   const lbl = document.getElementById('net-keys-label'); if (lbl) lbl.textContent = isIG ? 'Instagram' : 'X';
+  const chip = document.getElementById('active-net-chip'); if (chip) chip.textContent = isIG ? 'Instagram' : 'X';
   document.querySelectorAll('.analytics-net').forEach(e => e.textContent = isIG ? 'Instagram' : 'X');
   // sync the (now hidden) wizard platform toggle so generation uses this network
   document.querySelectorAll('.plt-btn').forEach(b => b.classList.toggle('active', b.dataset.val === net));
