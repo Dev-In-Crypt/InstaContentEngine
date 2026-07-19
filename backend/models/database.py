@@ -30,6 +30,12 @@ class User(Base):
     # format/rules stay fixed (see services/brand_voice).
     brand_voice_preset = Column(String(30))
     brand_voice_custom = Column(Text)
+    # Brand profile (not a secret): set once at onboarding, used as defaults for
+    # every post so the composer isn't an empty form, and to steer generation into
+    # the tenant's own niche. All optional; the composer can still override per post.
+    niche = Column(String(120))
+    target_audience = Column(String(120))
+    brand_name = Column(String(120))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     credentials = relationship("UserCredentials", back_populates="user",

@@ -360,6 +360,56 @@ def test_generate_request_models_override_defaults(client, generated_ids):
     assert kwargs["image_model"] == "req/image"
 
 
+def _set_local_user_profile(niche=None, target_audience=None, brand_name=None):
+    """Set the acting (local) user's brand profile directly in the DB."""
+    import asyncio
+    from sqlalchemy import select
+    from models.database import User as UserModel
+
+    async def _go():
+        async with app.state.sessionmaker() as s:
+            user = (await s.execute(
+                select(UserModel).where(UserModel.is_local == True)  # noqa: E712
+            )).scalar_one_or_none()
+            if user is None:                      # created lazily on first request
+                user = UserModel(email="local@localhost", is_local=True, is_active=True)
+                s.add(user)
+            user.niche = niche
+            user.target_audience = target_audience
+            user.brand_name = brand_name
+            await s.commit()
+    asyncio.run(_go())
+
+
+def test_generate_uses_profile_niche_when_body_blank(client, generated_ids):
+    post_id = str(uuid.uuid4())
+    generated_ids.append(post_id)
+    client.fake_engine.generate_post.return_value = _generated(post_id)
+    _set_local_user_profile(niche="Artisan bakery", target_audience="Home bakers",
+                            brand_name="Crumb & Co")
+
+    res = client.post("/api/posts/generate", json={"topic": "Sourdough", "format": "single"})
+    assert res.status_code == 200
+
+    kwargs = client.fake_engine.generate_post.await_args.kwargs
+    assert kwargs["niche"] == "Artisan bakery"
+    assert kwargs["target_audience"] == "Home bakers"
+    assert kwargs["brand_name"] == "Crumb & Co"
+
+
+def test_generate_body_niche_overrides_profile(client, generated_ids):
+    post_id = str(uuid.uuid4())
+    generated_ids.append(post_id)
+    client.fake_engine.generate_post.return_value = _generated(post_id)
+    _set_local_user_profile(niche="Artisan bakery")
+
+    res = client.post("/api/posts/generate", json={
+        "topic": "Sourdough", "format": "single", "niche": "Coffee roasting",
+    })
+    assert res.status_code == 200
+    assert client.fake_engine.generate_post.await_args.kwargs["niche"] == "Coffee roasting"
+
+
 def test_regenerate_slide_falls_back_to_default_image_model(client, seeded):
     """Without this fallback the router raises 'No image model configured'."""
     client.fake_engine.image_router.fetch_image.return_value = (_jpeg("green"), None)

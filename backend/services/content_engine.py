@@ -93,6 +93,7 @@ class ContentEngine:
         niche_box_color: Optional[str] = None,
         show_logo: bool = True,
         brand_voice: Optional[str] = None,
+        brand_name: Optional[str] = None,
         progress: Optional[ProgressFn] = None,
     ) -> GeneratedPost:
         num = _num_slides(format)
@@ -110,6 +111,7 @@ class ContentEngine:
             target_audience=target_audience,
             additional_instructions=additional_instructions,
             brand_voice=brand_voice,
+            brand_name=brand_name,
             platform=platform,
             length_tier=length_tier,
         )

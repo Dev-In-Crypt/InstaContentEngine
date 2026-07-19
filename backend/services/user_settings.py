@@ -62,3 +62,16 @@ def resolve_user_brand_voice(user: Optional[UserModel]) -> str:
     if user is None:
         return resolve_brand_voice(None)
     return resolve_brand_voice(user.brand_voice_preset, user.brand_voice_custom)
+
+
+def resolve_user_profile(user: Optional[UserModel]) -> dict[str, Optional[str]]:
+    """The user's saved brand profile (niche / audience / brand name), used to default
+    the composer and steer generation into their niche. Read directly off User; all
+    keys None when unset or no user."""
+    if user is None:
+        return {"niche": None, "target_audience": None, "brand_name": None}
+    return {
+        "niche": user.niche,
+        "target_audience": user.target_audience,
+        "brand_name": user.brand_name,
+    }

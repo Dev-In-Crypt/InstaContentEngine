@@ -272,3 +272,17 @@ class BrandVoiceResponse(BaseModel):
     preset: str                    # current saved preset (default "balanced")
     custom: str = ""               # current custom text (empty unless preset == "custom")
     presets: list[dict] = []       # [{key,label,description}] for the settings UI
+
+
+# --- Brand profile (niche/audience/brand set once, used as generation defaults) ---
+
+class ProfileUpdate(BaseModel):
+    niche: Optional[str] = Field(None, max_length=120)
+    target_audience: Optional[str] = Field(None, max_length=120)
+    brand_name: Optional[str] = Field(None, max_length=120)
+
+
+class ProfileResponse(BaseModel):
+    niche: str = ""
+    target_audience: str = ""
+    brand_name: str = ""

@@ -45,6 +45,65 @@ async def test_generate_success(httpx_mock: HTTPXMock):
     await client.close()
 
 
+def _sys_user(httpx_mock: HTTPXMock):
+    """Return (system_prompt, user_prompt) from the captured OpenRouter request."""
+    body = json.loads(httpx_mock.get_requests()[0].content)
+    msgs = {m["role"]: m["content"] for m in body["messages"]}
+    return msgs["system"], msgs["user"]
+
+
+@pytest.mark.asyncio
+async def test_prompts_are_niche_neutral(httpx_mock: HTTPXMock):
+    """The system prompt must not hardcode the old fitness/self-dev niche."""
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(GOOD_JSON)}}]},
+    )
+    client = OpenRouterClient(api_key="test-key")
+    gen = CaptionGenerator(client)
+    await gen.generate(topic="Sourdough baking", format="single",
+                       platform=Platform.INSTAGRAM, web_grounded=False)
+    system, _user = _sys_user(httpx_mock)
+    low = system.lower()
+    for banned in ("fitness", "running", "marathon", "personal development", "healthy habits"):
+        assert banned not in low, f"system prompt still niche-locked on {banned!r}"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_niche_and_brand_reach_user_prompt(httpx_mock: HTTPXMock):
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(GOOD_JSON)}}]},
+    )
+    client = OpenRouterClient(api_key="test-key")
+    gen = CaptionGenerator(client)
+    await gen.generate(topic="Sourdough baking", format="single", niche="Artisan bakery",
+                       target_audience="Home bakers", brand_name="Crumb & Co",
+                       web_grounded=False)
+    _system, user = _sys_user(httpx_mock)
+    assert "Artisan bakery" in user
+    assert "Home bakers" in user
+    assert "Crumb & Co" in user
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_regenerate_field_uses_actual_platform(httpx_mock: HTTPXMock):
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps({"variants": ["a", "b"]})}}]},
+    )
+    client = OpenRouterClient(api_key="test-key")
+    gen = CaptionGenerator(client)
+    await gen.regenerate_field(field="hook", topic="t", current_value="x",
+                               platform=Platform.X, count=2)
+    _system, user = _sys_user(httpx_mock)
+    assert "valid for x" in user.lower()
+    assert "valid for instagram" not in user.lower()
+    await client.close()
+
+
 @pytest.mark.asyncio
 async def test_generate_strips_markdown_fences(httpx_mock: HTTPXMock):
     wrapped = f"```json\n{json.dumps(GOOD_JSON)}\n```"

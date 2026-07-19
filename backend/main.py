@@ -87,16 +87,16 @@ async def _apply_admin_emails(sessionmaker, emails_csv: str) -> None:
 
 
 async def _seed_brand_preset(sessionmaker) -> None:
-    """Insert the 'My Life My Game' brand preset if it does not exist yet."""
+    """Insert the neutral 'Default' brand preset if it does not exist yet."""
     async with sessionmaker() as session:
         result = await session.execute(
-            select(BrandConfigModel).where(BrandConfigModel.name == "My Life My Game")
+            select(BrandConfigModel).where(BrandConfigModel.name == "Default")
         )
         if result.scalar_one_or_none():
             return
         session.add(BrandConfigModel(
             id=str(uuid.uuid4()),
-            name="My Life My Game",
+            name="Default",
             is_default=True,
             primary_color="#0076cb",
             secondary_color="#1A4D8A",

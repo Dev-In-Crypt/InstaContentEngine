@@ -26,15 +26,15 @@ RESPOND IN THIS EXACT JSON FORMAT (no markdown, no code fences):
     "cta": "A single call-to-action sentence.",
     "hashtags": ["#hashtag1", "#hashtag2"],
     "seo_keywords": ["keyword one", "keyword two"],
-    "image_search_queries": ["laptop desk productivity", "team meeting office"],
+    "image_search_queries": ["short stock photo search for slide 1", "short stock photo search for slide 2"],
     "image_gen_prompts": ["detailed image generation prompt for slide 1"],
     "slide_overlays": ["Short complete sentence for slide 1 (≤80 chars, ends with . ! or ?). Same idea as hook.", "Short complete sentence for slide 2 (≤80 chars).", "..."],
     "alt_text": "Accessibility description of the post"
 }}"""
 
 INSTAGRAM_SYSTEM_PROMPT = """\
-Act as an expert Instagram SEO strategist, social media copywriter, and growth marketer
-for a personal development, fitness, running, healthy habits, productivity, and tech brand.
+Act as an expert Instagram SEO strategist, social media copywriter, and growth marketer.
+Write for the brand, niche, and audience described in the user message below.
 
 BRAND VOICE:
 {brand_voice}
@@ -50,9 +50,8 @@ Produce, in the JSON fields below:
   Each is a complete sentence, ≤80 characters, ending in . ! or ?. Item [0] equals the hook.
   Items [1..] are UNIQUE short sentences for each subsequent carousel slide (NOT generic
   placeholders like "Slide 2"). For single image / infographic, return a 1-element array.
-- "caption": SEO-optimized body. Naturally include relevant keywords in the first 2-3 lines
-  (e.g. running tips, fitness motivation, healthy habits, productivity, marathon training).
-  Do NOT keyword-stuff. Add a value section with practical advice in short paragraphs for
+- "caption": SEO-optimized body. Naturally include keywords relevant to the topic and niche
+  in the first 2-3 lines. Do NOT keyword-stuff. Add a value section with practical advice in short paragraphs for
   mobile readability. End the body with an engagement question that is easy to answer.
 - "cta": one action only (save, share, comment, follow, or visit link in bio).
 - "hashtags": 12-18 hashtags, mix of broad, niche, and community tags. No spammy/unrelated tags.
@@ -89,9 +88,8 @@ Produce, in the JSON fields below:
   Each is a complete sentence, ≤80 characters. Item [0] equals the hook. Items [1..] are
   UNIQUE short sentences for each subsequent carousel slide (NOT placeholders).
 - "caption": the LinkedIn post body. Add a short story or context connected to a practical lesson.
-  Share useful takeaways, lessons, or frameworks. Naturally include important keywords in the first
-  half (productivity, leadership, fitness, healthy habits, marketing, career development, discipline).
-  Do NOT keyword-stuff. Use short paragraphs and line breaks. End with a thoughtful, specific
+  Share useful takeaways, lessons, or frameworks. Naturally include keywords relevant to the topic,
+  niche, and industry in the first half. Do NOT keyword-stuff. Use short paragraphs and line breaks. End with a thoughtful, specific
   question that encourages real comments (avoid generic "Thoughts?").
 - "cta": one soft CTA (follow for more, share your experience, connect with me, save this post).
 - "hashtags": ONLY 3-5 relevant LinkedIn hashtags, mix of broad and niche.
@@ -133,6 +131,7 @@ Write for X. HARD RULES:
 CAPTION_USER_PROMPT = """\
 Create a {platform} post about: {topic}
 
+Brand: {brand_name}
 Format: {format}
 Number of slides: {num_slides}
 Industry/Niche: {niche}
@@ -191,6 +190,7 @@ class CaptionGenerator:
         target_audience: Optional[str] = None,
         additional_instructions: Optional[str] = None,
         brand_voice: Optional[str] = None,
+        brand_name: Optional[str] = None,
         platform: Platform = Platform.INSTAGRAM,
         length_tier: LengthTier = LengthTier.SWEET_SPOT,
         web_grounded: bool = True,
@@ -208,6 +208,7 @@ class CaptionGenerator:
         user = CAPTION_USER_PROMPT.format(
             platform=platform.value,
             topic=topic,
+            brand_name=(brand_name or "").strip() or "Not specified",
             format=format,
             num_slides=num_slides,
             niche=niche or "General",
@@ -274,7 +275,7 @@ class CaptionGenerator:
             f"Post caption (context): {caption[:600]}\n"
             f"Current {field}: {cur}\n\n"
             f"Generate {count} distinct, high-quality alternatives for the \"{field}\" "
-            f"in the same brand voice. Keep the format valid for Instagram.\n"
+            f"in the same brand voice. Keep the format valid for {platform.value}.\n"
             f'Respond with ONLY this JSON (no code fences): {{"variants": {shape}}}'
         )
         raw, _citations = await self.openrouter.generate_text(

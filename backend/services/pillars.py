@@ -1,5 +1,6 @@
-"""Content pillars for My Life My Game — a fixed 5-pillar mix with target
-shares, keyword-based classification, and a 'what to post today' suggestion.
+"""Content pillars — a default 5-pillar mix with target shares, keyword-based
+classification, and a 'what to post today' suggestion. Niche-neutral: the labels
+are universal content-marketing pillars and the keywords are generic cues.
 
 Pure functions, no DB / LLM. The API layer feeds in Post rows.
 """
@@ -9,7 +10,7 @@ from __future__ import annotations
 from typing import Optional
 
 
-MLMG_PILLARS: list[dict] = [
+DEFAULT_PILLARS: list[dict] = [
     {"key": "educational", "label": "Educational", "target_pct": 35, "emoji": "📚",
      "keywords": ["how to", "how-to", "tips", "guide", "learn", "mistake", "science",
                   "why", "steps", "beginner", "explained", "avoid"]},
@@ -23,11 +24,11 @@ MLMG_PILLARS: list[dict] = [
      "keywords": ["you", "comment", "share", "challenge", "question", "tag a", "let's",
                   "your turn", "who else", "join"]},
     {"key": "product", "label": "Product / Value", "target_pct": 10, "emoji": "⭐",
-     "keywords": ["plan", "program", "link in bio", "download", "offer", "free guide",
-                  "sign up", "coaching", "ebook", "checklist"]},
+     "keywords": ["link in bio", "download", "offer", "sign up", "free", "checklist",
+                  "launch", "new", "get yours", "shop"]},
 ]
 
-_PILLAR_BY_KEY = {p["key"]: p for p in MLMG_PILLARS}
+_PILLAR_BY_KEY = {p["key"]: p for p in DEFAULT_PILLARS}
 DEFAULT_PILLAR = "educational"
 
 
@@ -36,7 +37,7 @@ def classify_pillar(topic: Optional[str], caption: Optional[str] = "") -> str:
     'educational' when nothing matches."""
     text = f"{topic or ''} {caption or ''}".lower()
     best_key, best_score = DEFAULT_PILLAR, 0
-    for p in MLMG_PILLARS:
+    for p in DEFAULT_PILLARS:
         score = sum(1 for kw in p["keywords"] if kw in text)
         if score > best_score:
             best_key, best_score = p["key"], score
@@ -46,14 +47,14 @@ def classify_pillar(topic: Optional[str], caption: Optional[str] = "") -> str:
 def pillar_mix(pillars_of_posts: list[Optional[str]]) -> list[dict]:
     """Given a list of pillar keys (one per post), return the actual vs target
     mix per pillar. `None` is treated as the default pillar."""
-    counts: dict[str, int] = {p["key"]: 0 for p in MLMG_PILLARS}
+    counts: dict[str, int] = {p["key"]: 0 for p in DEFAULT_PILLARS}
     for key in pillars_of_posts:
         k = key if key in counts else (DEFAULT_PILLAR if key is None else key)
         if k in counts:
             counts[k] += 1
     total = sum(counts.values())   # keep total consistent with what we counted
     out = []
-    for p in MLMG_PILLARS:
+    for p in DEFAULT_PILLARS:
         c = counts.get(p["key"], 0)
         actual = round(100 * c / total, 1) if total else 0.0
         out.append({

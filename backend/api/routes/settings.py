@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import _CRED_FIELDS, get_current_user, get_db
 from models.database import User as UserModel, UserCredentials as UserCredentialsModel
-from models.schemas import BrandVoiceResponse, BrandVoiceUpdate
+from models.schemas import BrandVoiceResponse, BrandVoiceUpdate, ProfileResponse, ProfileUpdate
 from services.brand_voice import DEFAULT_PRESET, is_valid_preset, list_presets
 from services.secrets import decrypt, encrypt
 
@@ -104,5 +104,34 @@ async def put_brand_voice(
         user.brand_voice_custom = body.custom.strip() or None
     # A named preset means the custom text no longer applies; keep it stored but it's
     # only used when preset == "custom".
+    await db.commit()
+    return {"status": "ok"}
+
+
+# ── Brand profile (niche/audience/brand — generation defaults, NOT a secret) ──
+
+@router.get("/profile", response_model=ProfileResponse)
+async def get_profile(
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> ProfileResponse:
+    return ProfileResponse(
+        niche=user.niche or "",
+        target_audience=user.target_audience or "",
+        brand_name=user.brand_name or "",
+    )
+
+
+@router.put("/profile")
+async def put_profile(
+    body: ProfileUpdate,
+    user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    if body.niche is not None:                     # "" clears
+        user.niche = body.niche.strip() or None
+    if body.target_audience is not None:
+        user.target_audience = body.target_audience.strip() or None
+    if body.brand_name is not None:
+        user.brand_name = body.brand_name.strip() or None
     await db.commit()
     return {"status": "ok"}

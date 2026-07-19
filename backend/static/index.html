@@ -260,6 +260,33 @@
   </div>
 </div>
 
+<!-- ===== BRAND PROFILE ONBOARDING MODAL (first login, skippable) ===== -->
+<div id="onboarding-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,0.6)">
+  <div class="ce-card p-6 max-w-md w-full space-y-3 shadow-2xl">
+    <div class="text-lg font-semibold">👋 Tell us about your brand</div>
+    <div class="text-sm text-gray-400">Takes 20 seconds and every post you generate is tailored to you. You can change it anytime in Account, or skip for now.</div>
+    <div>
+      <label class="block text-xs text-gray-400 mb-1">Niche / industry</label>
+      <input id="onb-niche" type="text" maxlength="120" placeholder="e.g. Artisan bakery, SaaS marketing, Travel"
+        class="ce-input w-full px-3 py-2 text-sm" />
+    </div>
+    <div>
+      <label class="block text-xs text-gray-400 mb-1">Target audience <span class="text-gray-600">(optional)</span></label>
+      <input id="onb-audience" type="text" maxlength="120" placeholder="e.g. Home bakers, Startup founders"
+        class="ce-input w-full px-3 py-2 text-sm" />
+    </div>
+    <div>
+      <label class="block text-xs text-gray-400 mb-1">Brand name <span class="text-gray-600">(optional)</span></label>
+      <input id="onb-brand" type="text" maxlength="120" placeholder="e.g. Crumb & Co"
+        class="ce-input w-full px-3 py-2 text-sm" />
+    </div>
+    <div class="flex gap-2 pt-1">
+      <button id="onb-save-btn" onclick="saveOnboarding()" class="ce-btn flex-1 py-2 text-sm">Save</button>
+      <button onclick="skipOnboarding()" class="ce-btn-ghost flex-1 py-2 text-sm">Skip for now</button>
+    </div>
+  </div>
+</div>
+
 <main class="max-w-7xl mx-auto px-3 py-5">
  <div class="flex gap-5">
   <!-- ===== LEFT NETWORK RAIL (switch active network) ===== -->
@@ -634,6 +661,28 @@
       <button id="save-keys-btn" onclick="saveCredentials()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">💾 Save keys</button>
     </section>
 
+    <!-- Brand profile (cloud accounts only) -->
+    <section id="brand-profile-section" class="hidden bg-gray-900 rounded-2xl p-6 space-y-4">
+      <h2 class="text-lg font-semibold text-purple-300">🏷 Brand profile</h2>
+      <p class="text-xs text-gray-500">Set this once. It pre-fills the composer and steers every post into your niche — so you don't retype it each time. You can still override any of it per post.</p>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Niche / industry</label>
+        <input id="profile-niche" type="text" maxlength="120" placeholder="e.g. Artisan bakery, SaaS marketing, Travel"
+          class="ce-input w-full px-3 py-2 text-sm" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Target audience</label>
+        <input id="profile-audience" type="text" maxlength="120" placeholder="e.g. Home bakers, Startup founders, Solo travelers"
+          class="ce-input w-full px-3 py-2 text-sm" />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-400 mb-1">Brand name</label>
+        <input id="profile-brand" type="text" maxlength="120" placeholder="e.g. Crumb & Co"
+          class="ce-input w-full px-3 py-2 text-sm" />
+      </div>
+      <button id="save-profile-btn" onclick="saveProfile()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">💾 Save profile</button>
+    </section>
+
     <!-- Brand voice (cloud accounts only) -->
     <section id="brand-voice-section" class="hidden bg-gray-900 rounded-2xl p-6 space-y-4">
       <h2 class="text-lg font-semibold text-purple-300">🗣 Brand voice</h2>
@@ -692,7 +741,7 @@
 
       <div id="edit-stock-fields">
         <label class="block text-xs text-gray-400 mb-1">Search query</label>
-        <input id="edit-search-query" type="text" placeholder="e.g. trail running marathon"
+        <input id="edit-search-query" type="text" placeholder="e.g. product photo, city skyline"
           class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
         <p class="text-[10px] text-gray-600 mt-1">Empty = reuse the original query, just pick a different photo.</p>
       </div>
@@ -744,6 +793,7 @@ const S = {
   calRef: null,            // {year, month} shown in calendar
   posts: [],               // cached list for calendar/grid
   brandVoice: { preset: 'balanced', custom: '', presets: [] },
+  profile: { niche: '', target_audience: '', brand_name: '' },
   gridMode: 'mobile',      // grid preview width
   usage: null,             // last /api/usage snapshot
   undoStack: [],           // last N caption/hashtag/seo snapshots for current post
@@ -800,12 +850,18 @@ function backToHome() {
 }
 
 // One-time app bootstrap after a user is known (intervals registered once).
-function startApp() {
+async function startApp() {
   if (S.appStarted) return;
   S.appStarted = true;
   setNetwork('instagram');   // default network tab → drives sections + platform
   refreshCost();
   setInterval(refreshCost, 60000);
+  // Cloud accounts: load the brand profile (pre-fills the composer) and, on first
+  // login with no profile yet, offer the skippable onboarding step.
+  if (S.user && !S.user.is_local) {
+    await loadProfile();
+    maybeShowOnboarding();
+  }
 }
 
 function renderUserChrome() {
@@ -1211,7 +1267,7 @@ function renderPreview(post) {
           <label class="block text-[10px] text-gray-500 uppercase tracking-wider">Niche</label>
           <input type="text" data-slide-niche="${slide.slide_number}" value="${nicheVal}"
             class="overlay-input w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:ring-1 focus:ring-purple-500"
-            placeholder="Running" ${editable ? '' : 'disabled'} />
+            placeholder="Your niche" ${editable ? '' : 'disabled'} />
         ` : ''}
         <label class="block text-[10px] text-gray-500 uppercase tracking-wider">Overlay</label>
         <textarea data-slide-overlay="${slide.slide_number}" rows="2"
@@ -1283,7 +1339,7 @@ function openEditSlide(slideNum, originalQuery, currentSource) {
     `Slide ${slideNum}. Currently from: ${currentSource}.`;
   document.getElementById('edit-search-query').value = '';
   document.getElementById('edit-search-query').placeholder = originalQuery
-    ? `Original: ${originalQuery}` : 'e.g. trail running marathon';
+    ? `Original: ${originalQuery}` : 'e.g. product photo, city skyline';
   document.getElementById('edit-gen-prompt').value = '';
   setEditSource(currentSource === 'ai_gen' ? 'ai_gen' : 'stock');
   document.getElementById('edit-slide-modal').classList.remove('hidden');
@@ -1415,12 +1471,12 @@ function resetOverlay(slideNum) {
 
 // ===== EMOJI PICKER =====
 const EMOJI_POOL = {
-  'Running':      ['🏃','🏃‍♀️','🏃‍♂️','👟','🏅','🥇','⏱️','🌅','🏞️','🥾','💨','🛣️'],
-  'Fitness':      ['💪','🏋️','🏋️‍♀️','🤸','🤾','🚴','⛹️','🥊','🤼','🏆','🏟️','📏'],
-  'Healthy':      ['🥗','🥑','🥦','🍎','🍌','🌱','🥤','💧','🫐','🍵','🥕','🐟'],
-  'Lifestyle':    ['☕','🌅','☀️','🌳','🎯','✨','🔥','💯','🌊','🧗','🌄','📅'],
-  'Mindfulness':  ['🧘','🧘‍♀️','🧘‍♂️','🕉️','🌸','🕯️','🪷','☯️','🌿','🌙','🫶','🌬️'],
-  'Productivity': ['📈','✅','📝','⏰','💡','🎯','📊','📅','🚀','⚡','📌','🧠'],
+  'Smileys':     ['😀','😃','😄','😁','😊','🙂','😉','😍','🤩','😎','🤗','😇'],
+  'Gestures':    ['👍','👏','🙌','🙏','👌','🤝','💪','✌️','🤞','👋','🫶','🤟'],
+  'Symbols':     ['✨','🔥','💯','⭐','❤️','✅','⚡','💡','🎯','📌','❗','➡️'],
+  'Objects':     ['📈','📊','📝','📅','⏰','📷','🎧','💻','📱','🛒','🎁','🔑'],
+  'Nature':      ['🌱','🌸','🌿','🌊','☀️','🌙','🌟','🍃','🌈','🔆','🌍','🌷'],
+  'Celebration': ['🎉','🎊','🥳','🏆','🥇','🎈','💫','✨','🎆','👑','🍾','🎇'],
 };
 
 let _lastFocusedField = null;
@@ -2268,6 +2324,9 @@ async function loadAdmin() {
   const showVoice = account && S.user && !S.user.is_local;
   voiceSec.classList.toggle('hidden', !showVoice);
   if (showVoice) await loadBrandVoice();
+  const profSec = document.getElementById('brand-profile-section');
+  profSec.classList.toggle('hidden', !showVoice);
+  if (showVoice) await loadProfile();
 }
 
 // ===== PER-USER API KEYS ===== (scope: 'account' | 'instagram' | 'x')
@@ -2382,6 +2441,90 @@ async function saveBrandVoice() {
     toast('✅ Brand voice saved', 'success');
   } catch (e) { toast('❌ ' + e.message, 'error'); }
   finally { if (btn) { btn.disabled = false; btn.textContent = prev; } }
+}
+
+// ===== BRAND PROFILE =====
+async function loadProfile() {
+  let data = { niche: '', target_audience: '', brand_name: '' };
+  try {
+    const res = await apiFetch(`${API}/api/settings/profile`);
+    if (res.ok) data = await res.json();
+  } catch { /* 401 handled by apiFetch */ }
+  S.profile = { niche: data.niche || '', target_audience: data.target_audience || '', brand_name: data.brand_name || '' };
+  const n = document.getElementById('profile-niche');
+  if (n) {
+    n.value = S.profile.niche;
+    document.getElementById('profile-audience').value = S.profile.target_audience;
+    document.getElementById('profile-brand').value = S.profile.brand_name;
+  }
+  prefillComposerFromProfile();
+}
+
+// Save the profile from an arbitrary set of inputs; returns true on success.
+async function _putProfile(niche, audience, brand, btn) {
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
+  try {
+    const res = await apiFetch(`${API}/api/settings/profile`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ niche, target_audience: audience, brand_name: brand }),
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Save failed'); }
+    S.profile = { niche, target_audience: audience, brand_name: brand };
+    prefillComposerFromProfile();
+    return true;
+  } catch (e) { toast('❌ ' + e.message, 'error'); return false; }
+  finally { if (btn) { btn.disabled = false; btn.textContent = prev; } }
+}
+
+async function saveProfile() {
+  const ok = await _putProfile(
+    document.getElementById('profile-niche').value.trim(),
+    document.getElementById('profile-audience').value.trim(),
+    document.getElementById('profile-brand').value.trim(),
+    document.getElementById('save-profile-btn'),
+  );
+  if (ok) toast('✅ Brand profile saved', 'success');
+}
+
+// Pre-fill the composer niche/audience from the saved profile, only when empty
+// so a user's in-progress edits are never clobbered.
+function prefillComposerFromProfile() {
+  const p = S.profile || {};
+  const niche = document.getElementById('niche');
+  const aud = document.getElementById('audience');
+  if (niche && !niche.value && p.niche) niche.value = p.niche;
+  if (aud && !aud.value && p.target_audience) aud.value = p.target_audience;
+}
+
+// ===== ONBOARDING (first login, skippable) =====
+function maybeShowOnboarding() {
+  if (!S.user || S.user.is_local) return;          // cloud accounts only
+  if (localStorage.getItem('onboarding_done')) return;
+  if (S.profile && S.profile.niche) return;         // already has a profile
+  document.getElementById('onboarding-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('onb-niche').focus(), 50);
+}
+
+async function saveOnboarding() {
+  const niche = document.getElementById('onb-niche').value.trim();
+  if (!niche) { toast('Add your niche, or Skip for now', 'warn'); return; }
+  const ok = await _putProfile(
+    niche,
+    document.getElementById('onb-audience').value.trim(),
+    document.getElementById('onb-brand').value.trim(),
+    document.getElementById('onb-save-btn'),
+  );
+  if (ok) {
+    localStorage.setItem('onboarding_done', '1');
+    document.getElementById('onboarding-modal').classList.add('hidden');
+    toast('✅ You\'re all set', 'success');
+  }
+}
+
+function skipOnboarding() {
+  localStorage.setItem('onboarding_done', '1');
+  document.getElementById('onboarding-modal').classList.add('hidden');
 }
 
 async function downloadBackup() {

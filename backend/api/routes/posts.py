@@ -23,7 +23,7 @@ from api.deps import (
 from api.ratelimit import limiter
 from services.brand_engine import PillowBrandEngine
 from services.brand_voice import resolve_brand_voice
-from services.user_settings import resolve_user_brand_voice
+from services.user_settings import resolve_user_brand_voice, resolve_user_profile
 from config import Settings
 from models.database import (
     Post as PostModel, Slide as SlideModel,
@@ -227,6 +227,11 @@ async def generate_post(
                     brand_voice = resolve_brand_voice(body.brand_voice_preset, _custom)
                 else:
                     brand_voice = resolve_user_brand_voice(user)
+                # Fall back to the user's saved brand profile when the composer leaves
+                # niche/audience blank; an explicit value in the request still wins.
+                profile = resolve_user_profile(user)
+                niche = body.niche or profile["niche"]
+                target_audience = body.target_audience or profile["target_audience"]
                 generated = await engine.generate_post(
                     topic=body.topic,
                     format=body.format,
@@ -235,8 +240,8 @@ async def generate_post(
                     default_image_source=body.default_image_source,
                     slide_configs=slide_configs,
                     tone=body.tone,
-                    niche=body.niche,
-                    target_audience=body.target_audience,
+                    niche=niche,
+                    target_audience=target_audience,
                     additional_instructions=body.additional_instructions,
                     apply_branding=body.apply_branding,
                     platform=body.platform,
@@ -245,6 +250,7 @@ async def generate_post(
                     niche_box_color=body.niche_box_color,
                     show_logo=body.show_logo,
                     brand_voice=brand_voice,
+                    brand_name=profile["brand_name"],
                     progress=progress,
                 )
                 await progress("Saving to database...")

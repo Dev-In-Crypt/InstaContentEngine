@@ -1,10 +1,10 @@
 from services.pillars import (
-    MLMG_PILLARS, classify_pillar, pillar_mix, suggest_today, DEFAULT_PILLAR,
+    DEFAULT_PILLARS, classify_pillar, pillar_mix, suggest_today, DEFAULT_PILLAR,
 )
 
 
 def test_classify_educational():
-    assert classify_pillar("How to run your first 5K", "Tips and a step by step guide") == "educational"
+    assert classify_pillar("How to set up your first campaign", "Tips and a step by step guide") == "educational"
 
 
 def test_classify_inspirational():
@@ -22,7 +22,7 @@ def test_classify_fallback():
 def test_pillar_mix_shapes():
     mix = pillar_mix(["educational", "educational", "inspirational", None])
     by = {m["key"]: m for m in mix}
-    assert len(mix) == len(MLMG_PILLARS)
+    assert len(mix) == len(DEFAULT_PILLARS)
     # 2 of 4 educational (None falls back to educational) = 3/4 → 75%
     assert by["educational"]["count"] == 3
     assert by["educational"]["actual_pct"] == 75.0
@@ -40,4 +40,4 @@ def test_suggest_today_picks_biggest_gap():
 
 def test_suggest_today_empty():
     sug = suggest_today(pillar_mix([]))
-    assert sug["pillar"] in {m["key"] for m in MLMG_PILLARS}
+    assert sug["pillar"] in {m["key"] for m in DEFAULT_PILLARS}
