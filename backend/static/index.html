@@ -93,7 +93,7 @@
 <!-- ===== HEADER ===== -->
 <header class="border-b sticky top-0 z-30" style="border-color:var(--border);background:var(--bg)">
   <div class="max-w-7xl mx-auto px-5 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-    <div class="flex items-center gap-2 cursor-pointer" onclick="goStep(1)" title="New post">
+    <div class="flex items-center gap-2 cursor-pointer" onclick="goHome()" title="Home — new post">
       <span class="text-lg" style="color:var(--accent)">✦</span>
       <span class="font-bold tracking-tight">Content Engine</span>
     </div>
@@ -1063,6 +1063,12 @@ function goStep(n) {
     if (topic.length < 3) { toast('⚠️ Please enter a topic (at least 3 characters).', 'warn'); return; }
   }
   showStep(n);
+}
+
+// Header logo → back to the Create section (works from Account/keys/Calendar/etc.).
+function goHome() {
+  setSection('create');
+  showStep(1);
 }
 
 // ===== TOGGLE BUTTON GROUPS =====
