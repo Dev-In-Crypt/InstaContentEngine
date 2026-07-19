@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Annotated, Optional
 from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,7 @@ from api.deps import (
     get_content_engine, get_current_user, get_db, get_settings, load_brand_config,
     owned_post, require_token, require_verified,
 )
+from api.ratelimit import limiter
 from services.brand_engine import PillowBrandEngine
 from config import Settings
 from models.database import (
@@ -178,15 +179,17 @@ def _sse(event: dict) -> str:
 
 
 @router.post("/generate")
+@limiter.limit("15/minute;150/hour")
 async def generate_post(
-    request: GenerateRequest,
+    request: Request,
+    body: GenerateRequest,
     engine: Annotated[ContentEngine, Depends(get_content_engine)],
     settings: Annotated[Settings, Depends(get_settings)],
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[UserModel, Depends(get_current_user)],
 ) -> StreamingResponse:
     slide_configs: Optional[list[SlideImageConfig]] = None
-    if request.slides:
+    if body.slides:
         slide_configs = [
             SlideImageConfig(
                 slide_number=s.slide_number,
@@ -197,11 +200,11 @@ async def generate_post(
                 canva_template_id=s.canva_template_id,
                 page_number=s.page_number,
             )
-            for s in request.slides
+            for s in body.slides
         ]
 
-    text_model = request.text_model or settings.default_text_model
-    image_model = request.image_model or settings.default_image_model
+    text_model = body.text_model or settings.default_text_model
+    image_model = body.image_model or settings.default_image_model
 
     async def event_stream() -> AsyncGenerator[str, None]:
         queue: asyncio.Queue = asyncio.Queue()
@@ -211,30 +214,30 @@ async def generate_post(
 
         async def run() -> None:
             try:
-                brand_cfg = await load_brand_config(db, request.brand_config_id)
+                brand_cfg = await load_brand_config(db, body.brand_config_id)
                 engine.brand_engine = PillowBrandEngine(brand_cfg)
                 generated = await engine.generate_post(
-                    topic=request.topic,
-                    format=request.format,
+                    topic=body.topic,
+                    format=body.format,
                     text_model=text_model,
                     image_model=image_model,
-                    default_image_source=request.default_image_source,
+                    default_image_source=body.default_image_source,
                     slide_configs=slide_configs,
-                    tone=request.tone,
-                    niche=request.niche,
-                    target_audience=request.target_audience,
-                    additional_instructions=request.additional_instructions,
-                    apply_branding=request.apply_branding,
-                    platform=request.platform,
-                    length_tier=request.length_tier,
-                    template_style=request.template_style,
-                    niche_box_color=request.niche_box_color,
-                    show_logo=request.show_logo,
+                    tone=body.tone,
+                    niche=body.niche,
+                    target_audience=body.target_audience,
+                    additional_instructions=body.additional_instructions,
+                    apply_branding=body.apply_branding,
+                    platform=body.platform,
+                    length_tier=body.length_tier,
+                    template_style=body.template_style,
+                    niche_box_color=body.niche_box_color,
+                    show_logo=body.show_logo,
                     progress=progress,
                 )
                 await progress("Saving to database...")
                 db_post = await _persist(
-                    generated, db, request.template_style.value,
+                    generated, db, body.template_style.value,
                     user_id=user.id,
                 )
                 preview = _to_preview(db_post)
@@ -265,8 +268,14 @@ async def generate_post(
 async def list_posts(
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[UserModel, Depends(get_current_user)],
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
 ) -> list[PostSummary]:
-    stmt = select(PostModel).order_by(PostModel.created_at.desc()).options(selectinload(PostModel.slides))
+    # Paginated newest-first. Default 100 is generous enough that the SPA's
+    # calendar/grid (which fetch without paging) keep working at small scale;
+    # callers can page with ?limit=&offset= as volume grows.
+    stmt = (select(PostModel).order_by(PostModel.created_at.desc())
+            .options(selectinload(PostModel.slides)).limit(limit).offset(offset))
     if not user.is_local:
         stmt = stmt.where(PostModel.user_id == user.id)
     result = await db.execute(stmt)
@@ -351,9 +360,10 @@ async def export_post(
 
 @router.post("/{post_id}/publish", response_model=PublishResult,
              dependencies=[Depends(require_verified)])
+@limiter.limit("10/minute;60/hour")
 async def publish_post(
     post_id: str,
-    req: Request,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[UserModel, Depends(get_current_user)],
 ) -> PublishResult:
@@ -363,16 +373,18 @@ async def publish_post(
     await owned_post(db, post_id, user)   # ownership gate before touching the job/publish
     # Drop any pending scheduled job so it can't fire and double-publish.
     cancel_publish(post_id)
-    sessionmaker = req.app.state.sessionmaker
+    sessionmaker = request.app.state.sessionmaker
     try:
         media_id = await publish_now(sessionmaker, post_id)
         row = await db.execute(select(PostModel.published_url).where(PostModel.id == post_id))
         return PublishResult(success=True, instagram_media_id=media_id,
                              published_url=row.scalar_one_or_none())
     except PublishError as e:
-        return PublishResult(success=False, error=str(e))
+        # Publishing failed → signal it with a 502 (the post is marked failed in DB),
+        # not a 200 with success=False, so the failure isn't mistaken for success.
+        raise HTTPException(status_code=502, detail=str(e)) from e
     except Exception as e:
-        return PublishResult(success=False, error=str(e))
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 
 @router.post("/{post_id}/schedule", response_model=PostPreview,
@@ -794,8 +806,10 @@ async def list_insights(
 # ─────────────────────────────────────────────────────────────────────────────
 
 @router.post("/{post_id}/regenerate-field", response_model=RegenFieldResponse)
+@limiter.limit("15/minute;150/hour")
 async def regenerate_field(
     post_id: str,
+    request: Request,
     body: RegenFieldRequest,
     engine: Annotated[ContentEngine, Depends(get_content_engine)],
     settings: Annotated[Settings, Depends(get_settings)],
@@ -863,8 +877,10 @@ def _reel_path(post_id: str) -> Path:
 
 
 @router.post("/{post_id}/reel")
+@limiter.limit("6/minute;30/hour")
 async def make_reel(
     post_id: str,
+    request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[UserModel, Depends(get_current_user)],
@@ -922,9 +938,10 @@ async def get_reel_video(
 
 @router.post("/{post_id}/publish-reel", response_model=PublishResult,
              dependencies=[Depends(require_verified)])
+@limiter.limit("10/minute;60/hour")
 async def publish_reel(
     post_id: str,
-    req: Request,
+    request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[UserModel, Depends(get_current_user)],
@@ -939,14 +956,14 @@ async def publish_reel(
 
     base = (settings.public_base_url or "").rstrip("/")
     if not base:
-        return PublishResult(
-            success=False,
-            error="Reel publishing needs a public video URL. Set PUBLIC_BASE_URL "
-                  "(cloud mode) — Instagram cannot fetch a video from localhost.",
+        raise HTTPException(
+            status_code=409,
+            detail="Reel publishing needs a public video URL. Set PUBLIC_BASE_URL "
+                   "(cloud mode) — Instagram cannot fetch a video from localhost.",
         )
     video_url = f"{base}/api/posts/{post_id}/reel/video"
     try:
-        media_id = await publish_reel_now(req.app.state.sessionmaker, post_id, video_url)
+        media_id = await publish_reel_now(request.app.state.sessionmaker, post_id, video_url)
         return PublishResult(success=True, instagram_media_id=media_id)
     except PublishError as e:
-        return PublishResult(success=False, error=str(e))
+        raise HTTPException(status_code=502, detail=str(e)) from e

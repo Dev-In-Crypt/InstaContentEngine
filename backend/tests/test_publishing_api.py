@@ -213,9 +213,8 @@ def test_publish_reel_needs_public_url(client, seeded):
     # render first
     client.post(f"/api/posts/{seeded}/reel")
     res = client.post(f"/api/posts/{seeded}/publish-reel")
-    body = res.json()
-    assert body["success"] is False
-    assert "public" in body["error"].lower()
+    assert res.status_code == 409          # a failure is a 4xx now, not 200
+    assert "public" in res.json()["detail"].lower()
 
 
 # ── usage + backup ──────────────────────────────────────────────────────────
@@ -249,3 +248,22 @@ def test_backup_returns_zip(client, seeded):
 def test_restore_rejects_non_zip(client, seeded):
     res = client.post("/api/admin/restore", files={"file": ("x.zip", b"not a zip", "application/zip")})
     assert res.status_code == 400
+
+
+# ── rate limiting ────────────────────────────────────────────────────────────
+
+def test_regenerate_field_rate_limited_returns_429(client, seeded):
+    """/regenerate-field is capped at 15/min. The autouse fixture disables the
+    limiter, so re-enable it locally and confirm a burst trips 429 (the mocked
+    engine returns 200 on the happy path, so the hits are actually recorded)."""
+    from api.ratelimit import limiter
+    limiter.enabled = True
+    limiter.reset()
+    try:
+        codes = [client.post(f"/api/posts/{seeded}/regenerate-field",
+                             json={"field": "hook", "count": 2}).status_code
+                 for _ in range(18)]
+    finally:
+        limiter.enabled = False
+    assert 429 in codes                 # limit tripped within the burst
+    assert codes.count(200) <= 15       # at most the allowed 15 succeeded

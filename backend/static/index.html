@@ -3,7 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Content Engine</title>
+  <title>Content Engine — AI social content, on autopilot</title>
+  <meta name="description" content="Content Engine writes your captions, designs branded slides, and publishes to Instagram and X — 24/7, with your own API keys. Free to start." />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Content Engine — AI social content, on autopilot" />
+  <meta property="og:description" content="AI writes and publishes your social content for you. Branded slides, captions, hashtags, and a 24/7 scheduler — bring your own keys." />
+  <meta name="twitter:card" content="summary" />
   <!-- Favicon: the ✦ mark on the brand indigo, inline SVG (offline-safe). -->
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23161826'/%3E%3Ctext x='16' y='23' font-size='22' text-anchor='middle' fill='%239184D9'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E" />
   <!-- Tailwind Play CDN, vendored locally so the app is styled offline. -->
@@ -501,7 +506,7 @@
     </div>
 
     <div class="flex gap-2">
-      <button onclick="saveCaption()" class="flex-1 bg-gray-700 hover:bg-gray-600 transition rounded-xl py-2.5 text-sm font-semibold">
+      <button id="save-caption-btn" onclick="saveCaption()" class="flex-1 bg-gray-700 hover:bg-gray-600 transition rounded-xl py-2.5 text-sm font-semibold">
         💾 Save edits
       </button>
       <button id="undo-btn" onclick="undoEdit()" class="hidden bg-gray-800 hover:bg-gray-700 transition rounded-xl px-4 py-2.5 text-sm" title="Undo last saved edit">↶ Undo</button>
@@ -541,7 +546,7 @@
       <div class="flex gap-2">
         <input id="schedule-dt" type="datetime-local"
           class="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500" />
-        <button onclick="schedulePost()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">Schedule</button>
+        <button id="schedule-btn" onclick="schedulePost()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">Schedule</button>
         <button onclick="unschedulePost()" id="unschedule-btn" class="hidden bg-gray-700 hover:bg-gray-600 transition rounded-lg px-3 py-2 text-sm">Cancel</button>
       </div>
     </div>
@@ -556,17 +561,17 @@
         <video id="reel-video" controls class="w-48 rounded-lg mx-auto bg-black"></video>
         <div class="flex gap-2 justify-center">
           <a id="reel-download" href="#" download="reel.mp4" class="bg-gray-700 hover:bg-gray-600 rounded-lg px-3 py-1.5 text-xs">⬇ Download MP4</a>
-          <button onclick="publishReel()" class="bg-pink-700 hover:bg-pink-600 rounded-lg px-3 py-1.5 text-xs">📤 Publish Reel</button>
+          <button onclick="publishReel()" class="ce-btn rounded-lg px-3 py-1.5 text-xs">📤 Publish Reel</button>
         </div>
       </div>
     </div>
 
     <!-- Output buttons -->
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-      <button onclick="exportPost()" class="bg-gradient-to-r from-blue-700 to-blue-500 hover:from-blue-600 hover:to-blue-400 transition rounded-xl py-4 font-semibold text-white flex items-center justify-center gap-2 text-lg shadow-lg">
+      <button onclick="exportPost()" class="ce-btn-ghost transition rounded-xl py-4 font-semibold flex items-center justify-center gap-2 text-lg shadow-lg">
         📦 Save ZIP to Downloads
       </button>
-      <button onclick="publishPost()" class="bg-gradient-to-r from-pink-700 to-rose-500 hover:from-pink-600 hover:to-rose-400 transition rounded-xl py-4 font-semibold text-white flex items-center justify-center gap-2 text-lg shadow-lg">
+      <button id="publish-btn" onclick="publishPost()" class="ce-btn transition rounded-xl py-4 font-semibold flex items-center justify-center gap-2 text-lg shadow-lg">
         📤 Publish now
       </button>
     </div>
@@ -606,7 +611,7 @@
   <div id="view-grid" class="hidden space-y-4">
     <section class="bg-gray-900 rounded-2xl p-6 space-y-4">
       <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-purple-300">▦ Feed grid <span class="text-xs text-gray-500 font-normal">— как выглядит лента профиля</span></h2>
+        <h2 class="text-lg font-semibold text-purple-300">▦ Feed grid <span class="text-xs text-gray-500 font-normal">— how your profile feed looks</span></h2>
         <div class="flex gap-1 text-xs">
           <button data-grid-mode="mobile" onclick="setGridMode('mobile')" class="grid-mode-btn px-2 py-1 rounded-lg border-2 border-purple-500 bg-purple-900 text-white">📱 Mobile</button>
           <button data-grid-mode="desktop" onclick="setGridMode('desktop')" class="grid-mode-btn px-2 py-1 rounded-lg border-2 border-gray-700 bg-gray-800 text-gray-300">🖥 Desktop</button>
@@ -626,7 +631,7 @@
       <h2 id="keys-title" class="text-lg font-semibold text-purple-300">🔑 Your API keys</h2>
       <p class="text-xs text-gray-500">Stored encrypted and used only for your posts. Leave a field blank to keep the current value; the placeholder shows what's set.</p>
       <div id="keys-form" class="space-y-4"></div>
-      <button onclick="saveCredentials()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">💾 Save keys</button>
+      <button id="save-keys-btn" onclick="saveCredentials()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">💾 Save keys</button>
     </section>
 
     <section id="usage-section" class="bg-gray-900 rounded-2xl p-6 space-y-4">
@@ -804,7 +809,13 @@ function renderUserChrome() {
   if (backup) backup.classList.toggle('hidden', !(S.user && (S.user.is_admin || S.user.is_local)));
   // Nudge cloud users to verify their email (publishing is gated on it in prod).
   const banner = document.getElementById('verify-banner');
-  if (banner) banner.classList.toggle('hidden', !(cloud && S.user.email_verified === false));
+  const showBanner = cloud && S.user.email_verified === false;
+  if (banner) {
+    banner.classList.toggle('hidden', !showBanner);
+    // The banner is fixed at top-0 over the sticky header; offset the page so it
+    // doesn't cover the logo / Log out while shown.
+    document.body.style.paddingTop = showBanner ? (banner.offsetHeight + 'px') : '';
+  }
 }
 
 function showAuthScreen(tab) {
@@ -854,6 +865,13 @@ async function submitAuth() {
     });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(d.detail ? (typeof d.detail === 'string' ? d.detail : 'Check your input') : 'Failed');
+    if (!d.access_token) {
+      // Server accepted but returned no session token (e.g. "verify your email
+      // first"). Don't store "undefined" — tell the user what to do next.
+      document.getElementById('auth-password').value = '';
+      show('✅ Account created. Check your email to verify, then log in.');
+      return;
+    }
     localStorage.setItem('api_token', d.access_token);
     document.getElementById('auth-password').value = '';
     await initAuth();
@@ -1594,6 +1612,9 @@ async function saveCaption() {
   if (!S.postId) return;
   snapshotEdits();   // push current state so Undo can revert this save
   const caption = document.getElementById('caption-edit').value;
+  const btn = document.getElementById('save-caption-btn');
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
   try {
     const res = await apiFetch(`${API}/api/posts/${S.postId}/caption`, {
       method: 'PUT',
@@ -1609,6 +1630,8 @@ async function saveCaption() {
     toast('✅ Caption saved!', 'success');
   } catch(e) {
     toast('❌ ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = prev; }
   }
 }
 
@@ -1677,17 +1700,21 @@ async function publishPost() {
   if (!await guardPublishKeys(platform)) return;   // cloud: needs this network's keys
   if (!confirm(`Publish this post to ${label} now?`)) return;
   S.publishing = true;
+  const btn = document.getElementById('publish-btn');
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Publishing…'; }
   toast('📤 Publishing…', 'info');
   try {
     const res = await apiFetch(`${API}/api/posts/${S.postId}/publish`, { method: 'POST' });
-    const data = await res.json();
-    if (!res.ok || !data.success) throw new Error(data.error || 'Publish failed');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) throw new Error(data.detail || data.error || 'Publish failed');
     const link = data.published_url ? ` — ${data.published_url}` : (' — ' + (data.instagram_media_id || ''));
     toast(`✅ Published to ${label}!${link}`, 'success');
   } catch(e) {
     toast('❌ ' + e.message, 'error');
   } finally {
     S.publishing = false;
+    if (btn) { btn.disabled = false; btn.textContent = prev; }
   }
 }
 
@@ -1697,6 +1724,9 @@ async function schedulePost() {
   const val = document.getElementById('schedule-dt').value;
   if (!val) { toast('Pick a date/time first', 'warn'); return; }
   const iso = new Date(val).toISOString();
+  const btn = document.getElementById('schedule-btn');
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳…'; }
   try {
     const res = await apiFetch(`${API}/api/posts/${S.postId}/schedule`, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -1707,6 +1737,7 @@ async function schedulePost() {
     applyScheduleState(post);
     toast('✅ Scheduled for ' + new Date(post.scheduled_at).toLocaleString(), 'success');
   } catch(e) { toast('❌ ' + e.message, 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = prev; } }
 }
 
 async function unschedulePost() {
@@ -1815,6 +1846,11 @@ function calShift(delta) {
 }
 function _todayRef() { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; }
 
+// Posts belonging to the active network (Feed/Calendar are per-network, like Analytics).
+function postsForNetwork() {
+  return S.posts.filter(p => (p.platform || 'instagram') === S.network);
+}
+
 async function renderCalendar() {
   if (!S.calRef) S.calRef = _todayRef();
   const { year, month } = S.calRef;
@@ -1824,7 +1860,7 @@ async function renderCalendar() {
   await ensurePosts();
   // Map posts to day keys
   const byDay = {};
-  S.posts.forEach(p => {
+  postsForNetwork().forEach(p => {
     const when = p.scheduled_at || p.published_at;
     if (!when) return;
     const d = new Date(when);
@@ -1855,11 +1891,12 @@ async function renderCalendar() {
 // ===== GRID =====
 async function loadGrid() {
   await ensurePosts();
+  const posts = postsForNetwork();
   const c = document.getElementById('grid-container');
-  document.getElementById('grid-empty').classList.toggle('hidden', S.posts.length > 0);
+  document.getElementById('grid-empty').classList.toggle('hidden', posts.length > 0);
   c.innerHTML = '';
   const ring = { scheduled: 'ring-purple-500', published: 'ring-green-500', failed: 'ring-red-500' };
-  S.posts.forEach(p => {
+  posts.forEach(p => {
     const div = document.createElement('div');
     div.className = 'relative aspect-[4/5] bg-gray-800 cursor-pointer';
     div.onclick = () => openPost(p.id);
@@ -1941,8 +1978,8 @@ async function publishReel() {
   toast('📤 Publishing Reel…', 'info');
   try {
     const res = await apiFetch(`${API}/api/posts/${S.postId}/publish-reel`, { method: 'POST' });
-    const data = await res.json();
-    if (!res.ok || !data.success) throw new Error(data.error || 'Publish failed');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) throw new Error(data.detail || data.error || 'Publish failed');
     toast('✅ Reel published! Media ID: ' + data.instagram_media_id, 'success');
   } catch(e) { toast('❌ ' + e.message, 'error'); }
 }
@@ -2226,6 +2263,9 @@ async function saveCredentials() {
     if (v) body[el.dataset.cred] = v;   // only send changed (non-empty) fields
   });
   if (Object.keys(body).length === 0) { toast('Nothing to save — fields are blank', 'warn'); return; }
+  const btn = document.getElementById('save-keys-btn');
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
   try {
     const res = await apiFetch(`${API}/api/settings/credentials`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -2235,6 +2275,7 @@ async function saveCredentials() {
     await ensureCreds(true);   // refresh the guard cache so just-added keys count
     await loadCredentials();   // refresh masks, clear inputs
   } catch (e) { toast('❌ ' + e.message, 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = prev; } }
 }
 
 async function downloadBackup() {

@@ -30,9 +30,14 @@ async def publish_now(sessionmaker, post_id: str) -> str:
     `sessionmaker` is an async_sessionmaker (app.state.sessionmaker).
     """
     async with sessionmaker() as db:
+        # with_for_update locks the post row for this transaction on Postgres, so a
+        # concurrent manual publish and scheduled job can't both pass the
+        # already-published check below and double-post. No-op on SQLite (single
+        # writer anyway), which keeps the tests unchanged.
         result = await db.execute(
             select(PostModel).where(PostModel.id == post_id)
             .options(selectinload(PostModel.slides))
+            .with_for_update()
         )
         post = result.scalar_one_or_none()
         if not post:
@@ -98,7 +103,11 @@ async def publish_reel_now(sessionmaker, post_id: str, video_url: str) -> str:
     PUBLIC_BASE_URL + /api/posts/{id}/reel/video. Raises PublishError on failure.
     """
     async with sessionmaker() as db:
-        result = await db.execute(select(PostModel).where(PostModel.id == post_id))
+        # Lock the row (Postgres) so a manual + scheduled reel publish can't race
+        # past the already-published check. No-op on SQLite.
+        result = await db.execute(
+            select(PostModel).where(PostModel.id == post_id).with_for_update()
+        )
         post = result.scalar_one_or_none()
         if not post:
             raise PublishError(f"Post {post_id} not found")
