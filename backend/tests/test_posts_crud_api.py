@@ -313,14 +313,18 @@ def test_generate_streams_progress_then_complete(client, generated_ids):
 
 
 def test_generate_streams_error_event_and_still_returns_200(client):
-    """The stream carries the failure; the HTTP status stays 200."""
-    client.fake_engine.generate_post.side_effect = OpenRouterError("boom")
+    """The stream carries a failure; the HTTP status stays 200. The message is
+    generic — internal error text (which can include upstream API responses) is
+    logged server-side, not leaked to the client."""
+    client.fake_engine.generate_post.side_effect = OpenRouterError("boom-secret-detail")
 
     res = client.post("/api/posts/generate", json={"topic": "AI trends", "format": "single"})
     assert res.status_code == 200
 
     events = _sse_events(res)
-    assert events[-1] == {"type": "error", "message": "boom"}
+    assert events[-1]["type"] == "error"
+    assert "boom-secret-detail" not in events[-1]["message"]   # internals masked
+    assert events[-1]["message"] == "Generation failed. Please try again."
 
 
 # ── model fallback ──────────────────────────────────────────────────────────

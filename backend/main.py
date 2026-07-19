@@ -56,6 +56,7 @@ _MIGRATIONS: dict[str, dict[str, str]] = {
     "users": {
         "is_admin": "BOOLEAN DEFAULT FALSE",
         "email_verified": "BOOLEAN DEFAULT FALSE",
+        "token_version": "INTEGER DEFAULT 0",
     },
     "brand_configs": {
         "template_style": "VARCHAR(20) DEFAULT 'branded_card'",

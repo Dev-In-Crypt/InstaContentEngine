@@ -32,18 +32,22 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def create_access_token(user_id: str, *, now: datetime | None = None) -> str:
+def create_access_token(user_id: str, token_version: int = 0, *,
+                        now: datetime | None = None) -> str:
     issued = now or datetime.now(timezone.utc)
     payload = {
         "sub": user_id,
+        "tv": int(token_version),   # user.token_version at mint time (for revocation)
         "iat": int(issued.timestamp()),
         "exp": int((issued + _TOKEN_TTL).timestamp()),
     }
     return jwt.encode(payload, get_settings().secret_key, algorithm=_ALGO)
 
 
-def decode_access_token(token: str) -> str | None:
-    """Return the user id from a valid token, or None if invalid/expired/forged."""
+def decode_access_token_claims(token: str) -> dict | None:
+    """Return the full validated payload of an access token, or None if
+    invalid/expired/forged/wrong-purpose. Callers that need the token_version
+    (revocation check) use this; decode_access_token is the sub-only shortcut."""
     if not token:
         return None
     try:
@@ -52,8 +56,15 @@ def decode_access_token(token: str) -> str | None:
         return None
     if payload.get("purpose") not in (None, "access"):
         return None   # a verify/reset token must not authenticate API calls
-    sub = payload.get("sub")
-    return sub if isinstance(sub, str) else None
+    if not isinstance(payload.get("sub"), str):
+        return None
+    return payload
+
+
+def decode_access_token(token: str) -> str | None:
+    """Return the user id from a valid token, or None if invalid/expired/forged."""
+    claims = decode_access_token_claims(token)
+    return claims["sub"] if claims else None
 
 
 # ── single-use purpose tokens (email verification, password reset) ──────────

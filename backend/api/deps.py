@@ -19,7 +19,7 @@ from services.openrouter import current_user_id
 # Per-user effective Settings live in the services layer; re-exported so
 # api/routes/settings.py (imports _CRED_FIELDS) and get_effective_settings work.
 from services.user_settings import _CRED_FIELDS, build_settings_for_user  # noqa: F401
-from services.auth import decode_access_token
+from services.auth import decode_access_token_claims
 from services.openrouter import OpenRouterClient
 from services.caption_generator import CaptionGenerator
 from services.image_router import ImageRouter
@@ -130,12 +130,16 @@ async def get_current_user(
         return user
 
     token = authorization[7:] if authorization.startswith("Bearer ") else ""
-    user_id = decode_access_token(token)
-    if not user_id:
+    claims = decode_access_token_claims(token)
+    if not claims:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    user = await db.get(UserModel, user_id)
+    user = await db.get(UserModel, claims["sub"])
     if user is None or not user.is_active:
         raise HTTPException(status_code=401, detail="Not authenticated")
+    # Revocation: a token minted before the user's version was bumped (password
+    # reset / logout-all) no longer authenticates.
+    if int(claims.get("tv", 0)) != int(user.token_version or 0):
+        raise HTTPException(status_code=401, detail="Session expired")
     current_user_id.set(user.id)
     return user
 
@@ -159,6 +163,15 @@ def require_admin(user: Annotated[UserModel, Depends(get_current_user)]) -> None
     admin; in cloud only a user flagged is_admin may pull everyone's data."""
     if not (user.is_local or user.is_admin):
         raise HTTPException(status_code=403, detail="Admin only")
+    return None
+
+
+def require_local(settings: Annotated[Settings, Depends(get_settings)]) -> None:
+    """Gate endpoints that touch the server's own filesystem/desktop (write to
+    ~/Downloads, spawn a file explorer). They're meaningless — and process-spawning
+    — on a shared cloud host, so hide them there."""
+    if settings.app_mode == "cloud":
+        raise HTTPException(status_code=404, detail="Not found")
     return None
 
 

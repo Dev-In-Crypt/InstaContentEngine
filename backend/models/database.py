@@ -22,6 +22,9 @@ class User(Base):
     is_local = Column(Boolean, default=False)   # the seeded desktop owner
     is_admin = Column(Boolean, default=False)   # may download/restore the whole DB
     email_verified = Column(Boolean, default=False)
+    # Bumped on password reset / logout-all; access tokens carry the version they
+    # were minted with, so a mismatch invalidates every token issued before.
+    token_version = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     credentials = relationship("UserCredentials", back_populates="user",

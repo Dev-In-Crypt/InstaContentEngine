@@ -1,6 +1,7 @@
 import asyncio
 import io
 import json
+import logging
 import re
 import subprocess
 import sys
@@ -17,7 +18,7 @@ from sqlalchemy.orm import selectinload
 
 from api.deps import (
     get_content_engine, get_current_user, get_db, get_settings, load_brand_config,
-    owned_post, require_token, require_verified,
+    owned_post, require_local, require_token, require_verified,
 )
 from api.ratelimit import limiter
 from services.brand_engine import PillowBrandEngine
@@ -40,6 +41,7 @@ from services.openrouter import OpenRouterError
 from services.stock import StockError
 
 router = APIRouter(prefix="/api/posts", tags=["posts"])
+log = logging.getLogger(__name__)
 
 UPLOADS_DIR = Path(__file__).parent.parent.parent / "uploads" / "posts"
 
@@ -248,8 +250,12 @@ async def generate_post(
                 except Exception:
                     pass
                 await queue.put({"type": "complete", "post": preview.model_dump(mode="json")})
-            except Exception as exc:
-                await queue.put({"type": "error", "message": str(exc)})
+            except Exception:
+                # Log the detail server-side; don't leak internals (incl. upstream
+                # API text) to the client.
+                log.exception("Post generation failed")
+                await queue.put({"type": "error",
+                                 "message": "Generation failed. Please try again."})
             finally:
                 await queue.put(None)
 
@@ -382,9 +388,11 @@ async def publish_post(
     except PublishError as e:
         # Publishing failed → signal it with a 502 (the post is marked failed in DB),
         # not a 200 with success=False, so the failure isn't mistaken for success.
+        # PublishError carries our own, safe messages.
         raise HTTPException(status_code=502, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e)) from e
+    except Exception:
+        log.exception("Publish failed: post=%s", post_id)
+        raise HTTPException(status_code=502, detail="Publishing failed. Please try again.")
 
 
 @router.post("/{post_id}/schedule", response_model=PostPreview,
@@ -680,7 +688,7 @@ def _unique_path(folder: Path, stem: str, suffix: str) -> Path:
     return candidate
 
 
-@router.post("/{post_id}/export-to-disk")
+@router.post("/{post_id}/export-to-disk", dependencies=[Depends(require_local)])
 async def export_post_to_disk(
     post_id: str,
     engine: Annotated[ContentEngine, Depends(get_content_engine)],
@@ -713,7 +721,7 @@ async def export_post_to_disk(
     return {"path": str(out), "filename": out.name, "size_bytes": len(zip_bytes)}
 
 
-@router.post("/open-folder", dependencies=[Depends(require_token)])
+@router.post("/open-folder", dependencies=[Depends(require_token), Depends(require_local)])
 async def open_folder(path: str = Body(..., embed=True)) -> dict:
     """Open the OS file explorer at the given file (highlighted) or directory.
     Only allowed for paths under Downloads (defence-in-depth — desktop-only API)."""

@@ -76,7 +76,7 @@ async def register(
     await db.commit()
     await db.refresh(user)
     await send_verify_email(email, create_purpose_token(user.id, "verify", _VERIFY_TTL))
-    return TokenResponse(access_token=create_access_token(user.id))
+    return TokenResponse(access_token=create_access_token(user.id, user.token_version))
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -91,7 +91,7 @@ async def login(
     )).scalars().first()
     if user is None or not user.is_active or not verify_password(body.password, user.password_hash or ""):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    return TokenResponse(access_token=create_access_token(user.id))
+    return TokenResponse(access_token=create_access_token(user.id, user.token_version))
 
 
 @router.get("/verify")
@@ -149,6 +149,19 @@ async def reset_password(
         raise HTTPException(status_code=400, detail="Invalid or expired link")
     user.password_hash = hash_password(body.password)
     user.email_verified = True   # resetting via emailed link proves email ownership
+    user.token_version = (user.token_version or 0) + 1   # revoke all existing sessions
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/logout-all")
+async def logout_all(
+    user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Invalidate every existing session for this user (e.g. a lost/stolen token)
+    by bumping token_version. The caller's current token stops working too."""
+    user.token_version = (user.token_version or 0) + 1
     await db.commit()
     return {"status": "ok"}
 
