@@ -113,4 +113,7 @@ if the site goes down. Set `SENTRY_DSN` in `.env` to also capture backend errors
   for you at higher price.
 - Postgres runs as a container here (free); the app auto-normalizes its URL to the
   async driver. To use a managed Postgres instead, just point `DATABASE_URL` at it.
+- **Schema migrations run automatically on startup** (Alembic). The first deploy
+  onto your already-populated DB is auto-detected and *stamped* (adopted) rather
+  than rebuilt, so no manual step is needed — just `docker compose up -d --build`.
 - Single VPS = single instance, which is exactly what the app expects.

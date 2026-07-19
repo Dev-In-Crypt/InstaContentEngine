@@ -1,59 +1,47 @@
-"""_apply_migrations must add missing columns and not swallow failures.
-
-The brand_configs.show_logo column shipped as `BOOLEAN DEFAULT 1`, which is valid
-in SQLite but a syntax error in Postgres (needs TRUE) — and the Postgres branch
-swallowed the error with `except: pass`, so a cloud DB missing that column failed
-the migration silently and 500'd later.
-"""
-import logging
-
-import pytest
-from sqlalchemy.ext.asyncio import create_async_engine
+"""Schema is managed by Alembic (main._run_migrations). A fresh DB gets the
+baseline; a pre-existing DB (tables but no alembic_version) is auto-stamped so
+the first deploy onto the live prod DB doesn't try to recreate existing tables."""
+import sqlite3
 
 import main
-from models.database import Base
 
 
-def test_no_boolean_default_1_in_migrations():
-    """Regression guard: `DEFAULT 1` is invalid for a Postgres boolean column."""
-    for table, cols in main._MIGRATIONS.items():
-        for col, ddl in cols.items():
-            assert "DEFAULT 1" not in ddl, f"{table}.{col} uses DEFAULT 1 (breaks Postgres)"
+def test_sync_db_url_strips_async_drivers():
+    assert main._sync_db_url("sqlite+aiosqlite:///./x.db") == "sqlite:///./x.db"
+    assert main._sync_db_url("postgresql+asyncpg://u:p@h/d") == "postgresql://u:p@h/d"
+    assert main._sync_db_url("postgres://u:p@h/d") == "postgresql://u:p@h/d"
 
 
-async def test_apply_migrations_adds_show_logo(tmp_path):
-    """On a bare table (no ALTERs), the migration adds show_logo with a TRUE default."""
-    from sqlalchemy import text
-    eng = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'm.db'}")
-    async with eng.begin() as conn:
-        # Minimal brand_configs without the newer columns.
-        await conn.execute(text("CREATE TABLE brand_configs (id VARCHAR(36) PRIMARY KEY, name TEXT)"))
-        await conn.execute(text("CREATE TABLE posts (id VARCHAR(36) PRIMARY KEY)"))
-        await conn.execute(text("CREATE TABLE slides (id VARCHAR(36) PRIMARY KEY)"))
-        await main._apply_migrations(conn)
-        cols = {r[1] for r in (await conn.execute(text("PRAGMA table_info(brand_configs)"))).fetchall()}
-        assert "show_logo" in cols
-        await conn.execute(text("INSERT INTO brand_configs (id, name) VALUES ('x', 'n')"))
-        val = (await conn.execute(text("SELECT show_logo FROM brand_configs WHERE id='x'"))).scalar_one()
-        assert val == 1   # DEFAULT TRUE
-    await eng.dispose()
+def test_migrations_build_full_schema_on_fresh_db(tmp_path):
+    db = tmp_path / "fresh.db"
+    main._run_migrations(f"sqlite:///{db}")
+    tables = {r[0] for r in sqlite3.connect(db).execute(
+        "select name from sqlite_master where type='table'")}
+    # baseline created the core tables + alembic's bookkeeping
+    assert {"users", "posts", "slides", "user_credentials", "alembic_version"} <= tables
+    cols = {r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(users)")}
+    assert "token_version" in cols          # the newest column is in the baseline
 
 
-async def test_migration_failure_is_logged_not_swallowed(monkeypatch, caplog):
-    """A failing ALTER on the non-sqlite branch must log, not vanish."""
-    from sqlalchemy import text
+def test_migrations_autostamp_preexisting_db(tmp_path):
+    """A DB that already has the schema but no alembic_version must be stamped,
+    not rebuilt (upgrade would otherwise fail creating existing tables)."""
+    db = tmp_path / "existing.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE users (id VARCHAR(36) PRIMARY KEY, email TEXT)")
+    con.commit()
+    con.close()
 
-    class FakeConn:
-        class dialect:
-            name = "postgresql"
+    main._run_migrations(f"sqlite:///{db}")   # must not raise despite users existing
 
-        async def execute(self, *a, **k):
-            raise RuntimeError("ALTER blew up")
-
-    with caplog.at_level(logging.WARNING):
-        await main._apply_migrations(FakeConn())   # must not raise
-    assert any("failed" in r.message.lower() for r in caplog.records)
+    tables = {r[0] for r in sqlite3.connect(db).execute(
+        "select name from sqlite_master where type='table'")}
+    assert "alembic_version" in tables        # adopted
+    ver = sqlite3.connect(db).execute("select version_num from alembic_version").fetchone()
+    assert ver is not None                    # stamped at head
 
 
-# silence unused-import lint for Base (kept for parity with other DB tests)
-_ = Base
+def test_migrations_idempotent(tmp_path):
+    db = tmp_path / "twice.db"
+    main._run_migrations(f"sqlite:///{db}")
+    main._run_migrations(f"sqlite:///{db}")   # second run is a no-op, not an error

@@ -1,20 +1,23 @@
+import asyncio
 import logging
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from sqlalchemy import select, text, update
+from sqlalchemy import create_engine, inspect, select, update
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from config import get_settings
-from models.database import Base, BrandConfig as BrandConfigModel, User as UserModel
+from models.database import BrandConfig as BrandConfigModel, User as UserModel
 from models.schemas import NICHE_BOX_PALETTE
 from services.http_utils import setup_logging, setup_tls
 from api.deps import LOCAL_USER_EMAIL
@@ -27,45 +30,33 @@ UPLOADS_DIR = Path(__file__).parent / "uploads"
 settings = get_settings()
 log = logging.getLogger(__name__)
 
-# New columns added after the initial schema. create_all does NOT alter existing
-# tables, so on an already-created sqlite db these are added idempotently here.
-_MIGRATIONS: dict[str, dict[str, str]] = {
-    "posts": {
-        "user_id": "VARCHAR(36)",
-        "seo_keywords": "JSON",
-        "platform": "VARCHAR(20) DEFAULT 'instagram'",
-        "template_style": "VARCHAR(20) DEFAULT 'branded_card'",
-        "sources": "JSON",
-        "published_image_urls": "JSON",
-        "schedule_error": "TEXT",
-        "pillar": "VARCHAR(30)",
-        "video_path": "TEXT",
-        "published_url": "TEXT",
-    },
-    "slides": {
-        "page_number": "INTEGER",
-        "attribution": "JSON",
-        "render_params": "JSON",
-        "raw_image_path": "TEXT",
-        "original_overlay_text": "TEXT",
-        "original_niche_text": "TEXT",
-    },
-    "llm_usage": {
-        "user_id": "VARCHAR(36)",
-    },
-    "users": {
-        "is_admin": "BOOLEAN DEFAULT FALSE",
-        "email_verified": "BOOLEAN DEFAULT FALSE",
-        "token_version": "INTEGER DEFAULT 0",
-    },
-    "brand_configs": {
-        "template_style": "VARCHAR(20) DEFAULT 'branded_card'",
-        "niche_box_color": "VARCHAR(7) DEFAULT '#ff751f'",
-        "niche_box_palette": "JSON",
-        "description_box_alpha": "FLOAT DEFAULT 0.79",
-        "show_logo": "BOOLEAN DEFAULT TRUE",   # TRUE, not 1 — 1 is a syntax error in Postgres
-    },
-}
+_HERE = Path(__file__).parent
+
+
+def _sync_db_url(url: str) -> str:
+    """Sync-driver form for Alembic (which is synchronous)."""
+    return (url.replace("+aiosqlite", "").replace("+asyncpg", "")
+            .replace("postgres://", "postgresql://"))
+
+
+def _run_migrations(database_url: str) -> None:
+    """Bring the schema to head via Alembic. Auto-adopts a pre-existing DB (tables
+    but no alembic_version) by stamping head first, so the very first deploy onto
+    the already-populated prod DB doesn't try to recreate existing tables. A fresh
+    DB just runs the baseline. Synchronous — call via asyncio.to_thread."""
+    sync_url = _sync_db_url(database_url)
+    cfg = Config(str(_HERE / "alembic.ini"))
+    cfg.set_main_option("script_location", str(_HERE / "alembic"))
+    cfg.set_main_option("sqlalchemy.url", sync_url)
+
+    engine = create_engine(sync_url)
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("alembic_version") and insp.has_table("users"):
+            command.stamp(cfg, "head")   # existing schema → adopt it, don't rebuild
+    finally:
+        engine.dispose()
+    command.upgrade(cfg, "head")
 
 
 def _async_db_url(url: str) -> str:
@@ -93,37 +84,6 @@ async def _apply_admin_emails(sessionmaker, emails_csv: str) -> None:
             .values(is_admin=True, email_verified=True)
         )
         await session.commit()
-
-
-async def _apply_migrations(conn) -> None:
-    """Add any missing columns to existing tables (no migration tool).
-
-    On sqlite we inspect via PRAGMA and ALTER. On Postgres (cloud), create_all
-    already made every column on first boot, and ADD COLUMN IF NOT EXISTS is a
-    safe no-op for pre-existing tables. Dialect is branched to keep both happy.
-    """
-    dialect = conn.dialect.name
-    for table, columns in _MIGRATIONS.items():
-        if dialect == "sqlite":
-            existing = await conn.execute(text(f"PRAGMA table_info({table})"))
-            present = {row[1] for row in existing.fetchall()}
-            if not present:
-                continue   # table doesn't exist yet (create_all makes it first in prod)
-            for col, ddl in columns.items():
-                if col not in present:
-                    await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
-        else:
-            # Postgres / others: JSON maps to JSONB is not needed here; use plain
-            # types. IF NOT EXISTS keeps it idempotent without introspection.
-            for col, ddl in columns.items():
-                pg_ddl = ddl.replace("JSON", "JSONB")
-                try:
-                    await conn.execute(
-                        text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {pg_ddl}")
-                    )
-                except Exception as e:
-                    # Don't hide a real failure (bad DDL, permissions) as success.
-                    log.warning("Migration ADD COLUMN %s.%s failed: %s", table, col, e)
 
 
 async def _seed_brand_preset(sessionmaker) -> None:
@@ -193,10 +153,10 @@ async def lifespan(app: FastAPI):
             "all stored keys)."
         )
 
+    # Schema: Alembic to head (auto-stamps a pre-existing DB). Runs in a thread
+    # since Alembic is synchronous.
+    await asyncio.to_thread(_run_migrations, settings.database_url)
     engine = create_async_engine(_async_db_url(settings.database_url), echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        await _apply_migrations(conn)
     app.state.sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
     await _seed_brand_preset(app.state.sessionmaker)
     if settings.app_mode != "cloud":
