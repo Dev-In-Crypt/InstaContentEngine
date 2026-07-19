@@ -147,7 +147,6 @@
       <div class="ce-card p-5"><div class="text-2xl mb-2">🎴</div><div class="font-semibold mb-1">Branded slides</div><div class="text-sm text-gray-400">Carousels in your template — niche plate, title plate, logo.</div></div>
       <div class="ce-card p-5"><div class="text-2xl mb-2">▶</div><div class="font-semibold mb-1">Reels video</div><div class="text-sm text-gray-400">Turn a topic into a short-form video script and shot list.</div></div>
       <div class="ce-card p-5"><div class="text-2xl mb-2">🗓</div><div class="font-semibold mb-1">24/7 scheduler</div><div class="text-sm text-gray-400">Publishes from the server even when your computer is off.</div></div>
-      <div class="ce-card p-5"><div class="text-2xl mb-2">📈</div><div class="font-semibold mb-1">Competitor trends</div><div class="text-sm text-gray-400">Find sticky posts and adapt them to your brand in a click.</div></div>
       <div class="ce-card p-5"><div class="text-2xl mb-2">📊</div><div class="font-semibold mb-1">Post analytics</div><div class="text-sm text-gray-400">Reach, saves, shares and comments pulled from the network.</div></div>
     </div>
   </section>
@@ -279,7 +278,6 @@
     <button data-section="create" onclick="setSection('create')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">✎ Create</button>
     <button data-section="calendar" onclick="setSection('calendar')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">▦ Calendar</button>
     <button data-section="feed" onclick="setSection('feed')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">▤ Feed</button>
-    <button id="sec-trends-btn" data-section="trends" onclick="setSection('trends')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">📈 Trends</button>
     <button data-section="analytics" onclick="setSection('analytics')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">📊 Analytics</button>
     <button data-section="keys" onclick="setSection('keys')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">🔑 <span id="net-keys-label">Instagram</span> keys</button>
     <button data-section="account" onclick="setSection('account')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap ml-auto">⚙ Account</button>
@@ -464,7 +462,6 @@
       <div class="flex items-center justify-between mb-2">
         <label class="block text-sm text-gray-400">Hashtags</label>
         <div class="flex gap-3">
-          <button onclick="analyzeHashtags()" class="text-xs text-blue-400 hover:text-blue-300">📊 Analyze</button>
           <button onclick="showVariations('hashtags')" class="text-xs text-purple-400 hover:text-purple-300">↻ Variations</button>
         </div>
       </div>
@@ -516,7 +513,6 @@
         📎 References
         <span class="text-xs text-gray-500 font-normal">— shown in this UI only, not added to the post</span>
       </h3>
-      <div id="ref-trend" class="hidden text-xs text-pink-300 bg-pink-950/40 border border-pink-900 rounded-lg px-3 py-2"></div>
       <div id="ref-sources" class="hidden">
         <p class="text-xs text-gray-500 mb-1">Image sources</p>
         <ul id="ref-sources-list" class="space-y-1 text-xs"></ul>
@@ -580,62 +576,6 @@
   </section>
 
   </div><!-- /#view-create -->
-
-  <!-- ===== TRENDS VIEW ===== -->
-  <div id="view-trends" class="hidden space-y-6">
-
-    <!-- Subtabs -->
-    <div class="flex flex-wrap justify-center gap-2 select-none">
-      <button data-trend-tab="competitors" class="trend-tab px-3 py-2 rounded-xl text-sm font-semibold border-2 border-purple-500 bg-purple-900 text-white">👥 Competitors</button>
-      <button data-trend-tab="trending"    class="trend-tab px-3 py-2 rounded-xl text-sm font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300">🔥 Trending</button>
-      <button data-trend-tab="ideas"       class="trend-tab px-3 py-2 rounded-xl text-sm font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300">💡 Ideas</button>
-    </div>
-
-    <!-- ===== Tab: Competitors ===== -->
-    <section id="trend-tab-competitors" class="trend-section bg-gray-900 rounded-2xl p-6 space-y-4">
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-purple-300">👥 Competitor accounts</h2>
-        <button onclick="refreshTrends()" class="bg-pink-700 hover:bg-pink-600 transition rounded-lg px-4 py-2 text-sm font-semibold">🔄 Refresh trends</button>
-      </div>
-      <div class="grid grid-cols-3 gap-2">
-        <input id="comp-handle" placeholder="@handle" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
-        <input id="comp-niche"  placeholder="Niche (running, fitness…)" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
-        <button onclick="addCompetitor()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-3 py-2 text-sm font-semibold">+ Add</button>
-      </div>
-      <div id="competitors-list" class="space-y-2"></div>
-      <ul id="refresh-progress" class="text-xs text-gray-400 space-y-0.5 hidden"></ul>
-    </section>
-
-    <!-- ===== Tab: Trending ===== -->
-    <section id="trend-tab-trending" class="trend-section bg-gray-900 rounded-2xl p-6 space-y-4 hidden">
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold text-purple-300">🔥 Trending media</h2>
-        <div class="flex gap-2 text-sm">
-          <select id="trend-sort" onchange="loadMedia()" class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs">
-            <option value="engagement">Sort: engagement</option>
-            <option value="recency">Sort: recency</option>
-          </select>
-          <select id="trend-type" onchange="loadMedia()" class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs">
-            <option value="">All types</option>
-            <option value="reel">Reels</option>
-            <option value="video">Videos</option>
-            <option value="image">Images</option>
-            <option value="carousel">Carousels</option>
-          </select>
-        </div>
-      </div>
-      <div id="media-list" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
-      <p id="media-empty" class="text-sm text-gray-500 text-center hidden">No trending media yet — add competitors and hit <b>Refresh trends</b>.</p>
-    </section>
-
-    <!-- ===== Tab: Ideas ===== -->
-    <section id="trend-tab-ideas" class="trend-section bg-gray-900 rounded-2xl p-6 space-y-4 hidden">
-      <h2 class="text-lg font-semibold text-purple-300">💡 Adapted ideas</h2>
-      <div id="ideas-list" class="space-y-3"></div>
-      <p id="ideas-empty" class="text-sm text-gray-500 text-center hidden">No ideas yet — pick a trending media and click <b>Adapt to MLMG</b>.</p>
-    </section>
-
-  </div><!-- /#view-trends -->
 
   <!-- ===== CALENDAR VIEW ===== -->
   <div id="view-calendar" class="hidden space-y-4">
@@ -757,36 +697,6 @@
     </div>
   </div>
 
-  <!-- ===== Adapt Modal ===== -->
-  <div id="adapt-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4">
-    <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
-      <h3 class="text-lg font-semibold text-purple-300">✨ Adapt to MLMG</h3>
-      <p id="adapt-source" class="text-xs text-gray-500"></p>
-      <div class="grid grid-cols-2 gap-3">
-        <div>
-          <label class="block text-xs text-gray-400 mb-1">Platform</label>
-          <select id="adapt-platform" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
-            <option value="instagram">Instagram</option>
-            <option value="linkedin">LinkedIn</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-xs text-gray-400 mb-1">Length</label>
-          <select id="adapt-length" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
-            <option value="hook_zone">Hook Zone</option>
-            <option value="sweet_spot" selected>Sweet Spot</option>
-            <option value="deep_dive">Deep Dive</option>
-          </select>
-        </div>
-      </div>
-      <textarea id="adapt-instructions" rows="2" placeholder="Additional instructions (optional)" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm"></textarea>
-      <div class="flex gap-3">
-        <button onclick="closeAdaptModal()" class="flex-1 bg-gray-700 hover:bg-gray-600 transition rounded-lg py-2 text-sm">Cancel</button>
-        <button id="adapt-submit" onclick="submitAdapt()" class="flex-1 bg-purple-600 hover:bg-purple-500 transition rounded-lg py-2 text-sm font-semibold">Adapt</button>
-      </div>
-    </div>
-  </div>
-
  </div><!-- /#app-content -->
  </div><!-- /flex row -->
 </main>
@@ -800,8 +710,6 @@ const S = {
   user: null,              // {email, is_local, is_admin} from /api/auth/me
   appStarted: false,       // guard so startApp() registers intervals once
   authTab: 'login',        // 'login' | 'register'
-  view: 'create',          // 'create' | 'trends'
-  trendTab: 'competitors', // 'competitors' | 'trending' | 'ideas'
   format: 'single',
   source: 'stock',
   platform: 'instagram',
@@ -810,15 +718,12 @@ const S = {
   postId: null,
   hashtags: [],
   seoKeywords: [],
-  trendIdeaId: null,       // set when wizard is opened from an idea
-  adaptMediaId: null,      // media being adapted in modal
   editingSlide: null,      // slide number being replaced/uploaded
   editSource: 'stock',     // chosen source in the Edit modal
   slideOriginals: {},      // {slide_number: {overlay, niche}} for Reset
   currentPost: null,       // last-rendered PostPreview (for schedule/insights)
   calRef: null,            // {year, month} shown in calendar
   posts: [],               // cached list for calendar/grid
-  hashtagIntel: {},        // {tag: {badge, trend, ...}} after Analyze
   gridMode: 'mobile',      // grid preview width
   usage: null,             // last /api/usage snapshot
   undoStack: [],           // last N caption/hashtag/seo snapshots for current post
@@ -1067,11 +972,10 @@ async function apiFetch(url, opts = {}) {
 }
 
 // ===== HTML ESCAPING =====
-// Trend data (captions, hooks, handles, permalinks) comes from competitor
-// Instagram accounts — hostile input. Anything interpolated into innerHTML must
-// go through esc(); any href/src from that data through safeUrl(). Without this a
-// competitor caption like <img src=x onerror=...> is stored XSS, and with the API
-// token in localStorage that means token theft.
+// Any server-provided string interpolated into innerHTML must go through esc();
+// any href/src built from that data through safeUrl(). Without this, text like
+// <img src=x onerror=...> becomes stored XSS, and with the API token in
+// localStorage that means token theft.
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
@@ -1183,7 +1087,6 @@ async function generatePost() {
     template_style: S.templateStyle,
     niche_box_color: S.nicheBoxColor,
     show_logo: document.getElementById('show-logo').checked,
-    trend_idea_id: S.trendIdeaId,
   };
 
   try {
@@ -1299,15 +1202,14 @@ function renderPreview(post) {
     container.appendChild(wrapper);
   });
 
-  // References panel (trend source + image attribution)
+  // References panel (image attribution + text sources)
   renderReferences(post);
 
   // Caption
   document.getElementById('caption-edit').value = post.caption;
 
-  // Hashtags (clear any stale analysis from a previous post)
+  // Hashtags
   S.hashtags = [...post.hashtags];
-  S.hashtagIntel = {};
   renderHashtags();
 
   // SEO keywords
@@ -1524,23 +1426,10 @@ function buildEmojiPicker() {
 
 function renderReferences(post) {
   const panel = document.getElementById('references-panel');
-  const trendBlock = document.getElementById('ref-trend');
   const sourcesBlock = document.getElementById('ref-sources');
   const sourcesList = document.getElementById('ref-sources-list');
 
   let any = false;
-
-  // Trend source
-  if (post.trend_idea_id && post.trend_source_handle) {
-    const linkHtml = post.trend_source_permalink
-      ? `<a href="${esc(safeUrl(post.trend_source_permalink))}" target="_blank" class="underline hover:text-pink-200">@${esc(post.trend_source_handle)}</a>`
-      : `@${esc(post.trend_source_handle)}`;
-    trendBlock.innerHTML = `🔥 Inspired by: ${linkHtml}`;
-    trendBlock.classList.remove('hidden');
-    any = true;
-  } else {
-    trendBlock.classList.add('hidden'); trendBlock.innerHTML = '';
-  }
 
   // Text sources from web-grounded LLM (:online)
   const textBlock = document.getElementById('ref-text-sources');
@@ -1601,28 +1490,14 @@ function renderSeoKeywords() {
   });
 }
 
-const HTAG_BADGE = {
-  hot:       { icon: '🔥', cls: 'bg-orange-900 border-orange-700 text-orange-200' },
-  good:      { icon: '✅', cls: 'bg-green-900 border-green-700 text-green-200' },
-  niche:     { icon: '🆕', cls: 'bg-blue-900 border-blue-700 text-blue-200' },
-  saturated: { icon: '⚠️', cls: 'bg-red-950 border-red-800 text-red-300' },
-};
-const HTAG_TREND = { up: '↑', down: '↓', flat: '→' };
-
 function renderHashtags() {
   const c = document.getElementById('hashtag-container');
   c.innerHTML = '';
-  const intel = S.hashtagIntel || {};
   S.hashtags.forEach((tag, i) => {
-    const info = intel[tag.toLowerCase()];
-    const badge = info ? (HTAG_BADGE[info.badge] || null) : null;
     const chip = document.createElement('span');
     chip.className = 'inline-flex items-center gap-1 border text-xs px-2 py-1 rounded-full ' +
-      (badge ? badge.cls : 'bg-purple-900 border-purple-700 text-purple-200');
-    const badgeHtml = info
-      ? ` <span title="engagement ${info.avg_engagement}, seen ${info.frequency}x">${badge ? badge.icon : ''}${HTAG_TREND[info.trend] || ''}</span>`
-      : '';
-    chip.innerHTML = `${tag}${badgeHtml} <button onclick="removeHashtag(${i})" class="hover:text-white ml-1 text-xs opacity-70">×</button>`;
+      'bg-purple-900 border-purple-700 text-purple-200';
+    chip.innerHTML = `${tag} <button onclick="removeHashtag(${i})" class="hover:text-white ml-1 text-xs opacity-70">×</button>`;
     c.appendChild(chip);
   });
 }
@@ -2072,24 +1947,6 @@ async function publishReel() {
   } catch(e) { toast('❌ ' + e.message, 'error'); }
 }
 
-// ===== HASHTAG INTELLIGENCE =====
-async function analyzeHashtags() {
-  if (!S.hashtags || !S.hashtags.length) { toast('No hashtags to analyze', 'warn'); return; }
-  toast('📊 Analyzing hashtags…', 'info');
-  try {
-    const res = await apiFetch(`${API}/api/trends/hashtags/rank`, {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ tags: S.hashtags.slice(0, 30) }),
-    });
-    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Failed'); }
-    const data = await res.json();
-    S.hashtagIntel = {};
-    (data.hashtags || []).forEach(h => { S.hashtagIntel[h.tag.toLowerCase()] = h; });
-    renderHashtags();   // re-render chips with badges
-    toast('✅ Hashtags analyzed', 'success');
-  } catch(e) { toast('❌ ' + e.message, 'error'); }
-}
-
 // ===== TOAST =====
 let toastTimer;
 function toast(msg, type = 'info') {
@@ -2153,35 +2010,31 @@ function setNetwork(net) {
   document.getElementById('net-x').classList.toggle('net-active', net === 'x');
   document.getElementById('net-x').classList.toggle('text-gray-400', net !== 'x');
   const isIG = net === 'instagram';
-  const trendsBtn = document.getElementById('sec-trends-btn');
-  if (trendsBtn) trendsBtn.classList.toggle('hidden', !isIG);   // Trends is IG-only
   const lbl = document.getElementById('net-keys-label'); if (lbl) lbl.textContent = isIG ? 'Instagram' : 'X';
   document.querySelectorAll('.analytics-net').forEach(e => e.textContent = isIG ? 'Instagram' : 'X');
   // sync the (now hidden) wizard platform toggle so generation uses this network
   document.querySelectorAll('.plt-btn').forEach(b => b.classList.toggle('active', b.dataset.val === net));
-  setSection((S.section === 'trends' && !isIG) ? 'create' : (S.section || 'create'));
+  setSection(S.section || 'create');
 }
 
 // ===== SIDEBAR SECTIONS =====
 function setSection(sec) {
-  if (sec === 'trends' && S.network !== 'instagram') sec = 'create';
   S.section = sec;
   const map = { create:'view-create', calendar:'view-calendar', feed:'view-grid',
-                trends:'view-trends', analytics:'view-analytics', keys:'view-admin', account:'view-admin' };
-  for (const v of ['view-create','view-trends','view-calendar','view-grid','view-admin','view-analytics']) {
+                analytics:'view-analytics', keys:'view-admin', account:'view-admin' };
+  for (const v of ['view-create','view-calendar','view-grid','view-admin','view-analytics']) {
     const el = document.getElementById(v); if (el) el.classList.toggle('hidden', map[sec] !== v);
   }
   document.querySelectorAll('#section-nav .sec-btn').forEach(b => b.classList.toggle('sec-active', b.dataset.section === sec));
   if (sec === 'calendar') renderCalendar();
   else if (sec === 'feed') loadGrid();
-  else if (sec === 'trends') setTrendTab(S.trendTab);
   else if (sec === 'analytics') loadAnalytics();
   else if (sec === 'keys' || sec === 'account') loadAdmin();
 }
 
 // Back-compat alias for any old callers (grid click etc.).
 function setView(view) {
-  setSection({ create:'create', trends:'trends', calendar:'calendar', grid:'feed', admin:'account' }[view] || 'create');
+  setSection({ create:'create', calendar:'calendar', grid:'feed', admin:'account' }[view] || 'create');
 }
 
 async function loadAnalytics() {
@@ -2414,290 +2267,6 @@ async function restoreBackup(ev) {
   } catch(e) { toast('❌ ' + e.message, 'error'); }
   finally { ev.target.value = ''; }
 }
-
-function setTrendTab(tab) {
-  S.trendTab = tab;
-  document.querySelectorAll('.trend-tab').forEach(b => {
-    const active = b.dataset.trendTab === tab;
-    b.classList.toggle('border-purple-500', active);
-    b.classList.toggle('bg-purple-900', active);
-    b.classList.toggle('text-white', active);
-    b.classList.toggle('border-gray-700', !active);
-    b.classList.toggle('bg-gray-800', !active);
-    b.classList.toggle('text-gray-300', !active);
-  });
-  document.querySelectorAll('.trend-section').forEach(s => s.classList.add('hidden'));
-  document.getElementById('trend-tab-' + tab).classList.remove('hidden');
-  if (tab === 'competitors') loadCompetitors();
-  if (tab === 'trending') loadMedia();
-  if (tab === 'ideas') loadIdeas();
-}
-
-// ===== TRENDS: Competitors =====
-async function loadCompetitors() {
-  try {
-    const res = await apiFetch(`${API}/api/trends/competitors`);
-    if (!res.ok) throw new Error('Failed to load competitors');
-    const list = await res.json();
-    const wrap = document.getElementById('competitors-list');
-    wrap.innerHTML = '';
-    if (!list.length) {
-      wrap.innerHTML = '<p class="text-sm text-gray-500">No competitors yet. Add some handles above.</p>';
-      return;
-    }
-    list.forEach(c => {
-      const row = document.createElement('div');
-      row.className = 'flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2';
-      row.innerHTML = `
-        <div>
-          <div class="font-semibold">@${c.handle}</div>
-          <div class="text-xs text-gray-500">${c.niche || '—'}</div>
-        </div>
-        <div class="flex items-center gap-2 text-xs">
-          <label class="flex items-center gap-1"><input type="checkbox" ${c.active ? 'checked' : ''} onchange="toggleCompetitor('${c.id}', this.checked)" class="accent-purple-500" /> active</label>
-          <button onclick="deleteCompetitor('${c.id}')" class="text-red-400 hover:text-red-300">🗑</button>
-        </div>`;
-      wrap.appendChild(row);
-    });
-  } catch (e) { toast('❌ ' + e.message, 'error'); }
-}
-
-async function addCompetitor() {
-  const handle = document.getElementById('comp-handle').value.trim();
-  const niche  = document.getElementById('comp-niche').value.trim();
-  if (!handle) return;
-  try {
-    const res = await apiFetch(`${API}/api/trends/competitors`, {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ handle, niche: niche || null, active: true }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Failed to add');
-    }
-    document.getElementById('comp-handle').value = '';
-    document.getElementById('comp-niche').value = '';
-    loadCompetitors();
-    toast('✅ Added @' + handle, 'success');
-  } catch (e) { toast('❌ ' + e.message, 'error'); }
-}
-
-async function toggleCompetitor(id, active) {
-  try {
-    await apiFetch(`${API}/api/trends/competitors/${id}`, {
-      method: 'PUT', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ active }),
-    });
-  } catch (e) { toast('❌ ' + e.message, 'error'); }
-}
-
-async function deleteCompetitor(id) {
-  if (!confirm('Remove this competitor?')) return;
-  try {
-    await apiFetch(`${API}/api/trends/competitors/${id}`, { method: 'DELETE' });
-    loadCompetitors();
-  } catch (e) { toast('❌ ' + e.message, 'error'); }
-}
-
-async function refreshTrends() {
-  const progress = document.getElementById('refresh-progress');
-  progress.classList.remove('hidden');
-  progress.innerHTML = '<li>⏳ Starting…</li>';
-  try {
-    const res = await apiFetch(`${API}/api/trends/refresh`, {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ source: 'business_discovery', limit_per_account: 10 }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Refresh failed');
-    }
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const lines = buf.split('\n');
-      buf = lines.pop();
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        let ev;
-        try { ev = JSON.parse(line.slice(6)); }
-        catch { continue; }          // one bad frame must not abort the refresh
-        const li = document.createElement('li');
-        if (ev.type === 'progress') li.innerHTML = `▸ ${esc(ev.message)}`;
-        if (ev.type === 'error') { li.innerHTML = `<span class="text-red-400">✗ ${esc(ev.handle || '')} ${esc(ev.message)}</span>`; }
-        if (ev.type === 'complete') { li.innerHTML = `<span class="text-green-400">✓ Done. Total fetched: ${esc(ev.fetched)}</span>`; }
-        progress.appendChild(li);
-      }
-    }
-    toast('✅ Trends refreshed', 'success');
-  } catch (e) {
-    const li = document.createElement('li');
-    li.innerHTML = `<span class="text-red-400">❌ ${e.message}</span>`;
-    progress.appendChild(li);
-  }
-}
-
-// ===== TRENDS: Trending media =====
-async function loadMedia() {
-  const sort = document.getElementById('trend-sort').value;
-  const type = document.getElementById('trend-type').value;
-  const params = new URLSearchParams({ sort, limit: 50 });
-  if (type) params.set('media_type', type);
-  try {
-    const res = await apiFetch(`${API}/api/trends/media?` + params);
-    if (!res.ok) throw new Error('Failed to load media');
-    const list = await res.json();
-    const wrap = document.getElementById('media-list');
-    document.getElementById('media-empty').classList.toggle('hidden', list.length > 0);
-    wrap.innerHTML = '';
-    list.forEach(m => {
-      const card = document.createElement('div');
-      card.className = 'bg-gray-800 rounded-xl p-3 border border-gray-700 hover:border-purple-500 transition';
-      card.innerHTML = `
-        <div class="flex items-start gap-3">
-          ${m.thumbnail_url ? `<img src="${esc(safeUrl(m.thumbnail_url))}" class="w-20 h-20 object-cover rounded-lg flex-shrink-0" referrerpolicy="no-referrer" />` : '<div class="w-20 h-20 bg-gray-700 rounded-lg"></div>'}
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center justify-between gap-2 text-xs text-gray-400">
-              <span class="truncate">@${esc(m.source_handle)}</span>
-              <span class="uppercase">${esc(m.media_type)}</span>
-            </div>
-            <p class="text-sm font-semibold mt-1 line-clamp-2">${esc(m.extracted_hook || '(no hook)')}</p>
-            <div class="text-xs text-gray-500 mt-1">❤️ ${esc(m.likes)} · 💬 ${esc(m.comments)}${m.views ? ' · ▶️ ' + esc(m.views) : ''} · score ${Math.round(m.engagement_score)}</div>
-            <div class="flex gap-2 mt-2">
-              ${m.permalink ? `<a href="${esc(safeUrl(m.permalink))}" target="_blank" class="text-xs text-blue-400 hover:underline">View</a>` : ''}
-              <button data-adapt data-media-id="${esc(m.id)}" data-handle="@${esc(m.source_handle)}" class="ml-auto bg-purple-600 hover:bg-purple-500 transition rounded-lg px-3 py-1 text-xs font-semibold">✨ Adapt</button>
-            </div>
-          </div>
-        </div>`;
-      wrap.appendChild(card);
-    });
-  } catch (e) { toast('❌ ' + e.message, 'error'); }
-}
-
-function openAdaptModal(mediaId, label) {
-  S.adaptMediaId = mediaId;
-  document.getElementById('adapt-source').textContent = 'Source: ' + label;
-  document.getElementById('adapt-instructions').value = '';
-  document.getElementById('adapt-modal').classList.remove('hidden');
-}
-function closeAdaptModal() {
-  document.getElementById('adapt-modal').classList.add('hidden');
-  S.adaptMediaId = null;
-}
-
-async function submitAdapt() {
-  if (!S.adaptMediaId) return;
-  const btn = document.getElementById('adapt-submit');
-  btn.disabled = true; btn.textContent = '⏳ Adapting…';
-  try {
-    const body = {
-      platform: document.getElementById('adapt-platform').value,
-      length_tier: document.getElementById('adapt-length').value,
-      additional_instructions: document.getElementById('adapt-instructions').value || null,
-    };
-    const res = await apiFetch(`${API}/api/trends/media/${S.adaptMediaId}/adapt`, {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || 'Adapt failed');
-    }
-    closeAdaptModal();
-    setTrendTab('ideas');
-    toast('✅ Idea created', 'success');
-  } catch (e) {
-    toast('❌ ' + e.message, 'error');
-  } finally {
-    btn.disabled = false; btn.textContent = 'Adapt';
-  }
-}
-
-// ===== TRENDS: Ideas =====
-async function loadIdeas() {
-  try {
-    const res = await apiFetch(`${API}/api/trends/ideas`);
-    if (!res.ok) throw new Error('Failed to load ideas');
-    const list = await res.json();
-    const wrap = document.getElementById('ideas-list');
-    document.getElementById('ideas-empty').classList.toggle('hidden', list.length > 0);
-    wrap.innerHTML = '';
-    list.forEach(idea => {
-      const card = document.createElement('div');
-      card.className = 'bg-gray-800 rounded-xl p-4 border border-gray-700 space-y-2';
-      const sourceLink = idea.source_permalink
-        ? `<a href="${esc(safeUrl(idea.source_permalink))}" target="_blank" class="hover:underline">@${esc(idea.source_handle)}</a>`
-        : '@' + esc(idea.source_handle || '');
-      card.innerHTML = `
-        <div class="flex items-start justify-between gap-2">
-          <div class="flex-1">
-            <p class="text-sm font-semibold">${esc(idea.hook)}</p>
-            <p class="text-xs text-gray-500 mt-1">From ${sourceLink} · ${esc(idea.platform)} · ${esc(idea.length_tier)}</p>
-          </div>
-          <div class="flex gap-2">
-            <button onclick="useIdea('${esc(idea.id)}')" class="bg-purple-600 hover:bg-purple-500 rounded-lg px-3 py-1.5 text-xs font-semibold">📝 Use</button>
-            <button onclick="deleteIdea('${esc(idea.id)}')" class="text-red-400 hover:text-red-300 text-sm">🗑</button>
-          </div>
-        </div>
-        <details class="text-xs text-gray-300">
-          <summary class="cursor-pointer text-gray-400">Show script + shots + caption</summary>
-          <div class="mt-2 space-y-2">
-            ${idea.short_script ? `<div><b class="text-purple-300">Script:</b><pre class="whitespace-pre-wrap font-sans text-gray-300">${esc(idea.short_script)}</pre></div>` : ''}
-            ${idea.shot_list && idea.shot_list.length ? `<div><b class="text-purple-300">Shots:</b><ul class="list-disc list-inside text-gray-300">${idea.shot_list.map(s => `<li>${esc(s)}</li>`).join('')}</ul></div>` : ''}
-            ${idea.caption ? `<div><b class="text-purple-300">Caption:</b><p class="text-gray-300 whitespace-pre-wrap">${esc(idea.caption)}</p></div>` : ''}
-            ${idea.hashtags && idea.hashtags.length ? `<div><b class="text-purple-300">Hashtags:</b> <span class="text-gray-400">${esc(idea.hashtags.join(' '))}</span></div>` : ''}
-          </div>
-        </details>`;
-      wrap.appendChild(card);
-    });
-  } catch (e) { toast('❌ ' + e.message, 'error'); }
-}
-
-async function useIdea(ideaId) {
-  // Fetch full idea, prefill wizard, jump to Step 2 (settings).
-  try {
-    const res = await apiFetch(`${API}/api/trends/ideas/${ideaId}`);
-    if (!res.ok) throw new Error('Failed to load idea');
-    const idea = await res.json();
-    setView('create');
-    document.getElementById('topic').value = idea.hook;
-    if (idea.source_handle) document.getElementById('niche').value = idea.source_handle;
-    const extra = [];
-    if (idea.short_script) extra.push('Script outline:\n' + idea.short_script);
-    if (idea.shot_list && idea.shot_list.length) extra.push('Shots:\n- ' + idea.shot_list.join('\n- '));
-    document.getElementById('instructions').value = extra.join('\n\n');
-    S.platform = idea.platform || 'instagram';
-    document.getElementById('length-tier').value = idea.length_tier || 'sweet_spot';
-    S.trendIdeaId = idea.id;
-    goStep(2);
-    toast('✅ Idea loaded — review settings then Generate', 'success');
-  } catch (e) { toast('❌ ' + e.message, 'error'); }
-}
-
-async function deleteIdea(id) {
-  if (!confirm('Delete this idea?')) return;
-  try {
-    await apiFetch(`${API}/api/trends/ideas/${id}`, { method: 'DELETE' });
-    loadIdeas();
-  } catch (e) { toast('❌ ' + e.message, 'error'); }
-}
-
-// Wire trend-tab buttons
-document.addEventListener('click', e => {
-  const btn = e.target.closest('[data-trend-tab]');
-  if (btn) setTrendTab(btn.dataset.trendTab);
-});
-
-// Adapt buttons (rendered from hostile trend data — values live in data-* attrs,
-// not an inline onclick, so a crafted handle can't break into a JS string).
-document.addEventListener('click', e => {
-  const btn = e.target.closest('[data-adapt]');
-  if (btn) openAdaptModal(btn.dataset.mediaId, btn.dataset.handle);
-});
 
 // ===== INIT =====
 applyTheme();

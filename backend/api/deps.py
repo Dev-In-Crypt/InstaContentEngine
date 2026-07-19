@@ -27,10 +27,6 @@ from services.brand_engine import PillowBrandEngine, BrandConfig
 from services.exporter import TemplateExporter
 from services.stock import UnsplashClient, PexelsClient, StockClient
 from services.content_engine import ContentEngine
-from services.trend_provider import (
-    InstagramBusinessDiscoveryProvider, ScraperTrendProvider, TrendProvider,
-)
-from services.trend_adapter import TrendAdapter
 
 
 # ---- leaf service singletons (created once per process) ----
@@ -219,43 +215,3 @@ def get_content_engine(
     image_router = ImageRouter(openrouter=openrouter, stock_client=stock)
     exporter = TemplateExporter()
     return ContentEngine(caption_gen, image_router, brand_engine, exporter)
-
-
-# ---- Trend Finder DI ----
-
-@lru_cache
-def _get_business_discovery_provider(token: str, ig_user_id: str) -> InstagramBusinessDiscoveryProvider:
-    return InstagramBusinessDiscoveryProvider(access_token=token, ig_user_id=ig_user_id)
-
-
-@lru_cache
-def _get_scraper_provider() -> ScraperTrendProvider:
-    return ScraperTrendProvider()
-
-
-def get_trend_provider(
-    settings: Annotated[Settings, Depends(get_settings)],
-) -> TrendProvider:
-    source = (settings.trend_provider or "business_discovery").lower()
-    if source == "scraper":
-        return _get_scraper_provider()
-    # Default → business_discovery
-    return _get_business_discovery_provider(
-        settings.instagram_access_token, settings.instagram_user_id
-    )
-
-
-def make_trend_provider_for(source: str, settings: Settings) -> TrendProvider:
-    """Provider builder used by the router when the caller specifies a source per-request."""
-    s = (source or "").lower() or settings.trend_provider or "business_discovery"
-    if s == "scraper":
-        return _get_scraper_provider()
-    return _get_business_discovery_provider(
-        settings.instagram_access_token, settings.instagram_user_id
-    )
-
-
-def get_trend_adapter(
-    openrouter: Annotated[OpenRouterClient, Depends(get_openrouter)],
-) -> TrendAdapter:
-    return TrendAdapter(openrouter)

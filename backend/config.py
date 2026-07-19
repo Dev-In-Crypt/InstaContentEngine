@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     # This flag only decides whether the clients that accept an ssl_verify argument
     # (OpenRouter, Unsplash, Pexels) verify at all. Setting it False exposes those
     # API keys to man-in-the-middle interception, and does NOT affect Instagram,
-    # imgbb, trend discovery, hashtag intel or the Telegram bot, which always verify.
+    # imgbb or the Telegram bot, which always verify.
     # It is a last resort, not the fix for TLS-inspecting security software.
     ssl_verify: bool = True
 
@@ -83,9 +83,6 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     frontend_url: str = "http://localhost:3000"
-
-    # Trend Finder
-    trend_provider: str = "business_discovery"   # business_discovery | scraper
 
     # Image hosting (public URLs for Instagram publishing)
     imgbb_api_key: str = ""

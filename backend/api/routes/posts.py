@@ -22,7 +22,7 @@ from api.deps import (
 from services.brand_engine import PillowBrandEngine
 from config import Settings
 from models.database import (
-    Post as PostModel, Slide as SlideModel, TrendIdea as TrendIdeaModel,
+    Post as PostModel, Slide as SlideModel,
     PostInsight as PostInsightModel, User as UserModel,
 )
 from models.schemas import (
@@ -44,10 +44,9 @@ UPLOADS_DIR = Path(__file__).parent.parent.parent / "uploads" / "posts"
 
 
 def _preview_opts():
-    """Eager-load options for the full PostPreview shape (slides + trend source)."""
+    """Eager-load options for the full PostPreview shape (slides)."""
     return (
         selectinload(PostModel.slides),
-        selectinload(PostModel.trend_idea).selectinload(TrendIdeaModel.source_media),
     )
 
 
@@ -88,8 +87,6 @@ def _to_preview(post: PostModel) -> PostPreview:
         _build_slide_preview(post, s)
         for s in sorted(post.slides, key=lambda s: s.slide_number)
     ]
-    trend = getattr(post, "trend_idea", None)
-    source = trend.source_media if (trend and getattr(trend, "source_media", None)) else None
     return PostPreview(
         id=post.id,
         topic=post.topic,
@@ -105,9 +102,6 @@ def _to_preview(post: PostModel) -> PostPreview:
         text_model_used=post.text_model or "",
         image_model_used=post.image_model,
         created_at=post.created_at or datetime.now(timezone.utc),
-        trend_idea_id=post.trend_idea_id,
-        trend_source_handle=(source.source_handle if source else None),
-        trend_source_permalink=(source.permalink if source else None),
         sources=post.sources or [],
         scheduled_at=post.scheduled_at,
         published_at=post.published_at,
@@ -118,7 +112,7 @@ def _to_preview(post: PostModel) -> PostPreview:
 
 async def _persist(
     generated: GeneratedPost, db: AsyncSession, template_style: str = "branded_card",
-    trend_idea_id: Optional[str] = None, user_id: Optional[str] = None,
+    user_id: Optional[str] = None,
 ) -> PostModel:
     post_dir = UPLOADS_DIR / generated.id
     post_dir.mkdir(parents=True, exist_ok=True)
@@ -138,7 +132,6 @@ async def _persist(
         alt_text=generated.alt_text,
         platform=generated.platform.value,
         template_style=template_style,
-        trend_idea_id=trend_idea_id,
         text_model=generated.text_model_used,
         image_model=generated.image_model_used,
         pillar=classify_pillar(generated.topic, generated.caption),
@@ -175,7 +168,6 @@ async def _persist(
         .where(PostModel.id == generated.id)
         .options(
             selectinload(PostModel.slides),
-            selectinload(PostModel.trend_idea).selectinload(TrendIdeaModel.source_media),
         )
     )
     return result.scalar_one()
@@ -243,7 +235,7 @@ async def generate_post(
                 await progress("Saving to database...")
                 db_post = await _persist(
                     generated, db, request.template_style.value,
-                    trend_idea_id=request.trend_idea_id, user_id=user.id,
+                    user_id=user.id,
                 )
                 preview = _to_preview(db_post)
                 # Persist any buffered LLM usage from this generation.

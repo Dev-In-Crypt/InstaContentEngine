@@ -1,7 +1,7 @@
 """Publisher abstraction — one implementation per social platform.
 
-Mirrors the provider pattern used elsewhere (services/trend_provider.py,
-services/video/base.py): a Protocol + concrete impls + a factory.
+Mirrors the provider pattern used elsewhere (services/video/base.py):
+a Protocol + concrete impls + a factory.
 
 The contract is byte-based on purpose. Platforms differ in how they take media —
 Instagram needs a public URL (so its adapter uploads to imgbb first), X uploads

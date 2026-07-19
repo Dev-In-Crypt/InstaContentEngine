@@ -1,7 +1,4 @@
-"""Build the right Publisher for a post's platform (and gate its credentials).
-
-Mirrors make_trend_provider_for in api/deps.py.
-"""
+"""Build the right Publisher for a post's platform (and gate its credentials)."""
 from __future__ import annotations
 
 from services.publishing.base import Publisher, PublisherError

@@ -218,16 +218,6 @@ def test_publish_reel_needs_public_url(client, seeded):
     assert "public" in body["error"].lower()
 
 
-# ── hashtag intelligence ────────────────────────────────────────────────────
-
-def test_hashtag_rank(client, seeded):
-    res = client.post("/api/trends/hashtags/rank", json={"tags": ["#running", "#newtag"]})
-    assert res.status_code == 200, res.text
-    tags = res.json()["hashtags"]
-    assert len(tags) == 2
-    assert all("badge" in t for t in tags)
-
-
 # ── usage + backup ──────────────────────────────────────────────────────────
 
 def test_usage_aggregate(client, seeded):

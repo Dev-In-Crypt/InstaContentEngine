@@ -19,7 +19,7 @@ from models.schemas import NICHE_BOX_PALETTE
 from services.http_utils import setup_logging, setup_tls
 from api.deps import LOCAL_USER_EMAIL
 from api.ratelimit import limiter
-from api.routes import posts, models, stock, trends, admin, auth, settings as settings_routes
+from api.routes import posts, models, stock, admin, auth, settings as settings_routes
 
 STATIC_DIR = Path(__file__).parent / "static"
 UPLOADS_DIR = Path(__file__).parent / "uploads"
@@ -35,7 +35,6 @@ _MIGRATIONS: dict[str, dict[str, str]] = {
         "seo_keywords": "JSON",
         "platform": "VARCHAR(20) DEFAULT 'instagram'",
         "template_style": "VARCHAR(20) DEFAULT 'branded_card'",
-        "trend_idea_id": "VARCHAR(36)",
         "sources": "JSON",
         "published_image_urls": "JSON",
         "schedule_error": "TEXT",
@@ -256,7 +255,6 @@ app.include_router(settings_routes.router)
 app.include_router(posts.router)
 app.include_router(models.router)
 app.include_router(stock.router)
-app.include_router(trends.router)
 app.include_router(admin.router)
 
 # Serve built frontend assets (images, fonts, etc.) at /static/*
