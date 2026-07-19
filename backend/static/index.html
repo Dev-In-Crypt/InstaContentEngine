@@ -636,6 +636,20 @@
       <button id="save-keys-btn" onclick="saveCredentials()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">💾 Save keys</button>
     </section>
 
+    <!-- Brand voice (cloud accounts only) -->
+    <section id="brand-voice-section" class="hidden bg-gray-900 rounded-2xl p-6 space-y-4">
+      <h2 class="text-lg font-semibold text-purple-300">🗣 Brand voice</h2>
+      <p class="text-xs text-gray-500">The style your posts are written in. It steers tone and personality — hashtags, SEO and the post structure stay the same. Applies to every new post (you can override it per post in the composer).</p>
+      <div id="brand-voice-list" class="grid gap-2 sm:grid-cols-2"></div>
+      <div id="brand-voice-custom-wrap" class="hidden">
+        <label class="block text-xs text-gray-400 mb-1">Custom brand voice</label>
+        <textarea id="brand-voice-custom" rows="4" maxlength="800" aria-label="Custom brand voice"
+          placeholder="Describe how your brand sounds: tone, personality, who you talk to…"
+          class="ce-input w-full px-3 py-2 text-sm"></textarea>
+      </div>
+      <button id="save-voice-btn" onclick="saveBrandVoice()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">💾 Save voice</button>
+    </section>
+
     <section id="usage-section" class="bg-gray-900 rounded-2xl p-6 space-y-4">
       <h2 class="text-lg font-semibold text-purple-300">📊 Usage</h2>
       <div id="admin-usage" class="text-sm text-gray-300 bg-gray-800 rounded-lg p-3">Loading usage…</div>
@@ -731,6 +745,7 @@ const S = {
   currentPost: null,       // last-rendered PostPreview (for schedule/insights)
   calRef: null,            // {year, month} shown in calendar
   posts: [],               // cached list for calendar/grid
+  brandVoice: { preset: 'balanced', custom: '', presets: [] },
   gridMode: 'mobile',      // grid preview width
   usage: null,             // last /api/usage snapshot
   undoStack: [],           // last N caption/hashtag/seo snapshots for current post
@@ -2264,6 +2279,11 @@ async function loadAdmin() {
   const keysSec = document.getElementById('keys-section');
   if (S.user && !S.user.is_local) { keysSec.classList.remove('hidden'); await loadCredentials(account ? 'account' : S.network); }
   else keysSec.classList.add('hidden');
+  // Brand voice lives on the Account page for cloud users.
+  const voiceSec = document.getElementById('brand-voice-section');
+  const showVoice = account && S.user && !S.user.is_local;
+  voiceSec.classList.toggle('hidden', !showVoice);
+  if (showVoice) await loadBrandVoice();
 }
 
 // ===== PER-USER API KEYS ===== (scope: 'account' | 'instagram' | 'x')
@@ -2323,6 +2343,59 @@ async function saveCredentials() {
     toast('✅ Keys saved', 'success');
     await ensureCreds(true);   // refresh the guard cache so just-added keys count
     await loadCredentials();   // refresh masks, clear inputs
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = prev; } }
+}
+
+// ===== BRAND VOICE =====
+async function loadBrandVoice() {
+  let data = { preset: 'balanced', custom: '', presets: [] };
+  try {
+    const res = await apiFetch(`${API}/api/settings/brand-voice`);
+    if (res.ok) data = await res.json();
+  } catch { /* 401 handled by apiFetch */ }
+  S.brandVoice = { preset: data.preset, custom: data.custom || '', presets: data.presets || [] };
+  document.getElementById('brand-voice-custom').value = S.brandVoice.custom;
+  renderBrandVoice();
+}
+
+function renderBrandVoice() {
+  const wrap = document.getElementById('brand-voice-list');
+  const sel = S.brandVoice.preset;
+  wrap.innerHTML = S.brandVoice.presets.map(p => {
+    const active = p.key === sel;
+    return `<button type="button" onclick="pickVoice('${esc(p.key)}')"
+      class="text-left rounded-xl border p-3 transition ${active
+        ? 'border-purple-500 bg-purple-900/40'
+        : 'border-gray-700 bg-gray-800 hover:border-gray-600'}">
+      <div class="text-sm font-semibold">${active ? '✓ ' : ''}${esc(p.label)}</div>
+      <div class="text-xs text-gray-400 mt-0.5">${esc(p.description)}</div>
+    </button>`;
+  }).join('');
+  document.getElementById('brand-voice-custom-wrap').classList.toggle('hidden', sel !== 'custom');
+}
+
+function pickVoice(key) {
+  S.brandVoice.preset = key;
+  renderBrandVoice();
+  if (key === 'custom') document.getElementById('brand-voice-custom').focus();
+}
+
+async function saveBrandVoice() {
+  const preset = S.brandVoice.preset;
+  const custom = document.getElementById('brand-voice-custom').value;
+  if (preset === 'custom' && !custom.trim()) { toast('Write your custom voice first', 'warn'); return; }
+  const btn = document.getElementById('save-voice-btn');
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
+  try {
+    const res = await apiFetch(`${API}/api/settings/brand-voice`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preset, custom }),
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Save failed'); }
+    S.brandVoice.custom = custom;
+    toast('✅ Brand voice saved', 'success');
   } catch (e) { toast('❌ ' + e.message, 'error'); }
   finally { if (btn) { btn.disabled = false; btn.textContent = prev; } }
 }

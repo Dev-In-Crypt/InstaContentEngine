@@ -22,6 +22,8 @@ from api.deps import (
 )
 from api.ratelimit import limiter
 from services.brand_engine import PillowBrandEngine
+from services.brand_voice import resolve_brand_voice
+from services.user_settings import resolve_user_brand_voice
 from config import Settings
 from models.database import (
     Post as PostModel, Slide as SlideModel,
@@ -218,6 +220,13 @@ async def generate_post(
             try:
                 brand_cfg = await load_brand_config(db, body.brand_config_id)
                 engine.brand_engine = PillowBrandEngine(brand_cfg)
+                # Brand voice: the user's saved preset, optionally overridden for this
+                # one post by body.brand_voice_preset (custom uses their saved text).
+                if body.brand_voice_preset:
+                    _custom = user.brand_voice_custom if body.brand_voice_preset == "custom" else None
+                    brand_voice = resolve_brand_voice(body.brand_voice_preset, _custom)
+                else:
+                    brand_voice = resolve_user_brand_voice(user)
                 generated = await engine.generate_post(
                     topic=body.topic,
                     format=body.format,
@@ -235,6 +244,7 @@ async def generate_post(
                     template_style=body.template_style,
                     niche_box_color=body.niche_box_color,
                     show_logo=body.show_logo,
+                    brand_voice=brand_voice,
                     progress=progress,
                 )
                 await progress("Saving to database...")
@@ -846,6 +856,7 @@ async def regenerate_field(
             tone="professional",
             text_model=post.text_model or settings.default_text_model,
             count=body.count,
+            brand_voice=resolve_user_brand_voice(user),
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Regeneration failed: {e}") from e

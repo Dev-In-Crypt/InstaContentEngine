@@ -340,6 +340,8 @@ def test_generate_falls_back_to_configured_default_models(client, generated_ids)
     kwargs = client.fake_engine.generate_post.await_args.kwargs
     assert kwargs["text_model"] == TEXT_MODEL
     assert kwargs["image_model"] == IMAGE_MODEL
+    # the route resolves the acting user's brand voice and forwards it (default preset here)
+    assert "brand_voice" in kwargs and kwargs["brand_voice"]
 
 
 def test_generate_request_models_override_defaults(client, generated_ids):

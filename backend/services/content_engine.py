@@ -92,6 +92,7 @@ class ContentEngine:
         template_style: TemplateStyle = TemplateStyle.BRANDED_CARD,
         niche_box_color: Optional[str] = None,
         show_logo: bool = True,
+        brand_voice: Optional[str] = None,
         progress: Optional[ProgressFn] = None,
     ) -> GeneratedPost:
         num = _num_slides(format)
@@ -108,6 +109,7 @@ class ContentEngine:
             niche=niche,
             target_audience=target_audience,
             additional_instructions=additional_instructions,
+            brand_voice=brand_voice,
             platform=platform,
             length_tier=length_tier,
         )

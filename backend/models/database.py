@@ -25,6 +25,11 @@ class User(Base):
     # Bumped on password reset / logout-all; access tokens carry the version they
     # were minted with, so a mismatch invalidates every token issued before.
     token_version = Column(Integer, default=0, nullable=False)
+    # Brand voice preference (not a secret): which voice preset to generate in, and
+    # the free-text voice when the preset is "custom". Steers style only; the output
+    # format/rules stay fixed (see services/brand_voice).
+    brand_voice_preset = Column(String(30))
+    brand_voice_custom = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     credentials = relationship("UserCredentials", back_populates="user",

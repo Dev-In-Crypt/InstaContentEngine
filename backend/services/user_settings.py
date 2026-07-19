@@ -52,3 +52,13 @@ async def settings_for_post_owner(db: AsyncSession, post) -> Settings:
     platform .env."""
     user = await db.get(UserModel, post.user_id) if post.user_id else None
     return await build_settings_for_user(db, user)
+
+
+def resolve_user_brand_voice(user: Optional[UserModel]) -> str:
+    """The brand-voice text to generate a user's content in. Reads the user's saved
+    preset/custom (defaults to the balanced preset). Lives on User, so it's read
+    directly — not part of the _CRED_FIELDS/Settings overlay."""
+    from services.brand_voice import resolve_brand_voice
+    if user is None:
+        return resolve_brand_voice(None)
+    return resolve_brand_voice(user.brand_voice_preset, user.brand_voice_custom)

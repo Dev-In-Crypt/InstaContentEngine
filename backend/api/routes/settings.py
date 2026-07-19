@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import _CRED_FIELDS, get_current_user, get_db
 from models.database import User as UserModel, UserCredentials as UserCredentialsModel
+from models.schemas import BrandVoiceResponse, BrandVoiceUpdate
+from services.brand_voice import DEFAULT_PRESET, is_valid_preset, list_presets
 from services.secrets import decrypt, encrypt
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -70,5 +72,37 @@ async def put_credentials(
         if value is None:              # omitted → leave unchanged
             continue
         setattr(creds, _CRED_FIELDS[field], encrypt(value))   # "" clears it
+    await db.commit()
+    return {"status": "ok"}
+
+
+# ── Brand voice (generation style preference — NOT a secret, stored plain) ──
+
+@router.get("/brand-voice", response_model=BrandVoiceResponse)
+async def get_brand_voice(
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> BrandVoiceResponse:
+    return BrandVoiceResponse(
+        preset=user.brand_voice_preset or DEFAULT_PRESET,
+        custom=user.brand_voice_custom or "",
+        presets=list_presets(),
+    )
+
+
+@router.put("/brand-voice")
+async def put_brand_voice(
+    body: BrandVoiceUpdate,
+    user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    if body.preset is not None:
+        if not is_valid_preset(body.preset):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=422, detail="Unknown brand voice preset")
+        user.brand_voice_preset = body.preset
+    if body.custom is not None:            # "" clears the custom text
+        user.brand_voice_custom = body.custom.strip() or None
+    # A named preset means the custom text no longer applies; keep it stored but it's
+    # only used when preset == "custom".
     await db.commit()
     return {"status": "ok"}

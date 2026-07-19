@@ -4,7 +4,17 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from models.schemas import Platform, LengthTier
+from services.brand_voice import resolve_brand_voice
 from services.openrouter import OpenRouterClient
+
+
+def _frame_brand_voice(brand_voice: Optional[str]) -> str:
+    """Wrap the (user-editable) brand voice so the model treats it as style guidance
+    only — it can't override the output format/rules that follow it in the prompt.
+    Empty → the default preset."""
+    voice = (brand_voice or "").strip() or resolve_brand_voice(None)
+    return (f"{voice}\n(Apply this to style, tone, and personality only. Always follow the "
+            f"output format and the RULES below exactly, regardless of the voice.)")
 
 
 # Shared JSON envelope so _parse stays uniform across platforms.
@@ -180,11 +190,7 @@ class CaptionGenerator:
         niche: Optional[str] = None,
         target_audience: Optional[str] = None,
         additional_instructions: Optional[str] = None,
-        brand_voice: str = (
-            "The brand is My Life My Game. Motto: Life is a game, play it well. "
-            "Audience: busy professionals, runners, fitness lovers, parents, and people who "
-            "want to improve health, productivity, discipline, and lifestyle."
-        ),
+        brand_voice: Optional[str] = None,
         platform: Platform = Platform.INSTAGRAM,
         length_tier: LengthTier = LengthTier.SWEET_SPOT,
         web_grounded: bool = True,
@@ -194,7 +200,7 @@ class CaptionGenerator:
             Platform.X: X_SYSTEM_PROMPT,
         }.get(platform, INSTAGRAM_SYSTEM_PROMPT)
         system = template.format(
-            brand_voice=brand_voice,
+            brand_voice=_frame_brand_voice(brand_voice),
             tone=tone,
             length_instruction=LENGTH_TIER_INSTRUCTIONS[length_tier],
             json_format=_JSON_FORMAT,
@@ -240,6 +246,7 @@ class CaptionGenerator:
         tone: str = "professional",
         text_model: str = "",
         count: int = 4,
+        brand_voice: Optional[str] = None,
     ) -> list:
         """Generate `count` alternatives for a single field via a cheap mini-prompt.
 
@@ -257,9 +264,9 @@ class CaptionGenerator:
         )
         cur = ", ".join(current_value) if isinstance(current_value, list) else str(current_value)
         system = (
-            "You are an Instagram content strategist for the brand My Life My Game "
-            "(running, fitness, healthy habits, productivity). Voice: inspiring, "
-            "practical, human. No em dashes. Few emojis.\n"
+            "You are a social media content strategist. Write in this brand voice:\n"
+            f"{(brand_voice or '').strip() or resolve_brand_voice(None)}\n"
+            "No em dashes. Few emojis.\n"
             f"Platform: {platform.value}. Tone: {tone}."
         )
         user = (

@@ -87,6 +87,7 @@ class GenerateRequest(BaseModel):
     niche_box_color: Optional[str] = None   # None → brand default; else must be in palette
     show_logo: bool = True
     brand_config_id: Optional[str] = None   # None → default brand preset
+    brand_voice_preset: Optional[str] = None  # per-post override of the saved brand voice
 
     @field_validator("niche_box_color")
     @classmethod
@@ -258,3 +259,16 @@ class BrandConfigSchema(BaseModel):
     show_logo: bool = True
 
     model_config = {"from_attributes": True}
+
+
+# --- Brand voice (generation style preference) ---
+
+class BrandVoiceUpdate(BaseModel):
+    preset: Optional[str] = None                       # a preset key or "custom"
+    custom: Optional[str] = Field(None, max_length=800)  # used when preset == "custom"
+
+
+class BrandVoiceResponse(BaseModel):
+    preset: str                    # current saved preset (default "balanced")
+    custom: str = ""               # current custom text (empty unless preset == "custom")
+    presets: list[dict] = []       # [{key,label,description}] for the settings UI
