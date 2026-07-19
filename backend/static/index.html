@@ -100,8 +100,6 @@
     <div class="ml-auto flex items-center gap-2 flex-wrap justify-end">
       <button onclick="toggleTheme()" id="theme-toggle" class="ce-card px-2.5 py-1 text-xs" title="Toggle light / dark" aria-label="Toggle light or dark theme">☾</button>
       <button id="cost-badge" onclick="showCostPopover()" class="hidden ce-card px-3 py-1 text-xs" title="LLM spend today (click for details)">💰 $0.00</button>
-      <span id="status-dot" class="w-2.5 h-2.5 rounded-full bg-green-400" title="API connected"></span>
-      <span id="status-label" class="text-xs text-gray-400">connecting…</span>
       <span id="user-chip" class="hidden text-xs text-gray-300 ce-card px-3 py-1" title="Signed in"></span>
       <button id="logout-btn" onclick="logout()" class="hidden text-xs ce-btn-ghost px-3 py-1" title="Sign out">Log out</button>
     </div>
@@ -806,8 +804,6 @@ function startApp() {
   if (S.appStarted) return;
   S.appStarted = true;
   setNetwork('instagram');   // default network tab → drives sections + platform
-  checkStatus();
-  setInterval(checkStatus, 10000);
   refreshCost();
   setInterval(refreshCost, 60000);
 }
@@ -2055,24 +2051,6 @@ function toast(msg, type = 'info') {
   el.classList.remove('hidden');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add('hidden'), 4000);
-}
-
-// ===== API STATUS =====
-function _setStatus(ok) {
-  // Only flip the colour class — keep size/position stable so the dot doesn't
-  // jump after the first poll.
-  const dot = document.getElementById('status-dot');
-  dot.classList.toggle('bg-green-400', ok);
-  dot.classList.toggle('bg-red-500', !ok);
-  document.getElementById('status-label').textContent = ok ? 'connected' : 'offline';
-}
-async function checkStatus() {
-  try {
-    const res = await fetch(`${API}/health`);
-    _setStatus(res.ok);
-  } catch {
-    _setStatus(false);
-  }
 }
 
 // ===== NICHE COLOR SWATCHES =====
