@@ -105,6 +105,25 @@ def _sqlite_file(database_url: str) -> Path:
     return p if p.is_absolute() else (_BACKEND_DIR / p).resolve()
 
 
+def _pg_command(database_url: str) -> tuple[str, dict]:
+    """Return a (password-free URL, env-with-PGPASSWORD) for pg_dump/psql so the
+    DB password never lands in the process argv (visible via `ps`)."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    url = database_url.replace("+asyncpg", "").replace("postgres://", "postgresql://")
+    parts = urlsplit(url)
+    env = dict(os.environ)
+    if parts.password:
+        env["PGPASSWORD"] = parts.password
+        netloc = parts.hostname or ""
+        if parts.username:
+            netloc = f"{parts.username}@{netloc}"
+        if parts.port:
+            netloc = f"{netloc}:{parts.port}"
+        url = urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+    return url, env
+
+
 @router.get("/admin/backup", dependencies=[Depends(require_admin)])
 async def backup(settings: Annotated[Settings, Depends(get_settings)]) -> StreamingResponse:
     """Download a backup ZIP.
@@ -120,12 +139,14 @@ async def backup(settings: Annotated[Settings, Depends(get_settings)]) -> Stream
                 zf.write(dbfile, "insta.db")
         else:
             # Postgres dump via pg_dump (needs postgresql-client in the image).
-            dump_url = settings.database_url.replace("+asyncpg", "").replace(
-                "postgres://", "postgresql://")
+            # --clean --if-exists so restoring drops+recreates instead of colliding
+            # with tables the app already made via create_all.
+            dump_url, pg_env = _pg_command(settings.database_url)
             try:
                 res = subprocess.run(
-                    ["pg_dump", "--no-owner", "--no-privileges", dump_url],
-                    capture_output=True, text=True, timeout=120,
+                    ["pg_dump", "--clean", "--if-exists", "--no-owner",
+                     "--no-privileges", dump_url],
+                    capture_output=True, text=True, timeout=120, env=pg_env,
                 )
                 if res.returncode != 0:
                     raise HTTPException(status_code=500, detail=f"pg_dump failed: {res.stderr[:300]}")
@@ -183,15 +204,14 @@ async def restore(
     else:
         if "dump.sql" not in names:
             raise HTTPException(status_code=400, detail="Backup has no dump.sql")
-        dump_url = settings.database_url.replace("+asyncpg", "").replace(
-            "postgres://", "postgresql://")
+        dump_url, pg_env = _pg_command(settings.database_url)
         sql = zf.read("dump.sql").decode("utf-8", "ignore")
         with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False, encoding="utf-8") as tmp:
             tmp.write(sql)
             tmp_path = tmp.name
         try:
             res = subprocess.run(["psql", dump_url, "-f", tmp_path],
-                                 capture_output=True, text=True, timeout=180)
+                                 capture_output=True, text=True, timeout=180, env=pg_env)
             if res.returncode != 0:
                 raise HTTPException(status_code=500, detail=f"psql restore failed: {res.stderr[:300]}")
         except FileNotFoundError:

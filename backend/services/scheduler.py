@@ -121,3 +121,34 @@ async def _run_cleanup_job() -> None:
         await run_upload_cleanup(_sessionmaker)
     except Exception as e:
         log.error("Upload cleanup FAILED: %s", e)
+
+
+async def reconcile_scheduled(sessionmaker) -> None:
+    """Fix posts stuck in 'scheduled' with no live job — e.g. the process was down
+    at fire time (misfire dropped the job) or the jobstore lost it. Run once on
+    startup: past-due posts are marked failed; still-future posts are re-armed."""
+    from sqlalchemy import select
+
+    from models.database import Post as PostModel
+
+    now = datetime.now(timezone.utc)
+    fixed = 0
+    async with sessionmaker() as db:
+        rows = (await db.execute(
+            select(PostModel).where(PostModel.status == "scheduled")
+        )).scalars().all()
+        for post in rows:
+            if get_job(post.id) is not None:
+                continue   # still armed — leave it
+            when = post.scheduled_at
+            if when is not None and when.tzinfo is None:
+                when = when.replace(tzinfo=timezone.utc)
+            if when is None or when <= now:
+                post.status = "failed"
+                post.schedule_error = "Missed its scheduled time while the server was offline."
+            else:
+                schedule_publish(post.id, when)   # re-arm the future job
+            fixed += 1
+        await db.commit()
+    if fixed:
+        log.info("Reconciled %d stale scheduled post(s)", fixed)

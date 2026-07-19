@@ -207,8 +207,10 @@ async def lifespan(app: FastAPI):
     # the app is open; in cloud mode it runs 24/7. Failures here must not block
     # the app from starting.
     try:
-        from services.scheduler import init_scheduler
+        from services.scheduler import init_scheduler, reconcile_scheduled
         init_scheduler(settings.database_url, app.state.sessionmaker)
+        # Recover posts left 'scheduled' with no live job (server was down at fire time).
+        await reconcile_scheduled(app.state.sessionmaker)
     except Exception as exc:  # pragma: no cover
         import logging
         logging.getLogger(__name__).warning("Scheduler init failed: %s", exc)

@@ -56,6 +56,7 @@ services:
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
     volumes:
       - backups:/backups
+      - uploads:/uploads:ro          # so the daily backup also archives generated media
       - ./scripts/backup.sh:/backup.sh:ro
     entrypoint: ["sh", "/backup.sh"]
 
