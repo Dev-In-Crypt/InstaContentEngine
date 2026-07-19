@@ -76,3 +76,7 @@ InstaContentEngine.zip
 *.bak
 *.tmp
 *~
+
+# ── Internal product/planning docs (local only, not shipped) ────────────────
+content-engine-business-sources.md
+content-engine-business-implementation.md
