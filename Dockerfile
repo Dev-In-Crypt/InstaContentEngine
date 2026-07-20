@@ -12,6 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Without this, Python block-buffers stdout/stderr when they are pipes, so
+# `docker compose logs app` showed the startup banner and then nothing —
+# tracebacks from failed generations sat in the buffer for hours.
+ENV PYTHONUNBUFFERED=1
+
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
