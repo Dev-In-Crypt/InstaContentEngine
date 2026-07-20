@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 from collections.abc import Awaitable, Callable
 
-from models.schemas import ImageSource, PostFormat, Platform, LengthTier, TemplateStyle
+from models.schemas import XPostMode, ImageSource, PostFormat, Platform, LengthTier, TemplateStyle
 from services.caption_generator import CaptionGenerator, GeneratedCaption
 from services.image_router import ImageRouter, SlideImageConfig, ImageFetchError
 from services.openrouter import OpenRouterError
@@ -39,6 +39,7 @@ class GeneratedPost:
     text_model_used: str
     image_model_used: Optional[str]
     seo_keywords: list[str] = field(default_factory=list)
+    thread_parts: list[str] = field(default_factory=list)   # X thread tweets, in order
     platform: Platform = Platform.INSTAGRAM
     sources: list[dict] = field(default_factory=list)   # [{title,url}] web-grounded citations
 
@@ -94,6 +95,9 @@ class ContentEngine:
         show_logo: bool = True,
         brand_voice: Optional[str] = None,
         brand_name: Optional[str] = None,
+        x_mode: XPostMode = XPostMode.SHORT,
+        thread_min: int = 3,
+        thread_max: int = 7,
         progress: Optional[ProgressFn] = None,
     ) -> GeneratedPost:
         num = _num_slides(format)
@@ -114,6 +118,9 @@ class ContentEngine:
             brand_name=brand_name,
             platform=platform,
             length_tier=length_tier,
+            x_mode=x_mode,
+            thread_min=thread_min,
+            thread_max=thread_max,
         )
 
         # 2. Build per-slide configs if not supplied
@@ -148,7 +155,12 @@ class ContentEngine:
             id=str(uuid.uuid4()),
             topic=topic,
             format=format,
-            caption=caption_data.caption,
+            # For a thread the caption is every tweet joined, so export, pillar
+            # classification and the feed keep working on one string; the tweets
+            # themselves travel in thread_parts and drive the preview.
+            caption=("\n\n".join(caption_data.thread_parts)
+                     if caption_data.thread_parts else caption_data.caption),
+            thread_parts=caption_data.thread_parts,
             hashtags=caption_data.hashtags,
             cta=caption_data.cta,
             hook=caption_data.hook,

@@ -3,8 +3,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
-from models.schemas import Platform, LengthTier
+from models.schemas import LengthTier, Platform, TWEET_CHAR_LIMIT, XPostMode
 from services.brand_voice import resolve_brand_voice
+from services.x_text import clamp_count, enforce_parts
 
 
 def _frame_brand_voice(brand_voice: Optional[str]) -> str:
@@ -119,11 +120,68 @@ BRAND/PERSON CONTEXT:
 Tone: {tone}
 
 Write for X. HARD RULES:
-- The "caption" field is the full tweet and MUST be 280 characters or fewer, hashtags included.
+- The "caption" field is the full tweet and MUST be 250 characters or fewer, hashtags included.
 - One sharp hook, one idea, natural English, no em-dash.
 - 1-2 relevant hashtags maximum (X posts do not use hashtag walls).
 - A single image accompanies the post; no carousels.
 - Ready to copy-paste, no preamble.
+
+{length_instruction}
+
+{json_format}
+"""
+
+X_THREAD_SYSTEM_PROMPT = """\
+Act as an expert X (Twitter) thread writer.
+Write for the brand, niche, and audience described in the user message below.
+
+BRAND/PERSON CONTEXT:
+{brand_voice}
+
+Tone: {tone}
+
+Write ONE thread. HARD RULES:
+- Put the tweets in the "thread" field: a JSON array of strings, in reading order.
+- Use between {thread_min} and {thread_max} tweets — pick the number the topic
+  actually needs. Do NOT pad with filler to reach a number, and do NOT cram two
+  ideas into one tweet to save space.
+- Every tweet MUST be {tweet_limit} characters or fewer, hashtags and mentions included.
+- Every tweet is a COMPLETE thought that ends on a finished sentence. NEVER split a
+  sentence, a word, a link or a hashtag across two tweets.
+- The thread must read as one continuous piece: each tweet carries on directly from
+  the one before it, no restating and no standalone summaries in the middle.
+- Tweet 1 is the hook. The last tweet lands the conclusion and the call to action.
+- No "1/7" style numbering — X already shows the chain.
+- Hashtags only in the LAST tweet, 1-2 of them. Max 1-2 emojis in the whole thread.
+- Natural English, no em-dash, ready to copy-paste.
+- "caption" must repeat the FIRST tweet verbatim (it is what previews show).
+
+{length_instruction}
+
+{json_format}
+
+PLUS one extra field alongside the ones above, holding the tweets in order:
+    "thread": ["First tweet, the hook.", "Second tweet, carrying straight on.", "Last tweet with the conclusion and CTA."]
+"""
+
+X_LONG_SYSTEM_PROMPT = """\
+Act as an expert X (Twitter) long-form writer.
+Write for the brand, niche, and audience described in the user message below.
+
+BRAND/PERSON CONTEXT:
+{brand_voice}
+
+Tone: {tone}
+
+Write ONE long-form X post (the account has X Premium, so the 280-character cap
+does not apply). HARD RULES:
+- The "caption" field is the whole post. Aim for 600-1500 characters.
+- Open with a hook line that works on its own, then develop the idea in short
+  paragraphs separated by blank lines. Mobile readers skim — keep paragraphs tight.
+- One coherent argument from start to finish, no bullet-point dump.
+- End with a conclusion and a single call to action.
+- 1-2 hashtags at the very end only. Few emojis. No em-dash.
+- Leave "thread" out entirely — this is a single post.
 
 {length_instruction}
 
@@ -169,6 +227,7 @@ class GeneratedCaption:
     alt_text: str
     seo_keywords: list[str] = field(default_factory=list)
     slide_overlays: list[str] = field(default_factory=list)
+    thread_parts: list[str] = field(default_factory=list)  # X thread tweets, in order
     sources: list[dict] = field(default_factory=list)   # [{title,url}] from :online grounding
     raw_response: str = field(default="", repr=False)
 
@@ -198,17 +257,30 @@ class CaptionGenerator:
         platform: Platform = Platform.INSTAGRAM,
         length_tier: LengthTier = LengthTier.SWEET_SPOT,
         web_grounded: bool = True,
+        x_mode: XPostMode = XPostMode.SHORT,
+        thread_min: int = 3,
+        thread_max: int = 7,
     ) -> GeneratedCaption:
-        template = {
-            Platform.LINKEDIN: LINKEDIN_SYSTEM_PROMPT,
-            Platform.X: X_SYSTEM_PROMPT,
-        }.get(platform, INSTAGRAM_SYSTEM_PROMPT)
-        system = template.format(
+        if platform == Platform.X:
+            template = {
+                XPostMode.THREAD: X_THREAD_SYSTEM_PROMPT,
+                XPostMode.LONG: X_LONG_SYSTEM_PROMPT,
+            }.get(x_mode, X_SYSTEM_PROMPT)
+        elif platform == Platform.LINKEDIN:
+            template = LINKEDIN_SYSTEM_PROMPT
+        else:
+            template = INSTAGRAM_SYSTEM_PROMPT
+
+        fields = dict(
             brand_voice=_frame_brand_voice(brand_voice),
             tone=tone,
             length_instruction=LENGTH_TIER_INSTRUCTIONS[length_tier],
             json_format=_JSON_FORMAT,
         )
+        if template is X_THREAD_SYSTEM_PROMPT:
+            fields.update(thread_min=thread_min, thread_max=thread_max,
+                          tweet_limit=TWEET_CHAR_LIMIT)
+        system = template.format(**fields)
         user = CAPTION_USER_PROMPT.format(
             platform=platform.value,
             topic=topic,
@@ -223,6 +295,8 @@ class CaptionGenerator:
         # Web grounding is a provider capability (only OpenRouter has it today);
         # the provider decides what to do with the flag.
         max_tokens = 3000 if length_tier == LengthTier.DEEP_DIVE else 2000
+        if platform == Platform.X and x_mode == XPostMode.THREAD:
+            max_tokens = max(max_tokens, 400 * thread_max)   # room for every tweet
         raw, citations = await self.text_provider.generate_text(
             model=text_model,
             system_prompt=system,
@@ -232,7 +306,34 @@ class CaptionGenerator:
         )
         result = self._parse(raw)
         result.sources = citations
+
+        if platform == Platform.X and x_mode == XPostMode.THREAD and result.thread_parts:
+            # Models overshoot the per-tweet budget and the requested count; fix both
+            # here rather than trusting the prompt alone.
+            parts = clamp_count(result.thread_parts, thread_min, thread_max)
+            parts = await enforce_parts(
+                parts,
+                shorten=lambda text, limit: self.shorten_text(text, limit, text_model),
+            )
+            result.thread_parts = parts
+            # `caption` is left as the model wrote it; content_engine joins the parts
+            # for the stored caption so there is exactly one place that decides it.
         return result
+
+    async def shorten_text(self, text: str, limit: int, text_model: str = "") -> str:
+        """Ask the model to compress `text` under `limit` without losing the point.
+        Used before falling back to a hard cut, so tweets stay readable."""
+        raw, _ = await self.text_provider.generate_text(
+            model=text_model,
+            system_prompt="You tighten social copy without losing meaning.",
+            user_prompt=(
+                f"Rewrite the text below so it is at most {limit} characters, including "
+                f"spaces, punctuation and hashtags. Keep the meaning and the tone. "
+                f"Return ONLY the rewritten text, no quotes and no preamble.\n\n{text}"
+            ),
+            max_tokens=300,
+        )
+        return (raw or "").strip().strip('"')
 
     # Fields that regenerate_field can target, with the shape each returns.
     _LIST_FIELDS = {"hashtags", "seo_keywords"}
@@ -324,6 +425,10 @@ class CaptionGenerator:
             if key not in data:
                 raise CaptionParseError(f"Missing required field '{key}' in model response")
 
+        # thread: soft-parse — only X thread mode asks for it, everything else omits it.
+        thread_raw = data.get("thread") or []
+        thread_parts = [str(t).strip() for t in thread_raw if str(t).strip()]
+
         # slide_overlays: soft-parse; if missing, fall back to hook for slide 1 only.
         overlays_raw = data.get("slide_overlays") or []
         overlays = [str(s) for s in overlays_raw if str(s).strip()]
@@ -340,5 +445,6 @@ class CaptionGenerator:
             alt_text=data.get("alt_text", ""),
             seo_keywords=data.get("seo_keywords", []),
             slide_overlays=overlays,
+            thread_parts=thread_parts,
             raw_response=raw,
         )

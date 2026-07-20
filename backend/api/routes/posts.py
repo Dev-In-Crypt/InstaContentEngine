@@ -35,7 +35,7 @@ from models.schemas import (
     CaptionUpdate, GenerateRequest, ImageSource, OverlayUpdateRequest, Platform,
     PostInsightSchema, PostPreview, PostStatus, PostSummary, RegenFieldRequest,
     RegenFieldResponse, ReplaceSlideRequest, ScheduleRequest, SlidePreview,
-    PublishResult,
+    PublishResult, XPostMode,
 )
 from services.content_engine import ContentEngine, GeneratedPost
 from services.pillars import classify_pillar, pillar_mix, suggest_today
@@ -100,6 +100,7 @@ def _to_preview(post: PostModel) -> PostPreview:
         format=post.format,
         status=PostStatus(post.status),
         caption=post.caption or "",
+        thread_parts=post.thread_parts or [],
         hashtags=post.hashtags or [],
         seo_keywords=post.seo_keywords or [],
         cta=post.cta or "",
@@ -131,6 +132,7 @@ async def _persist(
         format=generated.format.value,
         status="preview",
         caption=generated.caption,
+        thread_parts=generated.thread_parts or None,
         hashtags=generated.hashtags,
         seo_keywords=generated.seo_keywords,
         sources=generated.sources,
@@ -220,6 +222,14 @@ async def generate_post(
             status_code=400,
             detail="No text model selected. Choose a provider and model in Account → AI models.",
         )
+    # Long-form X posts only exist for Premium accounts; X itself would reject the
+    # tweet, so refuse before spending a generation on it.
+    if (body.platform == Platform.X and body.x_mode == XPostMode.LONG
+            and not getattr(user, "x_premium", False)):
+        raise HTTPException(
+            status_code=422,
+            detail="Long X posts need X Premium. Enable it in Account, or pick Short or Thread.",
+        )
 
     async def event_stream() -> AsyncGenerator[str, None]:
         queue: asyncio.Queue = asyncio.Queue()
@@ -263,6 +273,9 @@ async def generate_post(
                     show_logo=body.show_logo,
                     brand_voice=brand_voice,
                     brand_name=profile["brand_name"],
+                    x_mode=body.x_mode,
+                    thread_min=body.thread_min,
+                    thread_max=body.thread_max,
                     progress=progress,
                 )
                 await progress("Saving to database...")
@@ -355,6 +368,11 @@ async def update_caption(
         post.hashtags = update.hashtags
     if update.cta is not None:
         post.cta = update.cta
+    if update.thread_parts is not None:
+        post.thread_parts = update.thread_parts or None
+        # keep the flattened caption in step with the edited tweets
+        if update.thread_parts:
+            post.caption = "\n\n".join(update.thread_parts)
     if update.seo_keywords is not None:
         post.seo_keywords = update.seo_keywords
     await db.commit()

@@ -47,6 +47,10 @@ class User(Base):
     text_model = Column(String(120))
     image_provider = Column(String(30))
     image_model = Column(String(120))
+    # X Premium lifts the 280-char cap, which unlocks the "long post" mode. This is
+    # our own flag, not a check against X — publishing a long post without real
+    # Premium will still be rejected by X itself.
+    x_premium = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     credentials = relationship("UserCredentials", back_populates="user",
@@ -91,6 +95,11 @@ class Post(Base):
     format = Column(String(20), nullable=False)
     status = Column(String(20), nullable=False, default="draft")
     caption = Column(Text)
+    # X thread: the individual tweets, in order. NULL for everything else. For a
+    # thread `caption` holds the parts joined by blank lines, so export, pillar
+    # classification and the feed keep working unchanged — but note that means
+    # len(caption) is the whole thread, not one tweet.
+    thread_parts = Column(JSON)
     hashtags = Column(JSON)          # stored as JSON array
     seo_keywords = Column(JSON)      # separate from hashtags
     sources = Column(JSON)           # [{title,url}] from web-grounded LLM (:online)

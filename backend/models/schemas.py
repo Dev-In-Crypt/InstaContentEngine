@@ -3,7 +3,7 @@ import re
 from datetime import datetime
 from enum import Enum
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class PostFormat(str, Enum):
@@ -25,6 +25,22 @@ class Platform(str, Enum):
     INSTAGRAM = "instagram"
     LINKEDIN = "linkedin"
     X = "x"
+
+
+class XPostMode(str, Enum):
+    """How an X post is shaped. SHORT is one tweet; THREAD is a chain of tweets,
+    each a complete thought continuing the previous; LONG is a single long-form
+    post, which only X Premium accounts may publish."""
+    SHORT = "short"
+    THREAD = "thread"
+    LONG = "long"
+
+
+#: Hard cap on tweets per thread. A thread of N tweets spends N of the account's
+#: monthly X quota (1,500 on the free tier), so this is deliberately bounded.
+MAX_THREAD_TWEETS = 15
+#: Per-tweet character budget, hashtags included. Below X's 280 on purpose.
+TWEET_CHAR_LIMIT = 250
 
 
 class LengthTier(str, Enum):
@@ -91,6 +107,18 @@ class GenerateRequest(BaseModel):
     show_logo: bool = True
     brand_config_id: Optional[str] = None   # None → default brand preset
     brand_voice_preset: Optional[str] = None  # per-post override of the saved brand voice
+    # X only. thread_min/max bound how many tweets a thread may have; the model
+    # picks a number inside the range that fits the topic, rather than padding or
+    # squeezing the argument to hit an exact count.
+    x_mode: XPostMode = XPostMode.SHORT
+    thread_min: int = Field(3, ge=2, le=MAX_THREAD_TWEETS)
+    thread_max: int = Field(7, ge=2, le=MAX_THREAD_TWEETS)
+
+    @model_validator(mode="after")
+    def _validate_thread_range(self):
+        if self.thread_min > self.thread_max:
+            raise ValueError("thread_min cannot be greater than thread_max")
+        return self
 
     @field_validator("niche_box_color")
     @classmethod
@@ -114,6 +142,7 @@ class CaptionUpdate(BaseModel):
     hashtags: Optional[list[str]] = None
     cta: Optional[str] = None
     seo_keywords: Optional[list[str]] = None
+    thread_parts: Optional[list[str]] = None   # edited X thread, in order
 
 
 class ReplaceSlideRequest(BaseModel):
@@ -180,6 +209,7 @@ class PostPreview(BaseModel):
     format: PostFormat
     status: PostStatus
     caption: str
+    thread_parts: list[str] = []      # non-empty only for an X thread
     hashtags: list[str]
     seo_keywords: list[str] = []
     cta: Optional[str]

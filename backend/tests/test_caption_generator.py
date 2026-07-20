@@ -294,7 +294,7 @@ async def test_deep_dive_raises_max_tokens(httpx_mock: HTTPXMock):
 
 @pytest.mark.asyncio
 async def test_x_platform_uses_x_prompt(httpx_mock: HTTPXMock):
-    """platform=X must send the X system prompt (280-char rule), not the IG one."""
+    """platform=X must send the X system prompt (250-char rule), not the IG one."""
     httpx_mock.add_response(
         url=f"{BASE}/chat/completions",
         json={"choices": [{"message": {"content": json.dumps(GOOD_JSON)}}]},
@@ -306,5 +306,117 @@ async def test_x_platform_uses_x_prompt(httpx_mock: HTTPXMock):
 
     body = json.loads(httpx_mock.get_requests()[0].content)
     system = body["messages"][0]["content"]
-    assert "280 characters" in system
+    assert "250 characters" in system
     assert "X (Twitter)" in system
+
+
+# ── X post modes: short / thread / long ─────────────────────────────────────
+
+THREAD_JSON = {
+    **GOOD_JSON,
+    "thread": [
+        "Blends hide what a farm actually tastes like.",
+        "Filter brewing pulls those notes forward instead of compressing them.",
+        "Start with a washed Kenyan if you want the difference to be obvious. #coffee",
+    ],
+}
+
+
+@pytest.mark.asyncio
+async def test_thread_mode_prompt_carries_the_range_and_the_no_split_rule(httpx_mock: HTTPXMock):
+    from models.schemas import XPostMode
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(THREAD_JSON)}}]},
+    )
+    client = OpenRouterClient(api_key="k")
+    gen = CaptionGenerator(client)
+    await gen.generate(topic="Single origin", format="single", platform=Platform.X,
+                       x_mode=XPostMode.THREAD, thread_min=3, thread_max=6,
+                       web_grounded=False)
+    system, _user = _sys_user(httpx_mock)
+    assert "between 3 and 6 tweets" in system
+    assert "250 characters or fewer" in system
+    assert "NEVER split a" in system          # the coherence rule the owner asked for
+    assert '"thread"' in system               # the model is shown the field
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_thread_mode_returns_parts(httpx_mock: HTTPXMock):
+    from models.schemas import XPostMode
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(THREAD_JSON)}}]},
+    )
+    client = OpenRouterClient(api_key="k")
+    gen = CaptionGenerator(client)
+    res = await gen.generate(topic="t", format="single", platform=Platform.X,
+                             x_mode=XPostMode.THREAD, web_grounded=False)
+    assert res.thread_parts == THREAD_JSON["thread"]
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_thread_parts_are_capped_at_thread_max(httpx_mock: HTTPXMock):
+    from models.schemas import XPostMode
+    many = {**GOOD_JSON, "thread": [f"Tweet number {i}." for i in range(9)]}
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(many)}}]},
+    )
+    client = OpenRouterClient(api_key="k")
+    gen = CaptionGenerator(client)
+    res = await gen.generate(topic="t", format="single", platform=Platform.X,
+                             x_mode=XPostMode.THREAD, thread_min=2, thread_max=4,
+                             web_grounded=False)
+    assert len(res.thread_parts) == 4
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_over_long_tweet_is_brought_under_the_limit(httpx_mock: HTTPXMock):
+    """End-to-end of the two-stage enforcement: the model overshoots, we fix it."""
+    from models.schemas import TWEET_CHAR_LIMIT, XPostMode
+    over = {**GOOD_JSON, "thread": ["word " * 200, "Short one."]}
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(over)}}]},
+    )
+    # the shortener call also hits the mocked endpoint and returns the same body,
+    # which is still too long — so the deterministic cut must save it
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": "still " * 100}}]},
+    )
+    client = OpenRouterClient(api_key="k")
+    gen = CaptionGenerator(client)
+    res = await gen.generate(topic="t", format="single", platform=Platform.X,
+                             x_mode=XPostMode.THREAD, web_grounded=False)
+    assert all(len(p) <= TWEET_CHAR_LIMIT for p in res.thread_parts)
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_long_mode_uses_the_long_prompt(httpx_mock: HTTPXMock):
+    from models.schemas import XPostMode
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(GOOD_JSON)}}]},
+    )
+    client = OpenRouterClient(api_key="k")
+    gen = CaptionGenerator(client)
+    res = await gen.generate(topic="t", format="single", platform=Platform.X,
+                             x_mode=XPostMode.LONG, web_grounded=False)
+    system, _user = _sys_user(httpx_mock)
+    assert "long-form" in system.lower()
+    # wording wraps across lines in the template, so check it without the newline
+    assert "280-character cap" in system and "does not apply" in system
+    assert res.thread_parts == []          # a long post is not a thread
+    await client.close()
+
+
+def test_parse_without_thread_is_unaffected():
+    """Existing Instagram/LinkedIn responses have no 'thread' key — soft parse."""
+    gen = CaptionGenerator(OpenRouterClient(api_key="k"))
+    assert gen._parse(json.dumps(GOOD_JSON)).thread_parts == []
