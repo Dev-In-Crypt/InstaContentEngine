@@ -14,7 +14,7 @@ from models.database import User as UserModel, UserCredentials as UserCredential
 from models.schemas import (
     NICHE_BOX_PALETTE, AISettingsResponse, AISettingsUpdate, AITestRequest, AITestResponse,
     BrandVoiceResponse, BrandVoiceUpdate, ProfileResponse, ProfileUpdate,
-    SlideStyleResponse, SlideStyleUpdate,
+    SlideStyleResponse, SlideStyleUpdate, XSettingsResponse, XSettingsUpdate,
 )
 from services.ai.catalog import IMAGE, PROVIDERS, TEXT, is_valid_provider
 from services.brand_engine import BrandConfig
@@ -170,6 +170,26 @@ async def put_slide_style(
         user.slide_accent_color = body.accent_color or None
     if body.text_box_color is not None:
         user.slide_text_box_color = body.text_box_color or None
+    await db.commit()
+    return {"status": "ok"}
+
+
+# ── X plan (kept apart from the brand profile: it's platform mechanics) ─────
+
+@router.get("/x", response_model=XSettingsResponse)
+async def get_x_settings(
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> XSettingsResponse:
+    return XSettingsResponse(x_premium=bool(user.x_premium))
+
+
+@router.put("/x")
+async def put_x_settings(
+    body: XSettingsUpdate,
+    user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    user.x_premium = body.x_premium
     await db.commit()
     return {"status": "ok"}
 

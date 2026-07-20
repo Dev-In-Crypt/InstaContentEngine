@@ -347,6 +347,21 @@ class SlideStyleResponse(BaseModel):
     palette: list[str] = []         # suggested swatches for the UI
 
 
+# --- X-specific account settings ---
+
+class XSettingsUpdate(BaseModel):
+    # Our own record of the tenant's X plan, not a check against X. Enabling it
+    # unlocks the long-post mode; if the account isn't actually Premium, X
+    # rejects the tweet and we surface its error.
+    x_premium: bool
+
+
+class XSettingsResponse(BaseModel):
+    x_premium: bool = False
+    tweet_char_limit: int = TWEET_CHAR_LIMIT
+    max_thread_tweets: int = MAX_THREAD_TWEETS
+
+
 # --- AI provider + model selection (per tenant, they pay for it) ---
 
 class AISettingsUpdate(BaseModel):

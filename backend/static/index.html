@@ -397,7 +397,8 @@
   <section id="step-2" class="step-section hidden bg-gray-900 rounded-2xl p-6 space-y-5">
     <h2 class="text-lg font-semibold text-purple-300">⚙️ Format & images</h2>
 
-    <div>
+    <!-- Instagram formats. Hidden on X, which has no carousels. -->
+    <div id="format-group">
       <label class="block text-sm text-gray-400 mb-2">Post format</label>
       <div class="grid grid-cols-2 sm:grid-cols-3 gap-2" id="format-btns">
         <button data-val="single"       class="fmt-btn">🖼 Single image</button>
@@ -405,6 +406,36 @@
         <button data-val="carousel_5"   class="fmt-btn">🎠 Carousel 5</button>
         <button data-val="carousel_10"  class="fmt-btn">🎠 Carousel 10</button>
         <button data-val="infographic"  class="fmt-btn">📊 Infographic</button>
+      </div>
+    </div>
+
+    <!-- X post types. Shown only on the X tab (see setNetwork). -->
+    <div id="xmode-group" class="hidden">
+      <label class="block text-sm text-gray-400 mb-2">X post type</label>
+      <div class="flex flex-wrap gap-2" id="xmode-btns">
+        <button data-val="short"  class="xmode-btn">💬 Short post</button>
+        <button data-val="thread" class="xmode-btn">🧵 Thread</button>
+        <button data-val="long"   class="xmode-btn" id="xmode-long">📜 Long post</button>
+      </div>
+      <p id="xmode-long-note" class="hidden text-xs text-yellow-300/80 mt-2">
+        Long posts need X Premium — turn it on in Account once your X account has it.
+      </p>
+      <div id="thread-range" class="hidden mt-3 flex flex-wrap items-end gap-4">
+        <div>
+          <label for="thread-min" class="block text-xs text-gray-400 mb-1">Tweets: from</label>
+          <input id="thread-min" type="number" min="2" max="15" value="3"
+            class="ce-input w-20 px-2 py-1 text-sm" />
+        </div>
+        <div>
+          <label for="thread-max" class="block text-xs text-gray-400 mb-1">to</label>
+          <input id="thread-max" type="number" min="2" max="15" value="7"
+            class="ce-input w-20 px-2 py-1 text-sm" />
+        </div>
+        <p class="text-xs text-gray-500 flex-1 min-w-[14rem]">
+          Each tweet counts against your X quota (1 500/month on the free tier), so a
+          7-tweet thread costs 7 posts. Every tweet stays under 250 characters and
+          continues the one before it.
+        </p>
       </div>
     </div>
 
@@ -479,8 +510,16 @@
     <!-- Emoji picker (vertical-stacked above caption — works on any focused text field) -->
     <div id="emoji-picker-host"></div>
 
+    <!-- Thread editor — replaces the single caption box when the post is a thread -->
+    <div id="thread-editor" class="hidden">
+      <div class="flex items-center justify-between mb-2">
+        <label class="block text-sm text-gray-400">🧵 Thread <span id="thread-count" class="text-gray-600"></span></label>
+      </div>
+      <div id="thread-parts" class="space-y-2"></div>
+    </div>
+
     <!-- Caption editor -->
-    <div>
+    <div id="caption-editor">
       <div class="flex items-center justify-between mb-1">
         <label class="block text-sm text-gray-400">Caption</label>
         <button onclick="showVariations('caption')" class="text-xs text-purple-400 hover:text-purple-300">↻ Variations</button>
@@ -689,6 +728,17 @@
           class="ce-input w-full px-3 py-2 text-sm" />
       </div>
       <button id="save-profile-btn" onclick="saveProfile()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">💾 Save profile</button>
+    </section>
+
+    <!-- X plan (cloud accounts only) -->
+    <section id="x-settings-section" class="hidden bg-gray-900 rounded-2xl p-6 space-y-4">
+      <h2 class="text-lg font-semibold text-purple-300">𝕏 X plan</h2>
+      <p class="text-xs text-gray-500">X Premium lifts the 280-character limit, which unlocks the “Long post” type. This is your own record — we can't check it with X, so if the account isn't actually Premium, X will reject the post.</p>
+      <label class="flex items-center gap-3 text-sm text-gray-200 cursor-pointer">
+        <input id="x-premium" type="checkbox" class="w-4 h-4 accent-purple-500" />
+        My X account has Premium
+      </label>
+      <button id="save-x-btn" onclick="saveXSettings()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">💾 Save</button>
     </section>
 
     <!-- Slide colours (cloud accounts only) -->
@@ -902,6 +952,7 @@ async function startApp() {
   // login with no profile yet, offer the skippable onboarding step.
   if (S.user && !S.user.is_local) {
     await loadProfile();
+    await loadXSettings();   // the composer gates "Long post" on this
     maybeShowOnboarding();
   }
 }
@@ -1166,7 +1217,7 @@ function goHome() {
 }
 
 // ===== TOGGLE BUTTON GROUPS =====
-function initToggleGroup(selector, stateKey, defaultVal) {
+function initToggleGroup(selector, stateKey, defaultVal, onChange) {
   document.querySelectorAll(selector).forEach(btn => {
     const val = btn.dataset.val;
     btn.className += ' px-3 py-2 rounded-xl text-sm font-medium border-2 transition ';
@@ -1174,6 +1225,7 @@ function initToggleGroup(selector, stateKey, defaultVal) {
     else btn.classList.add('border-gray-700','bg-gray-800','text-gray-300');
 
     btn.addEventListener('click', () => {
+      if (btn.disabled) return;
       document.querySelectorAll(selector).forEach(b => {
         b.className = b.className.replace(/border-purple-500|bg-purple-900|text-white|border-gray-700|bg-gray-800|text-gray-300/g,'');
         b.classList.add('border-gray-700','bg-gray-800','text-gray-300');
@@ -1181,9 +1233,11 @@ function initToggleGroup(selector, stateKey, defaultVal) {
       btn.className = btn.className.replace(/border-gray-700|bg-gray-800|text-gray-300/g,'');
       btn.classList.add('border-purple-500','bg-purple-900','text-white');
       S[stateKey] = val;
+      if (onChange) onChange(val);
     });
   });
   S[stateKey] = defaultVal;
+  if (onChange) onChange(defaultVal);
 }
 
 // ===== GENERATE =====
@@ -1223,6 +1277,18 @@ async function generatePost() {
     niche_box_color: S.nicheBoxColor,
     show_logo: document.getElementById('show-logo').checked,
   };
+  if (S.platform === 'x') {
+    body.x_mode = S.xMode || 'short';
+    if (body.x_mode === 'thread') {
+      // Clamp here as well as server-side: a browser that ignores min/max on a
+      // number input would otherwise turn a typo into a 422 after the user has
+      // already waited through the generation spinner.
+      const lo = Math.min(15, Math.max(2, parseInt(document.getElementById('thread-min').value, 10) || 3));
+      const hi = Math.min(15, Math.max(lo, parseInt(document.getElementById('thread-max').value, 10) || 7));
+      body.thread_min = lo;
+      body.thread_max = hi;
+    }
+  }
 
   try {
     const res = await apiFetch(`${API}/api/posts/generate`, {
@@ -1340,8 +1406,9 @@ function renderPreview(post) {
   // References panel (image attribution + text sources)
   renderReferences(post);
 
-  // Caption
+  // Caption (or, for a thread, one card per tweet)
   document.getElementById('caption-edit').value = post.caption;
+  renderThread(post.thread_parts || []);
 
   // Hashtags
   S.hashtags = [...post.hashtags];
@@ -1697,6 +1764,7 @@ function snapshotEdits() {
     caption: document.getElementById('caption-edit').value,
     hashtags: [...S.hashtags],
     seo: [...S.seoKeywords],
+    thread: [...(S.threadParts || [])],
   };
   S.undoStack.push(snap);
   if (S.undoStack.length > 5) S.undoStack.shift();
@@ -1708,6 +1776,7 @@ function undoEdit() {
   if (!S.undoStack.length) return;
   const snap = S.undoStack.pop();
   document.getElementById('caption-edit').value = snap.caption;
+  renderThread(snap.thread || []);
   S.hashtags = [...snap.hashtags]; renderHashtags();
   S.seoKeywords = [...snap.seo]; renderSeoKeywords();
   try { localStorage.setItem('undo_' + S.postId, JSON.stringify(S.undoStack)); } catch(e){}
@@ -1726,7 +1795,8 @@ function saveDraft() {
   try {
     localStorage.setItem('draft_' + S.postId, JSON.stringify({
       caption: document.getElementById('caption-edit').value,
-      hashtags: S.hashtags, seo: S.seoKeywords, at: Date.now(),
+      hashtags: S.hashtags, seo: S.seoKeywords,
+      thread: S.threadParts || [], at: Date.now(),
     }));
   } catch(e){ toast('⚠️ Local storage full — draft not autosaved', 'warn'); }
 }
@@ -1749,6 +1819,7 @@ function maybeOfferDraft(post) {
   banner.classList.remove('hidden');
   banner.querySelector('#draft-restore').onclick = () => {
     document.getElementById('caption-edit').value = draft.caption || '';
+    renderThread(draft.thread || []);
     S.hashtags = [...(draft.hashtags||[])]; renderHashtags();
     S.seoKeywords = [...(draft.seo||[])]; renderSeoKeywords();
     banner.classList.add('hidden');
@@ -1760,11 +1831,65 @@ function maybeOfferDraft(post) {
   };
 }
 
+// ===== THREAD EDITOR =====
+
+/** One editable card per tweet, with a live character counter.
+ *
+ * The single caption box stays the editor for short/long posts and Instagram;
+ * a thread needs per-tweet counters because the 250-char budget applies to each
+ * tweet, not to the joined text.
+ */
+function renderThread(parts) {
+  S.threadParts = [...parts];
+  const wrap = document.getElementById('thread-editor');
+  const capBox = document.getElementById('caption-editor');
+  const isThread = S.threadParts.length > 0;
+  if (wrap) wrap.classList.toggle('hidden', !isThread);
+  if (capBox) capBox.classList.toggle('hidden', isThread);
+  if (!isThread) return;
+
+  const list = document.getElementById('thread-parts');
+  list.innerHTML = '';
+  S.threadParts.forEach((text, i) => {
+    const card = document.createElement('div');
+    card.className = 'bg-gray-800 border border-gray-700 rounded-xl p-3 space-y-1';
+    card.innerHTML = `
+      <div class="flex items-center justify-between text-xs">
+        <span class="text-gray-500">${i + 1}/${S.threadParts.length}</span>
+        <span class="tweet-count font-mono"></span>
+      </div>
+      <textarea rows="3" aria-label="Tweet ${i + 1}"
+        class="w-full bg-transparent text-white text-sm resize-none focus:outline-none"></textarea>`;
+    const ta = card.querySelector('textarea');
+    const counter = card.querySelector('.tweet-count');
+    ta.value = text;
+    const sync = () => {
+      S.threadParts[i] = ta.value;
+      const n = ta.value.length;
+      counter.textContent = `${n}/250`;
+      counter.className = 'tweet-count font-mono ' + (n > 250 ? 'text-red-400' : 'text-gray-500');
+    };
+    ta.addEventListener('input', () => { sync(); scheduleDraftSave(); });
+    sync();
+    list.appendChild(card);
+  });
+  document.getElementById('thread-count').textContent = `(${S.threadParts.length} tweets)`;
+}
+
 // ===== SAVE CAPTION =====
 async function saveCaption() {
   if (!S.postId) return;
+  const thread = S.threadParts || [];
+  if (thread.some(t => t.length > 250)) {
+    toast('⚠️ A tweet is over 250 characters — shorten it first', 'warn');
+    return;   // before the snapshot: a rejected save must not enter the undo stack
+  }
   snapshotEdits();   // push current state so Undo can revert this save
-  const caption = document.getElementById('caption-edit').value;
+  // For a thread the tweets ARE the post; caption is their join, kept in sync so
+  // export, pillars and the feed keep reading one field.
+  const caption = thread.length
+    ? thread.join('\n\n')
+    : document.getElementById('caption-edit').value;
   const btn = document.getElementById('save-caption-btn');
   const prev = btn ? btn.textContent : '';
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
@@ -1772,7 +1897,10 @@ async function saveCaption() {
     const res = await apiFetch(`${API}/api/posts/${S.postId}/caption`, {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ caption, hashtags: S.hashtags, seo_keywords: S.seoKeywords }),
+      body: JSON.stringify({
+        caption, hashtags: S.hashtags, seo_keywords: S.seoKeywords,
+        thread_parts: thread.length ? thread : null,
+      }),
     });
     if (!res.ok) throw new Error('Save failed');
     // Clear both per-post keys so they don't accumulate to the quota over time.
@@ -2202,7 +2330,64 @@ function setNetwork(net) {
   document.querySelectorAll('.analytics-net').forEach(e => e.textContent = isIG ? 'Instagram' : 'X');
   // sync the (now hidden) wizard platform toggle so generation uses this network
   document.querySelectorAll('.plt-btn').forEach(b => b.classList.toggle('active', b.dataset.val === net));
+  // X has no carousels: swap the Instagram format picker for the X post types.
+  const fmtGroup = document.getElementById('format-group');
+  const xGroup = document.getElementById('xmode-group');
+  if (fmtGroup) fmtGroup.classList.toggle('hidden', !isIG);
+  if (xGroup) xGroup.classList.toggle('hidden', isIG);
+  if (!isIG) applyXPremiumGate();
   setSection(S.section || 'create');
+}
+
+// ===== X POST TYPES =====
+
+/** Reflect the stored premium flag on the "Long post" button. */
+function applyXPremiumGate() {
+  const btn = document.getElementById('xmode-long');
+  const note = document.getElementById('xmode-long-note');
+  if (!btn) return;
+  const allowed = !!S.xPremium;
+  btn.disabled = !allowed;
+  btn.classList.toggle('opacity-40', !allowed);
+  btn.classList.toggle('cursor-not-allowed', !allowed);
+  btn.title = allowed ? '' : 'Needs X Premium — enable it in Account';
+  if (note) note.classList.toggle('hidden', allowed);
+  // Someone who turns Premium off while "Long" is selected must not keep it.
+  if (!allowed && S.xMode === 'long') {
+    const short = document.querySelector('.xmode-btn[data-val="short"]');
+    if (short) short.click();
+  }
+}
+
+function onXModeChange(mode) {
+  const range = document.getElementById('thread-range');
+  if (range) range.classList.toggle('hidden', mode !== 'thread');
+}
+
+async function loadXSettings() {
+  try {
+    const res = await apiFetch(`${API}/api/settings/x`);
+    if (res.ok) S.xPremium = !!(await res.json()).x_premium;
+  } catch { /* 401 handled by apiFetch */ }
+  const cb = document.getElementById('x-premium');
+  if (cb) cb.checked = !!S.xPremium;
+  applyXPremiumGate();
+}
+
+async function saveXSettings() {
+  const btn = document.getElementById('save-x-btn');
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
+  try {
+    const res = await apiFetch(`${API}/api/settings/x`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ x_premium: document.getElementById('x-premium').checked }),
+    });
+    if (!res.ok) throw new Error('Save failed');
+    await loadXSettings();
+    toast('✅ Saved', 'success');
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = prev; } }
 }
 
 // ===== SIDEBAR SECTIONS =====
@@ -2401,6 +2586,9 @@ async function loadAdmin() {
   const profSec = document.getElementById('brand-profile-section');
   profSec.classList.toggle('hidden', !showVoice);
   if (showVoice) await loadProfile();
+  const xSec = document.getElementById('x-settings-section');
+  xSec.classList.toggle('hidden', !showVoice);
+  if (showVoice) await loadXSettings();
   const styleSec = document.getElementById('slide-style-section');
   styleSec.classList.toggle('hidden', !showVoice);
   if (showVoice) await loadSlideStyle();
@@ -2860,6 +3048,7 @@ async function restoreBackup(ev) {
 // ===== INIT =====
 applyTheme();
 initToggleGroup('.fmt-btn', 'format', 'single');
+initToggleGroup('.xmode-btn', 'xMode', 'short', onXModeChange);
 initToggleGroup('.src-btn', 'source', 'stock');
 initToggleGroup('.plt-btn', 'platform', 'instagram');
 initToggleGroup('.tpl-btn', 'templateStyle', 'branded_card');

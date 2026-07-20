@@ -142,3 +142,34 @@ def test_profile_persists_on_user_row(cloud_client):
                 select(UserModel).where(UserModel.email == "p@example.com"))).scalar_one()
             return u.niche
     assert asyncio.run(_read()) == "Coffee roasting"
+
+
+# ── X plan (PART XXIV) ──────────────────────────────────────────────────────
+
+def test_x_settings_default_off_then_saves(cloud_client):
+    """The premium flag is per-tenant state; the composer gates 'Long post' on it."""
+    h = {"Authorization": f"Bearer {_reg(cloud_client)}"}
+    body = cloud_client.get("/api/settings/x", headers=h).json()
+    assert body["x_premium"] is False
+    assert body["tweet_char_limit"] == 250     # UI shows the same budget it enforces
+    assert body["max_thread_tweets"] == 15
+
+    assert cloud_client.put("/api/settings/x", headers=h,
+                            json={"x_premium": True}).status_code == 200
+    assert cloud_client.get("/api/settings/x", headers=h).json()["x_premium"] is True
+
+
+def test_x_settings_is_per_user(cloud_client):
+    """One tenant turning Premium on must not unlock it for anyone else."""
+    def token(email):
+        return cloud_client.post("/api/auth/register",
+                                 json={"email": email, "password": "password123"}
+                                 ).json()["access_token"]
+    h1 = {"Authorization": f"Bearer {token('x1@example.com')}"}
+    h2 = {"Authorization": f"Bearer {token('x2@example.com')}"}
+    cloud_client.put("/api/settings/x", headers=h1, json={"x_premium": True})
+    assert cloud_client.get("/api/settings/x", headers=h2).json()["x_premium"] is False
+
+
+def test_x_settings_requires_auth(cloud_client):
+    assert cloud_client.get("/api/settings/x").status_code in (401, 403)
