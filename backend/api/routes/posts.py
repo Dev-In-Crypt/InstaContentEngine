@@ -24,7 +24,7 @@ from api.ratelimit import limiter
 from services.brand_engine import PillowBrandEngine
 from services.brand_voice import resolve_brand_voice
 from services.user_settings import (
-    apply_user_slide_style, resolve_user_brand_voice, resolve_user_profile,
+    apply_user_slide_style, resolve_ai_choice, resolve_user_brand_voice, resolve_user_profile,
 )
 from config import Settings
 from models.database import (
@@ -209,8 +209,17 @@ async def generate_post(
             for s in body.slides
         ]
 
-    text_model = body.text_model or settings.default_text_model
-    image_model = body.image_model or settings.default_image_model
+    # The model comes from the tenant's own AI settings (they pay for it), with an
+    # optional per-post override. No platform default in cloud.
+    _tp, _tm, _ = resolve_ai_choice(user, settings, "text")
+    _ip, _im, _ = resolve_ai_choice(user, settings, "image")
+    text_model = body.text_model or _tm
+    image_model = body.image_model or _im
+    if not text_model:
+        raise HTTPException(
+            status_code=400,
+            detail="No text model selected. Choose a provider and model in Account → AI models.",
+        )
 
     async def event_stream() -> AsyncGenerator[str, None]:
         queue: asyncio.Queue = asyncio.Queue()
@@ -555,7 +564,7 @@ async def regenerate_slide(
         search_query=body.search_query or slide.search_query,
         stock_source=body.stock_source or "auto",
         gen_prompt=body.gen_prompt or slide.gen_prompt,
-        gen_model=body.image_model or settings.default_image_model,
+        gen_model=body.image_model or resolve_ai_choice(user, settings, "image")[1],
         page_number=slide.page_number,
     )
 
@@ -864,7 +873,7 @@ async def regenerate_field(
             caption=post.caption or "",
             platform=Platform(post.platform or "instagram"),
             tone="professional",
-            text_model=post.text_model or settings.default_text_model,
+            text_model=post.text_model or resolve_ai_choice(user, settings, "text")[1],
             count=body.count,
             brand_voice=resolve_user_brand_voice(user),
         )

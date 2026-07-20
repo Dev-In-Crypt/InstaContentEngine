@@ -315,3 +315,30 @@ class SlideStyleResponse(BaseModel):
     text_box_color: str = ""
     default_accent_color: str = ""  # what generation falls back to when unset
     palette: list[str] = []         # suggested swatches for the UI
+
+
+# --- AI provider + model selection (per tenant, they pay for it) ---
+
+class AISettingsUpdate(BaseModel):
+    text_provider: Optional[str] = None
+    text_model: Optional[str] = Field(None, max_length=120)
+    image_provider: Optional[str] = None
+    image_model: Optional[str] = Field(None, max_length=120)
+
+
+class AISettingsResponse(BaseModel):
+    text_provider: str = ""
+    text_model: str = ""
+    image_provider: str = ""
+    image_model: str = ""
+    #: {provider_key: {"set": bool, "masked": str|None}} — never raw keys.
+    keys: dict = {}
+
+
+class AITestRequest(BaseModel):
+    kind: str = "text"              # "text" | "image"
+
+
+class AITestResponse(BaseModel):
+    ok: bool
+    message: str

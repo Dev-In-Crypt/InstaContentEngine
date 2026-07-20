@@ -42,9 +42,19 @@ class Settings(BaseSettings):
     openrouter_referer: str = "https://localhost"
     openrouter_app_title: str = "InstaContentEngine"
 
-    # Default models (any OpenRouter model ID works here)
-    default_text_model: str = "anthropic/claude-sonnet-4"
-    default_image_model: str = "openai/dall-e-3"
+    # Other AI providers. Cloud tenants set these per account (encrypted); these
+    # .env values are the local/desktop fallback.
+    openai_api_key: str = ""
+    anthropic_api_key: str = ""
+    google_api_key: str = ""
+
+    # LOCAL/DESKTOP ONLY. Cloud tenants choose provider + model in
+    # Account → AI models; there is deliberately no platform default there, so a
+    # user is never billed for a model someone else picked.
+    default_text_provider: str = "openrouter"
+    default_image_provider: str = "openrouter"
+    default_text_model: str = "anthropic/claude-sonnet-5"
+    default_image_model: str = "google/gemini-3.1-flash-image"
 
     # Stock Photos
     unsplash_access_key: str = ""

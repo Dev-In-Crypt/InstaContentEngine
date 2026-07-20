@@ -17,6 +17,9 @@ from services.secrets import decrypt
 # UserCredentials column that stores it (encrypted).
 _CRED_FIELDS: dict[str, str] = {
     "openrouter_api_key": "openrouter_api_key_enc",
+    "openai_api_key": "openai_api_key_enc",
+    "anthropic_api_key": "anthropic_api_key_enc",
+    "google_api_key": "google_api_key_enc",
     "instagram_access_token": "instagram_access_token_enc",
     "instagram_user_id": "instagram_user_id_enc",
     "imgbb_api_key": "imgbb_api_key_enc",
@@ -62,6 +65,32 @@ def resolve_user_brand_voice(user: Optional[UserModel]) -> str:
     if user is None:
         return resolve_brand_voice(None)
     return resolve_brand_voice(user.brand_voice_preset, user.brand_voice_custom)
+
+
+def resolve_ai_choice(user: Optional[UserModel], settings: Settings,
+                      kind: str = "text") -> tuple[Optional[str], Optional[str], str]:
+    """Which (provider, model, api_key) this user generates `kind` with.
+
+    Local/desktop users keep using the .env values so the offline app is unaffected.
+    Cloud users must choose explicitly — an unset provider or model returns None so
+    the caller can raise a clear "configure it in Account" error rather than
+    silently spending on a model the user never picked.
+    """
+    from services.ai.catalog import key_field_for
+
+    if user is None or getattr(user, "is_local", False):
+        provider = (settings.default_text_provider if kind == "text"
+                    else settings.default_image_provider)
+        model = (settings.default_text_model if kind == "text"
+                 else settings.default_image_model)
+    else:
+        provider = user.text_provider if kind == "text" else user.image_provider
+        model = user.text_model if kind == "text" else user.image_model
+    if not provider or not model:
+        return provider or None, model or None, ""
+    field = key_field_for(provider)
+    api_key = getattr(settings, field, "") if field else ""
+    return provider, model, api_key or ""
 
 
 def apply_user_slide_style(cfg, user: Optional[UserModel]):

@@ -39,6 +39,14 @@ class User(Base):
     # Slide colours (per-tenant). Null → the platform default brand preset is used.
     slide_accent_color = Column(String(7))     # niche box fill, "#rrggbb"
     slide_text_box_color = Column(String(7))   # description box fill
+    # Which AI provider + model this tenant generates with. Text and images are
+    # independent (e.g. OpenRouter for copy, Google for images). The API key for
+    # each provider lives encrypted on UserCredentials. No platform default in
+    # cloud: unset means generation is blocked until the user chooses.
+    text_provider = Column(String(30))
+    text_model = Column(String(120))
+    image_provider = Column(String(30))
+    image_model = Column(String(120))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     credentials = relationship("UserCredentials", back_populates="user",
@@ -53,7 +61,12 @@ class UserCredentials(Base):
 
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"),
                      primary_key=True)
+    # One key per provider — it serves both text and images when the user picks
+    # the same provider for both.
     openrouter_api_key_enc = Column(Text)
+    openai_api_key_enc = Column(Text)
+    anthropic_api_key_enc = Column(Text)
+    google_api_key_enc = Column(Text)
     instagram_access_token_enc = Column(Text)
     instagram_user_id_enc = Column(Text)
     imgbb_api_key_enc = Column(Text)

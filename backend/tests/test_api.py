@@ -73,14 +73,21 @@ def test_list_image_models(client):
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) > 0
-    assert any(m["name"] == "dall-e-3" for m in data)
+    # every entry names the provider it belongs to, not an OpenRouter slug prefix
+    assert all(m["provider"] in {"openrouter", "openai", "google"} for m in data)
 
 
-def test_model_defaults(client):
-    resp = client.get("/api/models/defaults")
+def test_provider_catalogue(client):
+    """Drives the Account dropdowns; must be usable before any key is entered."""
+    resp = client.get("/api/models/providers")
     assert resp.status_code == 200
     body = resp.json()
-    assert "text_model" in body and "image_model" in body
+    assert body["text"] and body["image"]
+    assert {p["key"] for p in body["text"]} >= {"openrouter", "openai", "anthropic", "google"}
+    # Anthropic has no image generation, so it must not be offered for images
+    assert "anthropic" not in {p["key"] for p in body["image"]}
+    # the catalogue never carries secrets
+    assert all("api_key" not in p for p in body["text"])
 
 
 # ── request validation ──────────────────────────────────────────────────────
@@ -146,7 +153,7 @@ def cloud_client(client):
     "/api/stock/search?query=run",
     "/api/models/text",
     "/api/models/image",
-    "/api/models/defaults",
+    "/api/models/providers",
 ])
 def test_protected_routes_401_without_jwt(cloud_client, path):
     assert cloud_client.get(path).status_code == 401

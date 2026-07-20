@@ -12,9 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.deps import _CRED_FIELDS, get_current_user, get_db
 from models.database import User as UserModel, UserCredentials as UserCredentialsModel
 from models.schemas import (
-    NICHE_BOX_PALETTE, BrandVoiceResponse, BrandVoiceUpdate, ProfileResponse, ProfileUpdate,
+    NICHE_BOX_PALETTE, AISettingsResponse, AISettingsUpdate, AITestRequest, AITestResponse,
+    BrandVoiceResponse, BrandVoiceUpdate, ProfileResponse, ProfileUpdate,
     SlideStyleResponse, SlideStyleUpdate,
 )
+from services.ai.catalog import IMAGE, PROVIDERS, TEXT, is_valid_provider
 from services.brand_engine import BrandConfig
 from services.brand_voice import DEFAULT_PRESET, is_valid_preset, list_presets
 from services.secrets import decrypt, encrypt
@@ -29,6 +31,9 @@ class CredentialsUpdate(BaseModel):
     """Every field optional. A present empty string clears that key; an omitted
     field leaves it unchanged."""
     openrouter_api_key: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    google_api_key: Optional[str] = None
     instagram_access_token: Optional[str] = None
     instagram_user_id: Optional[str] = None
     imgbb_api_key: Optional[str] = None
@@ -167,3 +172,96 @@ async def put_slide_style(
         user.slide_text_box_color = body.text_box_color or None
     await db.commit()
     return {"status": "ok"}
+
+
+# ── AI provider + model (each tenant picks, and pays for, their own) ─────────
+
+@router.get("/ai", response_model=AISettingsResponse)
+async def get_ai_settings(
+    user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> AISettingsResponse:
+    creds = await db.get(UserCredentialsModel, user.id)
+    keys: dict[str, dict] = {}
+    for provider, meta in PROVIDERS.items():
+        column = _CRED_FIELDS.get(meta["key_field"])
+        raw = decrypt(getattr(creds, column) or "") if (creds and column) else ""
+        keys[provider] = {"set": bool(raw), "masked": _mask(raw)}
+    return AISettingsResponse(
+        text_provider=user.text_provider or "",
+        text_model=user.text_model or "",
+        image_provider=user.image_provider or "",
+        image_model=user.image_model or "",
+        keys=keys,
+    )
+
+
+@router.put("/ai")
+async def put_ai_settings(
+    body: AISettingsUpdate,
+    user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    from fastapi import HTTPException
+
+    if body.text_provider is not None:
+        if body.text_provider and not is_valid_provider(body.text_provider, TEXT):
+            raise HTTPException(status_code=422, detail="Unknown text provider")
+        user.text_provider = body.text_provider or None
+    if body.image_provider is not None:
+        if body.image_provider and not is_valid_provider(body.image_provider, IMAGE):
+            raise HTTPException(
+                status_code=422,
+                detail="Unknown image provider (note: Anthropic cannot generate images)")
+        user.image_provider = body.image_provider or None
+    # Any model id is accepted — the catalogue is a shortlist, not a whitelist, so a
+    # newly released model is usable without waiting for a release.
+    if body.text_model is not None:
+        user.text_model = body.text_model.strip() or None
+    if body.image_model is not None:
+        user.image_model = body.image_model.strip() or None
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/ai/test", response_model=AITestResponse)
+async def test_ai_settings(
+    body: AITestRequest,
+    user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> AITestResponse:
+    """Prove the provider + model + key actually work, before the user relies on
+    them. This is what catches a retired model id up front instead of mid-generation."""
+    from services.ai.base import AIError
+    from services.ai.factory import make_image_provider, make_text_provider
+    from services.user_settings import build_settings_for_user, resolve_ai_choice
+
+    kind = "image" if body.kind == "image" else "text"
+    settings = await build_settings_for_user(db, user)
+    provider, model, api_key = resolve_ai_choice(user, settings, kind)
+    if not provider or not model:
+        return AITestResponse(ok=False, message=f"Choose a {kind} provider and model first.")
+    if not api_key:
+        label = PROVIDERS[provider]["label"] if provider in PROVIDERS else provider
+        return AITestResponse(ok=False, message=f"Add your {label} API key first.")
+
+    client = None
+    try:
+        if kind == "image":
+            client = make_image_provider(provider, api_key, ssl_verify=settings.ssl_verify)
+            await client.generate_image(model=model, prompt="A single small grey square.")
+        else:
+            client = make_text_provider(provider, api_key, ssl_verify=settings.ssl_verify)
+            await client.generate_text(model=model, system_prompt="Reply with OK.",
+                                       user_prompt="Say OK.", max_tokens=16)
+        return AITestResponse(ok=True, message=f"{model} works.")
+    except AIError as exc:
+        return AITestResponse(ok=False, message=str(exc)[:400])
+    except Exception as exc:                      # never leak a stack trace to the UI
+        return AITestResponse(ok=False, message=f"Test failed: {type(exc).__name__}")
+    finally:
+        if client is not None:
+            try:
+                await client.close()
+            except Exception:
+                pass

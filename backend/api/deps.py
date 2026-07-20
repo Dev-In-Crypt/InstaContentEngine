@@ -18,7 +18,9 @@ from models.database import (
 from services.openrouter import current_user_id
 # Per-user effective Settings live in the services layer; re-exported so
 # api/routes/settings.py (imports _CRED_FIELDS) and get_effective_settings work.
-from services.user_settings import _CRED_FIELDS, build_settings_for_user  # noqa: F401
+from services.user_settings import (  # noqa: F401
+    _CRED_FIELDS, build_settings_for_user, resolve_ai_choice,
+)
 from services.auth import decode_access_token_claims
 from services.openrouter import OpenRouterClient
 from services.caption_generator import CaptionGenerator
@@ -219,12 +221,54 @@ def get_stock(settings: Annotated[Settings, Depends(get_effective_settings)]) ->
     )
 
 
+@lru_cache
+def _get_ai_provider(provider: str, api_key: str, ssl_verify: bool,
+                     referer: str, app_title: str):
+    """Cached per (provider, key) — the provider MUST be part of the key, otherwise
+    one tenant would be handed a client built for another's vendor."""
+    from services.ai.factory import make_text_provider
+    return make_text_provider(provider, api_key, ssl_verify=ssl_verify,
+                              referer=referer, app_title=app_title)
+
+
+def _ai_provider_or_none(provider: Optional[str], api_key: str, settings: Settings):
+    """Build a provider, or None when the tenant has not configured one yet.
+    The route turns None into a clear "choose a model in Account" error."""
+    from services.ai.base import AIError
+    if not provider or not api_key:
+        return None
+    try:
+        return _get_ai_provider(provider, api_key, settings.ssl_verify,
+                                settings.openrouter_referer, settings.openrouter_app_title)
+    except AIError:
+        return None
+
+
+def get_text_provider(
+    user: Annotated[UserModel, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_effective_settings)],
+):
+    provider, _model, api_key = resolve_ai_choice(user, settings, "text")
+    return _ai_provider_or_none(provider, api_key, settings)
+
+
+def get_image_provider(
+    user: Annotated[UserModel, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_effective_settings)],
+):
+    provider, _model, api_key = resolve_ai_choice(user, settings, "image")
+    return _ai_provider_or_none(provider, api_key, settings)
+
+
 def get_content_engine(
-    openrouter: Annotated[OpenRouterClient, Depends(get_openrouter)],
+    text_provider: Annotated[object, Depends(get_text_provider)],
+    image_provider: Annotated[object, Depends(get_image_provider)],
     stock: Annotated[StockClient, Depends(get_stock)],
     brand_engine: Annotated[PillowBrandEngine, Depends(get_brand_engine)],
 ) -> ContentEngine:
-    caption_gen = CaptionGenerator(openrouter)
-    image_router = ImageRouter(image_provider=openrouter, stock_client=stock)
+    # Text and images are independent: a tenant may use OpenRouter for copy and
+    # Google for images, so these are two different objects.
+    caption_gen = CaptionGenerator(text_provider)
+    image_router = ImageRouter(image_provider=image_provider, stock_client=stock)
     exporter = TemplateExporter()
     return ContentEngine(caption_gen, image_router, brand_engine, exporter)

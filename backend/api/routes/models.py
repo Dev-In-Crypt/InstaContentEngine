@@ -1,35 +1,37 @@
-from typing import Annotated
+"""The model catalogue that drives the Account → AI models dropdowns.
+
+Served WITHOUT the user's API key on purpose: the provider and model pickers have
+to populate *before* a key is entered. The lists are curated (OpenRouter alone
+exposes hundreds of models), and any model id is still accepted on save, so a newly
+released model never requires a deploy.
+"""
 from fastapi import APIRouter, Depends
+
+from api.deps import require_token
 from models.schemas import ModelInfo
-from services.openrouter import TEXT_MODELS, IMAGE_MODELS
-from api.deps import get_settings, require_token
-from config import Settings
+from services.ai.catalog import IMAGE, TEXT, list_providers
 
 router = APIRouter(prefix="/api/models", tags=["models"], dependencies=[Depends(require_token)])
 
 
+def _flatten(kind: str) -> list[ModelInfo]:
+    return [
+        ModelInfo(id=m["id"], name=m["label"], provider=p["key"])
+        for p in list_providers(kind) for m in p["models"]
+    ]
+
+
+@router.get("/providers")
+async def list_ai_providers() -> dict:
+    """Full catalogue, grouped by provider, for both modalities."""
+    return {"text": list_providers(TEXT), "image": list_providers(IMAGE)}
+
+
 @router.get("/text", response_model=list[ModelInfo])
 async def list_text_models() -> list[ModelInfo]:
-    return [
-        ModelInfo(id=model_id, name=alias, provider=model_id.split("/")[0])
-        for alias, model_id in TEXT_MODELS.items()
-    ]
+    return _flatten(TEXT)
 
 
 @router.get("/image", response_model=list[ModelInfo])
 async def list_image_models() -> list[ModelInfo]:
-    return [
-        ModelInfo(id=model_id, name=alias, provider=model_id.split("/")[0])
-        for alias, model_id in IMAGE_MODELS.items()
-    ]
-
-
-@router.get("/defaults")
-async def get_default_models(
-    settings: Annotated[Settings, Depends(get_settings)],
-) -> dict:
-    """Returns the default models configured in .env."""
-    return {
-        "text_model": settings.default_text_model,
-        "image_model": settings.default_image_model,
-    }
+    return _flatten(IMAGE)
