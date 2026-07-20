@@ -393,6 +393,66 @@ class SlideStyleResponse(BaseModel):
 
 # --- X-specific account settings ---
 
+class PostPreset(BaseModel):
+    """A saved bundle of composer settings — the "how" of a post, not the "what"
+    (topic/niche live elsewhere). Applied in one click from the composer."""
+    name: str = Field(..., min_length=1, max_length=40)
+    format: PostFormat = PostFormat.SINGLE
+    tone: str = Field("professional", max_length=40)
+    length_tier: LengthTier = LengthTier.SWEET_SPOT
+    default_image_source: ImageSource = ImageSource.STOCK
+    platform: Platform = Platform.INSTAGRAM
+    template_style: TemplateStyle = TemplateStyle.BRANDED_CARD
+    niche_box_color: Optional[str] = None
+    apply_branding: bool = True
+    show_logo: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def _clean_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("preset name cannot be blank")
+        return v
+
+    @field_validator("niche_box_color")
+    @classmethod
+    def _validate_color(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return None
+        v = v.strip().lower()
+        if not re.fullmatch(HEX_COLOR_RE, v):
+            raise ValueError("niche_box_color must be a hex value like #ff751f")
+        return v
+
+    @field_validator("default_image_source")
+    @classmethod
+    def _no_upload(cls, v: ImageSource) -> ImageSource:
+        # A preset stores settings, not files — "my photos" can't be a default.
+        if v == ImageSource.UPLOAD:
+            raise ValueError("a preset cannot use uploaded photos as its image source")
+        return v
+
+
+class PresetsUpdate(BaseModel):
+    presets: list[PostPreset] = Field(default_factory=list)
+
+    @field_validator("presets")
+    @classmethod
+    def _bounded_and_unique(cls, v: list[PostPreset]) -> list[PostPreset]:
+        if len(v) > 20:
+            raise ValueError("at most 20 presets")
+        # De-dupe by name, last one wins (a re-save replaces the old).
+        by_name: dict[str, PostPreset] = {}
+        for p in v:
+            by_name[p.name.lower()] = p
+        return list(by_name.values())
+
+
+class PresetsResponse(BaseModel):
+    presets: list[PostPreset] = []
+
+
 class LogoSettingsResponse(BaseModel):
     """The tenant's brand logo — whether one is set, and where to preview it."""
     set: bool = False

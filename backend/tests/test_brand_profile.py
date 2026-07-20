@@ -269,3 +269,66 @@ def test_one_tenant_cannot_see_anothers_logo(cloud_client, logo_root):
     # B has uploaded nothing — must not receive A's logo.
     assert cloud_client.get("/api/settings/logo", headers=hb).json()["set"] is False
     assert cloud_client.get("/api/settings/logo/image", headers=hb).status_code == 404
+
+
+# ── saved composer presets (PART XXXII) ─────────────────────────────────────
+
+def _preset(name, **over):
+    base = {"name": name, "format": "carousel_5", "tone": "educational",
+            "length_tier": "sweet_spot", "default_image_source": "stock",
+            "platform": "instagram", "template_style": "branded_card",
+            "apply_branding": True, "show_logo": True}
+    base.update(over)
+    return base
+
+
+def test_presets_default_empty_then_saves(cloud_client):
+    h = {"Authorization": f"Bearer {_reg(cloud_client)}"}
+    assert cloud_client.get("/api/settings/presets", headers=h).json() == {"presets": []}
+
+    cloud_client.put("/api/settings/presets", headers=h,
+                     json={"presets": [_preset("Weekly carousel")]})
+    got = cloud_client.get("/api/settings/presets", headers=h).json()["presets"]
+    assert len(got) == 1
+    assert got[0]["name"] == "Weekly carousel" and got[0]["format"] == "carousel_5"
+
+
+def test_presets_reject_bad_enum(cloud_client):
+    h = {"Authorization": f"Bearer {_reg(cloud_client)}"}
+    assert cloud_client.put("/api/settings/presets", headers=h,
+                            json={"presets": [_preset("x", format="carousel_99")]}).status_code == 422
+    assert cloud_client.put("/api/settings/presets", headers=h,
+                            json={"presets": [_preset("x", length_tier="epic")]}).status_code == 422
+
+
+def test_presets_reject_upload_source(cloud_client):
+    """A preset stores settings, not files — 'my photos' can't be its source."""
+    h = {"Authorization": f"Bearer {_reg(cloud_client)}"}
+    assert cloud_client.put("/api/settings/presets", headers=h,
+                            json={"presets": [_preset("x", default_image_source="upload")]}
+                            ).status_code == 422
+
+
+def test_presets_cap_at_twenty(cloud_client):
+    h = {"Authorization": f"Bearer {_reg(cloud_client)}"}
+    many = {"presets": [_preset(f"p{i}") for i in range(21)]}
+    assert cloud_client.put("/api/settings/presets", headers=h, json=many).status_code == 422
+
+
+def test_presets_dedupe_by_name(cloud_client):
+    h = {"Authorization": f"Bearer {_reg(cloud_client)}"}
+    cloud_client.put("/api/settings/presets", headers=h, json={"presets": [
+        _preset("Same", format="single"), _preset("Same", format="carousel_3")]})
+    got = cloud_client.get("/api/settings/presets", headers=h).json()["presets"]
+    assert len(got) == 1 and got[0]["format"] == "carousel_3"   # last one wins
+
+
+def test_presets_are_per_user(cloud_client):
+    def token(email):
+        return cloud_client.post("/api/auth/register",
+                                 json={"email": email, "password": "password123"}
+                                 ).json()["access_token"]
+    ha = {"Authorization": f"Bearer {token('pa@example.com')}"}
+    hb = {"Authorization": f"Bearer {token('pb@example.com')}"}
+    cloud_client.put("/api/settings/presets", headers=ha, json={"presets": [_preset("Mine")]})
+    assert cloud_client.get("/api/settings/presets", headers=hb).json() == {"presets": []}

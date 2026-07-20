@@ -40,6 +40,7 @@ class User(Base):
     slide_accent_color = Column(String(7))     # niche box fill, "#rrggbb"
     slide_text_box_color = Column(String(7))   # description box fill
     logo_path = Column(Text)                   # the tenant's own brand logo, drawn on slides
+    post_presets = Column(JSON)                # saved composer settings, [{name, ...}]
     # Which AI provider + model this tenant generates with. Text and images are
     # independent (e.g. OpenRouter for copy, Google for images). The API key for
     # each provider lives encrypted on UserCredentials. No platform default in

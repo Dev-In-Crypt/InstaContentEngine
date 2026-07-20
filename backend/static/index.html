@@ -398,6 +398,16 @@
   <section id="step-2" class="step-section hidden bg-gray-900 rounded-2xl p-6 space-y-5">
     <h2 class="text-lg font-semibold text-purple-300">⚙️ Format & images</h2>
 
+    <!-- Presets: apply a saved bundle of the settings below (cloud accounts only) -->
+    <div id="preset-row" class="hidden flex flex-wrap items-center gap-2 bg-gray-800/60 rounded-xl px-3 py-2">
+      <span class="text-xs text-gray-400">Preset</span>
+      <select id="preset-select" class="ce-input px-2 py-1 text-sm min-w-[10rem]"></select>
+      <button onclick="applySelectedPreset()" class="ce-btn-ghost px-3 py-1 text-xs">Apply</button>
+      <button onclick="saveCurrentPreset()" class="ce-btn-ghost px-3 py-1 text-xs">💾 Save current</button>
+      <button onclick="deleteSelectedPreset()" class="ce-btn-ghost px-3 py-1 text-xs">Delete</button>
+      <span class="text-[10px] text-gray-500 w-full">A preset stores these settings, not your topic or photos.</span>
+    </div>
+
     <!-- Instagram formats. Hidden on X, which has no carousels. -->
     <div id="format-group">
       <label class="block text-sm text-gray-400 mb-2">Post format</label>
@@ -462,8 +472,8 @@
         </div>
         <div id="own-photos-grid" class="flex flex-wrap gap-2"></div>
         <p class="text-xs text-gray-500">
-          One photo per slide, in this order. Each is cropped to the post format from the
-          centre, so portrait shots fit best. Nothing is sent to a stock or AI provider.
+          One photo per slide, in this order — drag to reorder. Each is cropped to the post
+          format from the centre, so portrait shots fit best. Nothing is sent to a stock or AI provider.
         </p>
       </div>
     </div>
@@ -1047,8 +1057,102 @@ async function startApp() {
   if (S.user && !S.user.is_local) {
     await loadProfile();
     await loadXSettings();   // the composer gates "Long post" on this
+    await loadPresets();     // saved composer settings, shown in step 2
     maybeShowOnboarding();
   }
+}
+
+// ===== POST PRESETS =====
+// A preset is the "how" of a post — the settings below — not the topic or photos.
+S.presets = [];
+
+function _currentPreset(name) {
+  return {
+    name,
+    format: S.format,
+    tone: document.getElementById('tone').value,
+    length_tier: document.getElementById('length-tier').value,
+    // 'upload' is per-post files, not a reusable setting — store stock instead.
+    default_image_source: S.source === 'upload' ? 'stock' : S.source,
+    platform: S.network || 'instagram',
+    template_style: S.templateStyle,
+    niche_box_color: S.nicheBoxColor || null,
+    apply_branding: document.getElementById('apply-brand').checked,
+    show_logo: document.getElementById('show-logo').checked,
+  };
+}
+
+function renderPresetSelect() {
+  const row = document.getElementById('preset-row');
+  const sel = document.getElementById('preset-select');
+  if (!row || !sel) return;
+  const cloud = S.user && !S.user.is_local;
+  row.classList.toggle('hidden', !cloud);
+  sel.innerHTML = S.presets.length
+    ? S.presets.map(p => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join('')
+    : '<option value="">No presets yet</option>';
+}
+
+async function loadPresets() {
+  try {
+    const res = await apiFetch(`${API}/api/settings/presets`);
+    if (res.ok) S.presets = (await res.json()).presets || [];
+  } catch { /* 401 handled by apiFetch */ }
+  renderPresetSelect();
+}
+
+async function _savePresets() {
+  const res = await apiFetch(`${API}/api/settings/presets`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ presets: S.presets }),
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Save failed'); }
+  S.presets = (await res.json()).presets || [];   // server deduped/validated
+  renderPresetSelect();
+}
+
+function _clickToggle(selector, value) {
+  const btn = document.querySelector(`${selector}[data-val="${value}"]`);
+  if (btn) btn.click();            // updates both S and the visual state
+}
+
+function applySelectedPreset() {
+  const name = document.getElementById('preset-select').value;
+  const p = S.presets.find(x => x.name === name);
+  if (!p) return;
+  if ((p.platform || 'instagram') !== (S.network || 'instagram')) setNetwork(p.platform);
+  _clickToggle('.fmt-btn', p.format);
+  _clickToggle('.src-btn', p.default_image_source);
+  _clickToggle('.tpl-btn', p.template_style);
+  document.getElementById('tone').value = p.tone;
+  document.getElementById('length-tier').value = p.length_tier;
+  document.getElementById('apply-brand').checked = !!p.apply_branding;
+  document.getElementById('show-logo').checked = !!p.show_logo;
+  // Click the matching swatch so both S and the selected-outline update; a custom
+  // colour not in the palette just sets state (no swatch to highlight).
+  const swatches = document.getElementById('niche-color-swatches');
+  const swatch = swatches && swatches.querySelector(`button[data-color="${p.niche_box_color || ''}"]`);
+  if (swatch) swatch.click(); else S.nicheBoxColor = p.niche_box_color || null;
+  renderOwnPhotos();               // slide count may have changed
+  toast(`Applied “${p.name}”`, 'info');
+}
+
+async function saveCurrentPreset() {
+  const name = (prompt('Name this preset:') || '').trim();
+  if (!name) return;
+  const preset = _currentPreset(name);
+  const i = S.presets.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
+  if (i >= 0) S.presets[i] = preset; else S.presets.push(preset);
+  try { await _savePresets(); document.getElementById('preset-select').value = name; toast('✅ Preset saved', 'success'); }
+  catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+async function deleteSelectedPreset() {
+  const name = document.getElementById('preset-select').value;
+  if (!name || !S.presets.some(p => p.name === name)) return;
+  S.presets = S.presets.filter(p => p.name !== name);
+  try { await _savePresets(); toast('Preset deleted', 'info'); }
+  catch (e) { toast('❌ ' + e.message, 'error'); }
 }
 
 function renderUserChrome() {
@@ -1374,10 +1478,27 @@ function renderOwnPhotos() {
   S.ownPhotos.forEach((file, i) => {
     const cell = document.createElement('div');
     cell.className = 'relative';
+    // Drag to reorder: the array order is the slide order (see stageOwnPhotos).
+    cell.draggable = true;
+    cell.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('text/plain', String(i));
+      cell.classList.add('opacity-40');
+    });
+    cell.addEventListener('dragend', () => cell.classList.remove('opacity-40'));
+    cell.addEventListener('dragover', e => { e.preventDefault(); cell.classList.add('ring-2', 'ring-purple-400'); });
+    cell.addEventListener('dragleave', () => cell.classList.remove('ring-2', 'ring-purple-400'));
+    cell.addEventListener('drop', e => {
+      e.preventDefault();
+      const from = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      if (Number.isNaN(from) || from === i) return;
+      const [moved] = S.ownPhotos.splice(from, 1);
+      S.ownPhotos.splice(i, 0, moved);
+      renderOwnPhotos();            // renumbers the badges to the new order
+    });
     const img = document.createElement('img');
     img.src = URL.createObjectURL(file);
     img.onload = () => URL.revokeObjectURL(img.src);
-    img.className = 'w-16 h-20 object-cover rounded-lg border border-gray-700';
+    img.className = 'w-16 h-20 object-cover rounded-lg border border-gray-700 cursor-move';
     img.alt = `Photo ${i + 1}`;
     cell.appendChild(img);
     const badge = document.createElement('span');

@@ -14,8 +14,9 @@ from api.deps import _CRED_FIELDS, get_current_user, get_db
 from models.database import User as UserModel, UserCredentials as UserCredentialsModel
 from models.schemas import (
     NICHE_BOX_PALETTE, AISettingsResponse, AISettingsUpdate, AITestRequest, AITestResponse,
-    BrandVoiceResponse, BrandVoiceUpdate, LogoSettingsResponse, ProfileResponse, ProfileUpdate,
-    SlideStyleResponse, SlideStyleUpdate, XSettingsResponse, XSettingsUpdate,
+    BrandVoiceResponse, BrandVoiceUpdate, LogoSettingsResponse, PresetsResponse, PresetsUpdate,
+    ProfileResponse, ProfileUpdate, SlideStyleResponse, SlideStyleUpdate,
+    XSettingsResponse, XSettingsUpdate,
 )
 from services import logo_store
 from services.ai.catalog import IMAGE, PROVIDERS, TEXT, is_valid_provider
@@ -198,6 +199,28 @@ async def put_x_settings(
     user.x_premium = body.x_premium
     await db.commit()
     return {"status": "ok"}
+
+
+# ── Saved composer presets (per-tenant convenience) ─────────────────────────
+
+@router.get("/presets", response_model=PresetsResponse)
+async def get_presets(
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> PresetsResponse:
+    return PresetsResponse(presets=user.post_presets or [])
+
+
+@router.put("/presets", response_model=PresetsResponse)
+async def put_presets(
+    body: PresetsUpdate,
+    user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> PresetsResponse:
+    # Whole-list replace (like /slide-style): the client sends the full array
+    # after an add/rename/delete. Pydantic already validated and de-duped.
+    user.post_presets = [p.model_dump(mode="json") for p in body.presets] or None
+    await db.commit()
+    return PresetsResponse(presets=body.presets)
 
 
 # ── Brand logo (per-tenant, drawn in the corner of every slide) ─────────────
