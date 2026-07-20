@@ -5,7 +5,7 @@ from typing import Optional
 
 from models.schemas import LengthTier, Platform, TWEET_CHAR_LIMIT, XPostMode
 from services.brand_voice import resolve_brand_voice
-from services.x_text import clamp_count, enforce_parts
+from services.x_text import clamp_count, enforce_parts, strip_markdown
 
 
 def _frame_brand_voice(brand_voice: Optional[str]) -> str:
@@ -124,6 +124,8 @@ Write for X. HARD RULES:
   "hashtags" field when the post goes out, so repeating them here publishes them twice.
 - Caption plus hashtags must fit 250 characters, so keep the caption near 200.
 - One sharp hook, one idea, natural English, no em-dash.
+- Plain text only. X renders no markdown: no [text](url), no **bold**, no headings.
+  Cite a source by naming it and putting the bare URL in parentheses.
 - 1-2 relevant hashtags maximum, in the "hashtags" field (X posts do not use hashtag walls).
 - A single image accompanies the post; no carousels.
 - Ready to copy-paste, no preamble.
@@ -154,8 +156,12 @@ Write ONE thread. HARD RULES:
   the one before it, no restating and no standalone summaries in the middle.
 - Tweet 1 is the hook. The last tweet lands the conclusion and the call to action.
 - No "1/7" style numbering — X already shows the chain.
-- Hashtags only in the LAST tweet, 1-2 of them. Max 1-2 emojis in the whole thread.
+- NO hashtags anywhere in the tweets. They go in the "hashtags" field and are
+  appended to the last tweet at publish time; writing them here posts them twice.
+- Max 1-2 emojis in the whole thread.
 - Natural English, no em-dash, ready to copy-paste.
+- Plain text only. X renders no markdown: no [text](url), no **bold**, no headings.
+  Cite a source by naming it and putting the bare URL in parentheses.
 - "caption" must repeat the FIRST tweet verbatim (it is what previews show).
 
 {length_instruction}
@@ -182,7 +188,11 @@ does not apply). HARD RULES:
   paragraphs separated by blank lines. Mobile readers skim — keep paragraphs tight.
 - One coherent argument from start to finish, no bullet-point dump.
 - End with a conclusion and a single call to action.
-- 1-2 hashtags at the very end only. Few emojis. No em-dash.
+- NO hashtags in the post text. Put 1-2 in the "hashtags" field; they are appended
+  at publish time, so writing them here posts them twice.
+- Few emojis. No em-dash.
+- Plain text only. X renders no markdown: no [text](url), no **bold**, no headings.
+  Cite a source by naming it and putting the bare URL in parentheses.
 - Leave "thread" out entirely — this is a single post.
 
 {length_instruction}
@@ -309,6 +319,12 @@ class CaptionGenerator:
         result = self._parse(raw)
         result.sources = citations
 
+        if platform == Platform.X:
+            # Before any length work: X publishes markdown literally, so the flattened
+            # text is what the budget below has to be measured against.
+            result.caption = strip_markdown(result.caption)
+            result.thread_parts = [strip_markdown(p) for p in result.thread_parts]
+
         if platform == Platform.X and x_mode == XPostMode.THREAD and result.thread_parts:
             # Models overshoot the per-tweet budget and the requested count; fix both
             # here rather than trusting the prompt alone.
@@ -317,6 +333,17 @@ class CaptionGenerator:
                 parts,
                 shorten=lambda text, limit: self.shorten_text(text, limit, text_model),
             )
+            # The hashtags are appended to the LAST tweet at publish time, so that
+            # tweet's own budget is what's left after them — otherwise publishing
+            # would have to trim a tweet the user already approved in the preview.
+            tags = " ".join(result.hashtags or []).strip()
+            last_budget = TWEET_CHAR_LIMIT - (len(tags) + 2 if tags else 0)
+            if parts and last_budget > 0 and len(parts[-1]) > last_budget:
+                parts[-1] = (await enforce_parts(
+                    [parts[-1]],
+                    shorten=lambda text, limit: self.shorten_text(text, limit, text_model),
+                    limit=last_budget,
+                ))[0]
             result.thread_parts = parts
             # `caption` is left as the model wrote it; content_engine joins the parts
             # for the stored caption so there is exactly one place that decides it.

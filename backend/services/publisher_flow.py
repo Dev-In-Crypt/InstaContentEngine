@@ -14,9 +14,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from models.database import Post as PostModel
+from models.schemas import TWEET_CHAR_LIMIT
 from services.instagram import InstagramPublisher
 from services.publishing.factory import make_publisher_for
 from services.user_settings import settings_for_post_owner
+from services.x_text import append_tags
 
 
 class PublishError(Exception):
@@ -75,16 +77,28 @@ async def publish_now(sessionmaker, post_id: str) -> str:
             raise PublishError("No slides to publish")
 
         tags = " ".join(post.hashtags or []).strip()
-        caption = f"{post.caption or ''}\n\n{tags}".strip()
+        body = (post.caption or "").strip()
         thread_parts = list(post.thread_parts or [])
+
+        # A caption already over the tweet limit, with no thread, is an X Premium
+        # long post — the cap doesn't apply to it and it must not be trimmed.
+        long_form = platform == "x" and not thread_parts and len(body) > TWEET_CHAR_LIMIT
+        if platform == "x":
+            # X is the only platform with a budget tight enough for the hashtags to
+            # matter, so it gets append_tags; the rest keep the plain join.
+            caption = append_tags(body, tags, limit=None if long_form else TWEET_CHAR_LIMIT)
+        else:
+            caption = f"{body}\n\n{tags}".strip()
 
         try:
             if thread_parts and platform == "x":
                 # Hashtags belong at the END of a thread, not on the hook tweet.
-                if tags:
-                    thread_parts[-1] = f"{thread_parts[-1]}\n\n{tags}".strip()
+                thread_parts[-1] = append_tags(thread_parts[-1], tags)
                 outcome = await publisher.publish_thread(
                     thread_parts, images, post.alt_text or "")
+            elif platform == "x":
+                outcome = await publisher.publish(
+                    images, caption, post.alt_text or "", long_form=long_form)
             else:
                 outcome = await publisher.publish(images, caption, post.alt_text or "")
         except Exception as e:

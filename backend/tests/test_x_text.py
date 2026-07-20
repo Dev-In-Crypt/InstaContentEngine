@@ -2,7 +2,9 @@
 import pytest
 
 from models.schemas import TWEET_CHAR_LIMIT
-from services.x_text import clamp_count, enforce_parts, fit_tweet, looks_truncated
+from services.x_text import (
+    append_tags, clamp_count, enforce_parts, fit_tweet, looks_truncated, strip_markdown,
+)
 
 
 def test_short_text_is_untouched():
@@ -107,3 +109,51 @@ async def test_enforce_works_without_a_shortener():
 def test_looks_truncated():
     assert looks_truncated("cut here…")
     assert not looks_truncated("A complete thought.")
+
+
+# ── append_tags: the hashtags are the part that must survive ────────────────
+
+def test_append_tags_shortens_the_body_not_the_tags():
+    """A cut inside "#FitnessOver40" publishes a different tag, so the text yields."""
+    tags = "#FitnessOver40 #StrengthTraining"
+    out = append_tags("word " * 80, tags)
+    assert len(out) <= TWEET_CHAR_LIMIT
+    assert out.endswith(tags)                 # every tag intact, none clipped
+    assert "…" in out                         # the body is what gave way
+
+
+def test_append_tags_leaves_a_fitting_tweet_alone():
+    out = append_tags("Short and done.", "#Sleep")
+    assert out == "Short and done.\n\n#Sleep"
+
+
+def test_append_tags_without_tags_is_a_no_op():
+    assert append_tags("Just the tweet.", "") == "Just the tweet."
+    assert append_tags("Just the tweet.", "   ") == "Just the tweet."
+
+
+def test_append_tags_skips_the_limit_for_long_form():
+    """X Premium lifts the cap — a 900-char post must not be trimmed to make room."""
+    body = "sentence. " * 90
+    out = append_tags(body, "#Premium", limit=None)
+    assert len(out) > TWEET_CHAR_LIMIT
+    assert "…" not in out
+
+
+# ── strip_markdown: X publishes markdown literally ──────────────────────────
+
+def test_strip_markdown_keeps_the_url_of_a_link():
+    out = strip_markdown("A [JAMA study](https://jama.org/x) found that walking works.")
+    assert out == "A JAMA study (https://jama.org/x) found that walking works."
+
+
+def test_strip_markdown_removes_emphasis_and_headings():
+    assert strip_markdown("**Bold** and _italic_ and `code`.") == "Bold and italic and code."
+    assert strip_markdown("## Heading\nBody.") == "Heading\nBody."
+
+
+def test_strip_markdown_leaves_plain_text_untouched():
+    """Guard against over-eager regexes: a lone asterisk or underscore is content."""
+    for text in ("3 * 4 = 12", "file_name.py and snake_case", "Cost: 5 * 2 dollars",
+                 "- first bullet\n- second bullet", "Nothing to strip here."):
+        assert strip_markdown(text) == text

@@ -73,8 +73,10 @@ class _FakePublisher:
         self.error = error
         self.called_with = None
 
-    async def publish(self, images, caption, alt_text=None):
+    async def publish(self, images, caption, alt_text=None, long_form=False):
+        # long_form is X-only (Premium lifts the char cap); the flow passes it for X.
         self.called_with = (images, caption, alt_text)
+        self.long_form = long_form
         if self.error:
             raise self.error
         return self.outcome
@@ -358,3 +360,46 @@ async def test_instagram_ignores_thread_parts(sessionmaker, monkeypatch, tmp_pat
 
     assert fake.thread_called_with is None
     assert fake.called_with[1] == "Cap"
+
+
+async def test_thread_hashtags_are_appended_once_and_never_clipped(
+        sessionmaker, monkeypatch, tmp_path):
+    """The tags ride the last tweet; if it's full, the TEXT gives way, not the tag."""
+    from models.schemas import TWEET_CHAR_LIMIT
+    pid = str(uuid.uuid4())
+    long_tail = "word " * 60          # ~300 chars, well over the limit with tags
+    await _seed_post_with_slide(sessionmaker, tmp_path, pid, platform="x",
+                                caption="Hook.", hashtags=["#Walking", "#Habits"],
+                                thread_parts=["Hook.", long_tail])
+
+    fake = _FakeThreadPublisher()
+    monkeypatch.setattr(pf, "settings_for_post_owner", AsyncMock(return_value=_fake_settings()))
+    monkeypatch.setattr(pf, "make_publisher_for", lambda *a, **k: fake)
+
+    await pf.publish_now(sessionmaker, pid)
+
+    last = fake.thread_called_with[0][-1]
+    assert last.endswith("#Walking #Habits")          # both tags whole
+    assert last.count("#Walking") == 1                # not doubled
+    assert len(last) <= TWEET_CHAR_LIMIT
+
+
+async def test_long_x_post_is_not_squeezed_to_the_tweet_limit(
+        sessionmaker, monkeypatch, tmp_path):
+    """An X Premium long post has no cap — appending tags must not trigger a trim."""
+    from models.schemas import TWEET_CHAR_LIMIT
+    pid = str(uuid.uuid4())
+    body = "sentence. " * 90                          # ~900 chars, no thread
+    await _seed_post_with_slide(sessionmaker, tmp_path, pid, platform="x",
+                                caption=body, hashtags=["#Walking"])
+
+    fake = _FakeThreadPublisher()
+    monkeypatch.setattr(pf, "settings_for_post_owner", AsyncMock(return_value=_fake_settings()))
+    monkeypatch.setattr(pf, "make_publisher_for", lambda *a, **k: fake)
+
+    await pf.publish_now(sessionmaker, pid)
+
+    _, caption, _ = fake.called_with
+    assert len(caption) > TWEET_CHAR_LIMIT            # untouched
+    assert caption.endswith("#Walking")
+    assert fake.long_form is True

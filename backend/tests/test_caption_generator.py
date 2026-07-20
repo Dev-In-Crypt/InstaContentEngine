@@ -467,3 +467,63 @@ def test_short_x_prompt_keeps_hashtags_out_of_the_caption():
     from services.caption_generator import X_SYSTEM_PROMPT
     assert "WITHOUT hashtags" in X_SYSTEM_PROMPT
     assert "hashtags included" not in X_SYSTEM_PROMPT
+
+
+def test_all_x_prompts_ban_markdown():
+    """X publishes markdown literally — a grounded model's [link](url) would ship
+    with the brackets showing."""
+    from services.caption_generator import (
+        X_LONG_SYSTEM_PROMPT, X_SYSTEM_PROMPT, X_THREAD_SYSTEM_PROMPT,
+    )
+    for prompt in (X_SYSTEM_PROMPT, X_THREAD_SYSTEM_PROMPT, X_LONG_SYSTEM_PROMPT):
+        assert "X renders no markdown" in prompt
+
+
+def test_thread_and_long_prompts_keep_hashtags_out_of_the_text():
+    """Same rule as the short post: the hashtags field is appended at publish time."""
+    from services.caption_generator import X_LONG_SYSTEM_PROMPT, X_THREAD_SYSTEM_PROMPT
+    assert "NO hashtags anywhere in the tweets" in X_THREAD_SYSTEM_PROMPT
+    assert "Hashtags only in the LAST tweet" not in X_THREAD_SYSTEM_PROMPT
+    assert "NO hashtags in the post text" in X_LONG_SYSTEM_PROMPT
+    assert "1-2 hashtags at the very end only" not in X_LONG_SYSTEM_PROMPT
+
+
+@pytest.mark.asyncio
+async def test_x_markdown_is_flattened_before_publishing(httpx_mock: HTTPXMock):
+    from models.schemas import XPostMode
+    body = dict(GOOD_JSON, caption="Per [a JAMA study](https://jama.org/x), walking wins.")
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(body)}}]},
+    )
+    client = OpenRouterClient(api_key="test-key")
+    gen = CaptionGenerator(client)
+    result = await gen.generate(topic="walking", format="single", num_slides=1,
+                                platform=Platform.X, x_mode=XPostMode.SHORT)
+    await client.close()
+    assert "[" not in result.caption and "](" not in result.caption
+    assert "https://jama.org/x" in result.caption      # the source stays checkable
+
+
+@pytest.mark.asyncio
+async def test_last_tweet_reserves_room_for_the_hashtags(httpx_mock: HTTPXMock):
+    """The tags are appended to the last tweet at publish; if it already fills 250,
+    publishing would have to trim text the user approved in the preview."""
+    from models.schemas import TWEET_CHAR_LIMIT, XPostMode
+    body = dict(GOOD_JSON,
+                hashtags=["#Walking", "#HealthyHabits"],
+                thread=["Hook tweet.", "Middle tweet.", "word " * 49])   # ~245 chars
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(body)}}]},
+    )
+    client = OpenRouterClient(api_key="test-key")
+    gen = CaptionGenerator(client)
+    gen.shorten_text = AsyncMock(side_effect=AssertionError("offline: use the hard cut"))
+    result = await gen.generate(topic="walking", format="single", num_slides=1,
+                                platform=Platform.X, x_mode=XPostMode.THREAD)
+    await client.close()
+
+    tags = " ".join(result.hashtags)
+    assert len(f"{result.thread_parts[-1]}\n\n{tags}") <= TWEET_CHAR_LIMIT
+    assert result.thread_parts[0] == "Hook tweet."      # only the last one is squeezed
