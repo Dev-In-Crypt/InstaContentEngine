@@ -1,4 +1,5 @@
 import io
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -24,6 +25,9 @@ class BrandConfig:
     niche_box_color: str = "#ff751f"
     niche_box_font_size: int = 40
     description_box_alpha: float = 0.79
+    # Fill of the description box under the niche box. Any hex; text on both boxes
+    # is picked automatically for contrast so custom colours stay readable.
+    desc_box_color: str = "#FFFFFF"
     show_logo: bool = True
 
 
@@ -157,9 +161,10 @@ class PillowBrandEngine:
         img = Image.open(io.BytesIO(background_image)).convert("RGBA")
         img = self._resize_and_crop(img, target)
 
-        # Resolve overrides
+        # Resolve overrides. Any valid hex is allowed (colours are per-tenant); the
+        # palette is only a set of suggested swatches in the UI, not a whitelist.
         box_color = niche_box_color or self.config.niche_box_color
-        if box_color not in self.config.niche_box_palette:
+        if not self._is_hex_color(box_color):
             box_color = self.config.niche_box_color
         logo_on = self.config.show_logo if show_logo is None else show_logo
 
@@ -183,8 +188,9 @@ class PillowBrandEngine:
                 fill=self._hex_to_rgba(box_color, 255),
             )
             y = niche_top + inner_pad // 2
+            niche_fg = self._contrast_text(box_color)
             for line in niche_lines:
-                draw.text((box_left + inner_pad, y), line, fill="#FFFFFF", font=niche_font)
+                draw.text((box_left + inner_pad, y), line, fill=niche_fg, font=niche_font)
                 y += niche_lh
 
         # ── Description box: ≤2 lines, complete sentence, width fits text ────
@@ -207,15 +213,19 @@ class PillowBrandEngine:
                 overlay = Image.new("RGBA", target, (0, 0, 0, 0))
                 odraw = ImageDraw.Draw(overlay)
                 alpha = int(255 * self.config.description_box_alpha)
+                desc_color = self.config.desc_box_color
+                if not self._is_hex_color(desc_color):
+                    desc_color = "#FFFFFF"
                 odraw.rectangle(
                     [box_left, desc_top, desc_right, desc_top + desc_h],
-                    fill=(255, 255, 255, alpha),
+                    fill=self._hex_to_rgba(desc_color, alpha),
                 )
                 img = Image.alpha_composite(img, overlay)
                 draw = ImageDraw.Draw(img)
                 y = desc_top + inner_pad // 2
+                desc_fg = self._contrast_text(desc_color)
                 for line in desc_lines:
-                    draw.text((box_left + inner_pad, y), line, fill="#000000", font=desc_font)
+                    draw.text((box_left + inner_pad, y), line, fill=desc_fg, font=desc_font)
                     y += desc_lh
 
         # ── Logo (top-right) ─────────────────────────────────────────────────
@@ -403,3 +413,22 @@ class PillowBrandEngine:
         h = hex_color.lstrip("#")
         r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
         return (r, g, b, alpha)
+
+    @staticmethod
+    def _is_hex_color(value: Optional[str]) -> bool:
+        """True for '#rrggbb' (case-insensitive). Colours are per-tenant, so any
+        valid hex is accepted — we only guard against malformed input."""
+        if not value or not isinstance(value, str):
+            return False
+        return bool(re.fullmatch(r"#[0-9a-fA-F]{6}", value.strip()))
+
+    @classmethod
+    def _contrast_text(cls, background_hex: str) -> str:
+        """Black or white text, whichever is readable on `background_hex`.
+        Keeps custom brand colours legible without the user thinking about it."""
+        if not cls._is_hex_color(background_hex):
+            return "#FFFFFF"
+        r, g, b, _ = cls._hex_to_rgba(background_hex)
+        # Perceived luminance (ITU-R BT.601).
+        luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+        return "#000000" if luminance > 0.6 else "#FFFFFF"

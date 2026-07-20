@@ -36,6 +36,9 @@ class User(Base):
     niche = Column(String(120))
     target_audience = Column(String(120))
     brand_name = Column(String(120))
+    # Slide colours (per-tenant). Null → the platform default brand preset is used.
+    slide_accent_color = Column(String(7))     # niche box fill, "#rrggbb"
+    slide_text_box_color = Column(String(7))   # description box fill
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     credentials = relationship("UserCredentials", back_populates="user",

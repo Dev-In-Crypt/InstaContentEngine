@@ -95,11 +95,12 @@ def test_generate_post_rejects_bad_format(client):
     assert resp.status_code == 422
 
 
-def test_generate_post_rejects_bad_niche_color(client):
+def test_generate_post_rejects_malformed_niche_color(client):
+    """Slide colours are per-tenant (any hex); only malformed values are rejected."""
     resp = client.post("/api/posts/generate", json={
-        "topic": "AI trends", "format": "single", "niche_box_color": "#abcdef",
+        "topic": "AI trends", "format": "single", "niche_box_color": "royalblue",
     })
-    assert resp.status_code == 422      # not in NICHE_BOX_PALETTE
+    assert resp.status_code == 422
 
 
 # ── stock search validation ─────────────────────────────────────────────────

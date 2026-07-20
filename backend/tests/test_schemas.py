@@ -88,9 +88,16 @@ def test_niche_box_color_valid():
     assert req.niche_box_color == "#ff751f"  # normalized to lowercase
 
 
-def test_niche_box_color_invalid_rejected():
-    with pytest.raises(ValidationError):
-        GenerateRequest(topic="AI trends", format=PostFormat.SINGLE, niche_box_color="#abcdef")
+def test_niche_box_color_accepts_any_hex():
+    """Colours are per-tenant — the palette is only a set of suggested swatches."""
+    req = GenerateRequest(topic="AI trends", format=PostFormat.SINGLE, niche_box_color="#AbCdEf")
+    assert req.niche_box_color == "#abcdef"
+
+
+def test_niche_box_color_malformed_rejected():
+    for bad in ("royalblue", "#fff", "ff751f", "#gggggg"):
+        with pytest.raises(ValidationError):
+            GenerateRequest(topic="AI trends", format=PostFormat.SINGLE, niche_box_color=bad)
 
 
 def test_slide_config_page_number():

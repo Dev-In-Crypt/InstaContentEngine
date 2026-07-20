@@ -397,6 +397,37 @@ def test_generate_uses_profile_niche_when_body_blank(client, generated_ids):
     assert kwargs["brand_name"] == "Crumb & Co"
 
 
+def test_generate_uses_user_slide_colors(client, generated_ids):
+    """The acting user's saved slide colours reach the brand engine that renders."""
+    import asyncio
+    from sqlalchemy import select
+    from models.database import User as UserModel
+
+    async def _set_colors():
+        async with app.state.sessionmaker() as s:
+            user = (await s.execute(
+                select(UserModel).where(UserModel.is_local == True)  # noqa: E712
+            )).scalar_one_or_none()
+            if user is None:
+                user = UserModel(email="local@localhost", is_local=True, is_active=True)
+                s.add(user)
+            user.slide_accent_color = "#0f9d58"
+            user.slide_text_box_color = "#111827"
+            await s.commit()
+    asyncio.run(_set_colors())
+
+    post_id = str(uuid.uuid4())
+    generated_ids.append(post_id)
+    client.fake_engine.generate_post.return_value = _generated(post_id)
+
+    res = client.post("/api/posts/generate", json={"topic": "Colours", "format": "single"})
+    assert res.status_code == 200
+
+    cfg = client.fake_engine.brand_engine.config
+    assert cfg.niche_box_color == "#0f9d58"
+    assert cfg.desc_box_color == "#111827"
+
+
 def test_generate_body_niche_overrides_profile(client, generated_ids):
     post_id = str(uuid.uuid4())
     generated_ids.append(post_id)

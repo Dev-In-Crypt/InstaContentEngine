@@ -151,17 +151,66 @@ def test_branded_card_niche_box_color_rendered():
                for (r, g, b) in colors)
 
 
-def test_branded_card_invalid_color_falls_back_to_config():
+def test_branded_card_malformed_color_falls_back_to_config():
     cfg = BrandConfig(niche_box_color="#ff751f")
     engine = PillowBrandEngine(cfg)
-    # color not in palette -> should not raise, falls back to config color
+    # Malformed (not #rrggbb) -> should not raise, falls back to the config colour.
     result = engine.create_branded_card(
         background_image=make_jpeg_bytes(800, 800, "white"),
-        niche_text="Running",
+        niche_text="Niche",
         description_text="Hello",
-        niche_box_color="#123456",
+        niche_box_color="royalblue",
     )
     assert open_result(result).size == (1080, 1350)
+
+
+def test_branded_card_honours_off_palette_color():
+    """Slide colours are per-tenant: any valid hex renders, palette is not a whitelist."""
+    engine = PillowBrandEngine(BrandConfig(niche_box_color="#ff751f"))
+    result = engine.create_branded_card(
+        background_image=make_jpeg_bytes(800, 800, "white"),
+        niche_text="Niche", description_text="Hello",
+        niche_box_color="#123456",          # deliberately NOT in NICHE_BOX_PALETTE
+    )
+    img = open_result(result).convert("RGB")
+    colors = {img.getpixel((x, y))
+              for y in range(int(1350 * 0.62), int(1350 * 0.72), 4)
+              for x in range(60, 400, 20)}
+    target = (0x12, 0x34, 0x56)
+    assert any(abs(r - target[0]) < 12 and abs(g - target[1]) < 12 and abs(b - target[2]) < 12
+               for (r, g, b) in colors)
+
+
+def test_branded_card_custom_text_box_color():
+    engine = PillowBrandEngine(BrandConfig(desc_box_color="#123456",
+                                           description_box_alpha=1.0))
+    result = engine.create_branded_card(
+        background_image=make_jpeg_bytes(800, 800, "white"),
+        niche_text="Niche", description_text="Hello there",
+    )
+    img = open_result(result).convert("RGB")
+    colors = {img.getpixel((x, y))
+              for y in range(int(1350 * 0.70), int(1350 * 0.80), 4)
+              for x in range(60, 400, 20)}
+    target = (0x12, 0x34, 0x56)
+    assert any(abs(r - target[0]) < 12 and abs(g - target[1]) < 12 and abs(b - target[2]) < 12
+               for (r, g, b) in colors)
+
+
+def test_contrast_text_picks_readable_colour():
+    # Dark backgrounds → white text; light backgrounds → black text.
+    assert PillowBrandEngine._contrast_text("#000000") == "#FFFFFF"
+    assert PillowBrandEngine._contrast_text("#0076cb") == "#FFFFFF"
+    assert PillowBrandEngine._contrast_text("#FFFFFF") == "#000000"
+    assert PillowBrandEngine._contrast_text("#ffbf00") == "#000000"
+    assert PillowBrandEngine._contrast_text("garbage") == "#FFFFFF"   # safe default
+
+
+def test_is_hex_color():
+    assert PillowBrandEngine._is_hex_color("#ff751f")
+    assert PillowBrandEngine._is_hex_color("#AbCdEf")
+    for bad in ("ff751f", "#fff", "royalblue", "", None):
+        assert not PillowBrandEngine._is_hex_color(bad)
 
 
 def test_branded_card_page_number_optional(engine):

@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import _CRED_FIELDS, get_current_user, get_db
 from models.database import User as UserModel, UserCredentials as UserCredentialsModel
-from models.schemas import BrandVoiceResponse, BrandVoiceUpdate, ProfileResponse, ProfileUpdate
+from models.schemas import (
+    NICHE_BOX_PALETTE, BrandVoiceResponse, BrandVoiceUpdate, ProfileResponse, ProfileUpdate,
+    SlideStyleResponse, SlideStyleUpdate,
+)
+from services.brand_engine import BrandConfig
 from services.brand_voice import DEFAULT_PRESET, is_valid_preset, list_presets
 from services.secrets import decrypt, encrypt
 
@@ -133,5 +137,33 @@ async def put_profile(
         user.target_audience = body.target_audience.strip() or None
     if body.brand_name is not None:
         user.brand_name = body.brand_name.strip() or None
+    await db.commit()
+    return {"status": "ok"}
+
+
+# ── Slide colours (per-tenant branding of generated slides) ──────────────────
+
+@router.get("/slide-style", response_model=SlideStyleResponse)
+async def get_slide_style(
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> SlideStyleResponse:
+    return SlideStyleResponse(
+        accent_color=user.slide_accent_color or "",
+        text_box_color=user.slide_text_box_color or "",
+        default_accent_color=BrandConfig().niche_box_color,
+        palette=NICHE_BOX_PALETTE,
+    )
+
+
+@router.put("/slide-style")
+async def put_slide_style(
+    body: SlideStyleUpdate,
+    user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    if body.accent_color is not None:          # "" resets to the platform default
+        user.slide_accent_color = body.accent_color or None
+    if body.text_box_color is not None:
+        user.slide_text_box_color = body.text_box_color or None
     await db.commit()
     return {"status": "ok"}

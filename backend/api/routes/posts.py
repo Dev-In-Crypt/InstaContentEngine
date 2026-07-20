@@ -23,7 +23,9 @@ from api.deps import (
 from api.ratelimit import limiter
 from services.brand_engine import PillowBrandEngine
 from services.brand_voice import resolve_brand_voice
-from services.user_settings import resolve_user_brand_voice, resolve_user_profile
+from services.user_settings import (
+    apply_user_slide_style, resolve_user_brand_voice, resolve_user_profile,
+)
 from config import Settings
 from models.database import (
     Post as PostModel, Slide as SlideModel,
@@ -218,7 +220,8 @@ async def generate_post(
 
         async def run() -> None:
             try:
-                brand_cfg = await load_brand_config(db, body.brand_config_id)
+                brand_cfg = apply_user_slide_style(
+                    await load_brand_config(db, body.brand_config_id), user)
                 engine.brand_engine = PillowBrandEngine(brand_cfg)
                 # Brand voice: the user's saved preset, optionally overridden for this
                 # one post by body.brand_voice_preset (custom uses their saved text).
@@ -569,7 +572,8 @@ async def regenerate_slide(
         raw_bytes, attribution = result, None
 
     # Re-apply the same branded card with stored render params.
-    brand_cfg = await load_brand_config(db, post.brand_engine if isinstance(post.brand_engine, str) and len(post.brand_engine) > 20 else None)
+    brand_cfg = apply_user_slide_style(await load_brand_config(
+        db, post.brand_engine if isinstance(post.brand_engine, str) and len(post.brand_engine) > 20 else None), user)
     brand_engine = PillowBrandEngine(brand_cfg)
     branded = _rebrand_slide_bytes(raw_bytes, slide.render_params, brand_engine)
 
@@ -616,7 +620,7 @@ async def upload_slide(
 
     post, slide = await _slide_with_post(db, post_id, slide_num, user)
 
-    brand_cfg = await load_brand_config(db, None)
+    brand_cfg = apply_user_slide_style(await load_brand_config(db, None), user)
     brand_engine = PillowBrandEngine(brand_cfg)
     branded = _rebrand_slide_bytes(raw_bytes, slide.render_params, brand_engine)
 
@@ -671,7 +675,7 @@ async def update_slide_overlay(
     if body.niche_text is not None:
         rp["niche_text"] = body.niche_text
 
-    brand_cfg = await load_brand_config(db, None)
+    brand_cfg = apply_user_slide_style(await load_brand_config(db, None), user)
     brand_engine = PillowBrandEngine(brand_cfg)
     branded = _rebrand_slide_bytes(raw_bytes, rp, brand_engine)
 

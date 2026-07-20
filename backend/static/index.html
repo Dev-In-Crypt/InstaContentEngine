@@ -683,6 +683,37 @@
       <button id="save-profile-btn" onclick="saveProfile()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">💾 Save profile</button>
     </section>
 
+    <!-- Slide colours (cloud accounts only) -->
+    <section id="slide-style-section" class="hidden bg-gray-900 rounded-2xl p-6 space-y-4">
+      <h2 class="text-lg font-semibold text-purple-300">🎨 Slide colours</h2>
+      <p class="text-xs text-gray-500">Your brand colours for generated slides. Any colour works — text on the boxes is auto-set to black or white so it stays readable. Leave empty to use the default.</p>
+      <div class="flex flex-wrap gap-6">
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Accent box</label>
+          <div class="flex items-center gap-2">
+            <input id="style-accent" type="color" aria-label="Accent box colour"
+              class="w-10 h-10 rounded-lg border-2 border-gray-700 bg-gray-800 cursor-pointer p-0" />
+            <input id="style-accent-hex" type="text" maxlength="7" placeholder="#ff751f"
+              class="ce-input w-28 px-2 py-1 text-xs font-mono" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Text box</label>
+          <div class="flex items-center gap-2">
+            <input id="style-textbox" type="color" aria-label="Text box colour"
+              class="w-10 h-10 rounded-lg border-2 border-gray-700 bg-gray-800 cursor-pointer p-0" />
+            <input id="style-textbox-hex" type="text" maxlength="7" placeholder="#ffffff"
+              class="ce-input w-28 px-2 py-1 text-xs font-mono" />
+          </div>
+        </div>
+      </div>
+      <div id="style-swatches" class="flex flex-wrap gap-2"></div>
+      <div class="flex gap-2">
+        <button id="save-style-btn" onclick="saveSlideStyle()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">💾 Save colours</button>
+        <button onclick="resetSlideStyle()" class="ce-btn-ghost px-4 py-2 text-sm">↶ Reset to default</button>
+      </div>
+    </section>
+
     <!-- Brand voice (cloud accounts only) -->
     <section id="brand-voice-section" class="hidden bg-gray-900 rounded-2xl p-6 space-y-4">
       <h2 class="text-lg font-semibold text-purple-300">🗣 Brand voice</h2>
@@ -794,6 +825,7 @@ const S = {
   posts: [],               // cached list for calendar/grid
   brandVoice: { preset: 'balanced', custom: '', presets: [] },
   profile: { niche: '', target_audience: '', brand_name: '' },
+  slideStyle: { accent_color: '', text_box_color: '', default_accent_color: '', palette: [] },
   gridMode: 'mobile',      // grid preview width
   usage: null,             // last /api/usage snapshot
   undoStack: [],           // last N caption/hashtag/seo snapshots for current post
@@ -2134,6 +2166,15 @@ function initNicheSwatches() {
     b.onclick = () => { S.nicheBoxColor = hex; render(); };
     wrap.appendChild(b);
   });
+  // Free colour picker — the swatches above are shortcuts, not the only options.
+  const custom = document.createElement('input');
+  custom.type = 'color';
+  custom.title = 'Custom colour';
+  custom.setAttribute('aria-label', 'Custom niche box colour');
+  custom.className = 'w-9 h-9 rounded-lg border-2 border-gray-700 bg-gray-800 cursor-pointer p-0';
+  custom.value = S.nicheBoxColor || '#ff751f';
+  custom.oninput = () => { S.nicheBoxColor = custom.value.toLowerCase(); render(); };
+  wrap.appendChild(custom);
   render();
 }
 
@@ -2327,6 +2368,9 @@ async function loadAdmin() {
   const profSec = document.getElementById('brand-profile-section');
   profSec.classList.toggle('hidden', !showVoice);
   if (showVoice) await loadProfile();
+  const styleSec = document.getElementById('slide-style-section');
+  styleSec.classList.toggle('hidden', !showVoice);
+  if (showVoice) await loadSlideStyle();
 }
 
 // ===== PER-USER API KEYS ===== (scope: 'account' | 'instagram' | 'x')
@@ -2485,6 +2529,75 @@ async function saveProfile() {
     document.getElementById('save-profile-btn'),
   );
   if (ok) toast('✅ Brand profile saved', 'success');
+}
+
+// ===== SLIDE COLOURS =====
+function _syncColorPair(pickerId, hexId, value, fallback) {
+  const picker = document.getElementById(pickerId);
+  const hex = document.getElementById(hexId);
+  if (!picker || !hex) return;
+  picker.value = value || fallback;
+  hex.value = value || '';
+  picker.oninput = () => { hex.value = picker.value.toLowerCase(); };
+  hex.oninput = () => {
+    if (/^#[0-9a-fA-F]{6}$/.test(hex.value.trim())) picker.value = hex.value.trim();
+  };
+}
+
+async function loadSlideStyle() {
+  let data = { accent_color: '', text_box_color: '', default_accent_color: '#ff751f', palette: [] };
+  try {
+    const res = await apiFetch(`${API}/api/settings/slide-style`);
+    if (res.ok) data = await res.json();
+  } catch { /* 401 handled by apiFetch */ }
+  S.slideStyle = data;
+  _syncColorPair('style-accent', 'style-accent-hex', data.accent_color, data.default_accent_color);
+  _syncColorPair('style-textbox', 'style-textbox-hex', data.text_box_color, '#ffffff');
+  const wrap = document.getElementById('style-swatches');
+  if (wrap) {
+    wrap.innerHTML = '';
+    (data.palette || []).forEach(hex => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.title = hex;
+      b.setAttribute('aria-label', 'Use ' + hex);
+      b.className = 'w-8 h-8 rounded-lg border-2 border-gray-700';
+      b.style.background = hex;
+      b.onclick = () => {
+        document.getElementById('style-accent').value = hex;
+        document.getElementById('style-accent-hex').value = hex;
+      };
+      wrap.appendChild(b);
+    });
+  }
+}
+
+async function _putSlideStyle(accent, textBox, btn) {
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Saving…'; }
+  try {
+    const res = await apiFetch(`${API}/api/settings/slide-style`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accent_color: accent, text_box_color: textBox }),
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Save failed'); }
+    await loadSlideStyle();
+    toast('✅ Slide colours saved', 'success');
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = prev; } }
+}
+
+async function saveSlideStyle() {
+  const accent = document.getElementById('style-accent-hex').value.trim().toLowerCase();
+  const textBox = document.getElementById('style-textbox-hex').value.trim().toLowerCase();
+  for (const v of [accent, textBox]) {
+    if (v && !/^#[0-9a-fA-F]{6}$/.test(v)) { toast('Use a hex colour like #ff751f', 'warn'); return; }
+  }
+  await _putSlideStyle(accent, textBox, document.getElementById('save-style-btn'));
+}
+
+async function resetSlideStyle() {
+  await _putSlideStyle('', '', document.getElementById('save-style-btn'));
 }
 
 // Pre-fill the composer niche/audience from the saved profile, only when empty

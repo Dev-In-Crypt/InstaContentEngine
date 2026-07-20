@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Optional
@@ -37,8 +38,10 @@ class TemplateStyle(str, Enum):
     BRANDED_CARD = "branded_card"   # portrait 1080x1350 card
 
 
-# Selectable colors for the niche box (orange box in the mockup)
+# Suggested quick swatches for the niche box. NOT a whitelist — slide colours are
+# per-tenant, so any valid #rrggbb is accepted; these are just one-click shortcuts.
 NICHE_BOX_PALETTE = ["#ffbf00", "#0076cb", "#5e17eb", "#00bf63", "#000000", "#ff751f"]
+HEX_COLOR_RE = r"^#[0-9a-fA-F]{6}$"
 
 
 class PostStatus(str, Enum):
@@ -92,11 +95,13 @@ class GenerateRequest(BaseModel):
     @field_validator("niche_box_color")
     @classmethod
     def _validate_niche_box_color(cls, v: Optional[str]) -> Optional[str]:
+        """Any valid #rrggbb — slide colours are per-tenant, the palette is only
+        a set of suggested swatches."""
         if v is None:
             return v
-        v = v.lower()
-        if v not in NICHE_BOX_PALETTE:
-            raise ValueError(f"niche_box_color must be one of {NICHE_BOX_PALETTE}")
+        v = v.strip().lower()
+        if not re.fullmatch(HEX_COLOR_RE, v):
+            raise ValueError("niche_box_color must be a hex colour like #ff751f")
         return v
 
 
@@ -286,3 +291,27 @@ class ProfileResponse(BaseModel):
     niche: str = ""
     target_audience: str = ""
     brand_name: str = ""
+
+
+# --- Slide colours (per-tenant branding of the generated slides) ---
+
+class SlideStyleUpdate(BaseModel):
+    accent_color: Optional[str] = None      # niche box fill; "" clears to default
+    text_box_color: Optional[str] = None    # description box fill
+
+    @field_validator("accent_color", "text_box_color")
+    @classmethod
+    def _validate_hex(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return v
+        v = v.strip().lower()
+        if not re.fullmatch(HEX_COLOR_RE, v):
+            raise ValueError("colour must be a hex value like #ff751f")
+        return v
+
+
+class SlideStyleResponse(BaseModel):
+    accent_color: str = ""          # empty → the platform default is used
+    text_box_color: str = ""
+    default_accent_color: str = ""  # what generation falls back to when unset
+    palette: list[str] = []         # suggested swatches for the UI

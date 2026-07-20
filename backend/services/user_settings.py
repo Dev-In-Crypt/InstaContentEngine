@@ -64,6 +64,18 @@ def resolve_user_brand_voice(user: Optional[UserModel]) -> str:
     return resolve_brand_voice(user.brand_voice_preset, user.brand_voice_custom)
 
 
+def apply_user_slide_style(cfg, user: Optional[UserModel]):
+    """Overlay the user's own slide colours onto a loaded BrandConfig. Unset
+    colours keep the platform default preset. Mutates and returns `cfg`."""
+    if user is None:
+        return cfg
+    if getattr(user, "slide_accent_color", None):
+        cfg.niche_box_color = user.slide_accent_color
+    if getattr(user, "slide_text_box_color", None):
+        cfg.desc_box_color = user.slide_text_box_color
+    return cfg
+
+
 def resolve_user_profile(user: Optional[UserModel]) -> dict[str, Optional[str]]:
     """The user's saved brand profile (niche / audience / brand name), used to default
     the composer and steer generation into their niche. Read directly off User; all
