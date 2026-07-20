@@ -45,3 +45,15 @@ def test_migrations_idempotent(tmp_path):
     db = tmp_path / "twice.db"
     main._run_migrations(f"sqlite:///{db}")
     main._run_migrations(f"sqlite:///{db}")   # second run is a no-op, not an error
+
+
+def test_migrations_do_not_silence_existing_loggers(tmp_path):
+    """Alembic's fileConfig disables every pre-existing logger by default. Since
+    migrations run inside app startup, that muted uvicorn and all services/*
+    logging for the whole process — the container logged its banner and nothing
+    else, so a failed generation's traceback was unreadable."""
+    import logging
+    log = logging.getLogger("services.some_module")
+    main._run_migrations(f"sqlite:///{tmp_path / 'logs.db'}")
+    assert not log.disabled
+    assert not logging.getLogger("uvicorn.error").disabled

@@ -15,7 +15,11 @@ from models.database import Base  # noqa: E402
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers defaults to True, which silences every logger that
+    # already exists — and migrations run inside the app's own startup, so that
+    # killed uvicorn's loggers and every services/* logger for the life of the
+    # process. The container printed its startup banner and then went mute.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
