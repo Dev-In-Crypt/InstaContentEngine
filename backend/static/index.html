@@ -598,6 +598,13 @@
       <button id="undo-btn" onclick="undoEdit()" class="hidden bg-gray-800 hover:bg-gray-700 transition rounded-xl px-4 py-2.5 text-sm" title="Undo last saved edit" aria-label="Undo last saved edit">↶ Undo</button>
     </div>
 
+    <!-- Claims to verify before posting under a brand -->
+    <div id="claims-panel" class="hidden bg-yellow-950/40 border border-yellow-800/60 rounded-xl p-4 space-y-2">
+      <h3 class="text-sm font-semibold text-yellow-200 flex items-center gap-2">⚠️ Check before posting</h3>
+      <p class="text-xs text-yellow-200/70">These lines state a number or cite research. Verify them against the sources below before you publish under your brand — AI can round facts in its own favour.</p>
+      <ul id="claims-list" class="space-y-1.5 text-xs"></ul>
+    </div>
+
     <!-- References (kept OUT of the post caption — for the author only) -->
     <div id="references-panel" class="hidden bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-3">
       <h3 class="text-sm font-semibold text-purple-300 flex items-center gap-2">
@@ -1533,6 +1540,7 @@ function renderPreview(post) {
 
   // References panel (image attribution + text sources)
   renderReferences(post);
+  renderClaims(post);
 
   // Caption (or, for a thread, one card per tweet)
   document.getElementById('caption-edit').value = post.caption;
@@ -1754,6 +1762,22 @@ function buildEmojiPicker() {
   }
   html += '</div></details>';
   host.innerHTML = html;
+}
+
+function renderClaims(post) {
+  const panel = document.getElementById('claims-panel');
+  const list = document.getElementById('claims-list');
+  const claims = (post && post.claims) || [];
+  if (!claims.length) { panel.classList.add('hidden'); list.innerHTML = ''; return; }
+  list.innerHTML = '';
+  claims.forEach(c => {
+    const li = document.createElement('li');
+    li.className = 'text-yellow-100/90';
+    li.innerHTML = `<span class="text-yellow-200">“${esc(c.text)}”</span>` +
+      `<span class="text-yellow-200/50"> — ${esc(c.reason)}</span>`;
+    list.appendChild(li);
+  });
+  panel.classList.remove('hidden');
 }
 
 function renderReferences(post) {
@@ -2031,6 +2055,9 @@ async function saveCaption() {
       }),
     });
     if (!res.ok) throw new Error('Save failed');
+    // The response recomputes the claim flags from the saved text, so an edit that
+    // removes a number clears its warning right away.
+    try { renderClaims(await res.json()); } catch(e){ /* body already consumed */ }
     // Clear both per-post keys so they don't accumulate to the quota over time.
     try { localStorage.removeItem('draft_' + S.postId); } catch(e){}
     try { localStorage.removeItem('undo_' + S.postId); } catch(e){}

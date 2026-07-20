@@ -214,6 +214,13 @@ class SlidePreview(BaseModel):
     has_raw_image: bool = False                   # True if PUT /overlay is supported
 
 
+class ClaimFlag(BaseModel):
+    """A sentence the author should verify before posting (a number, a stat, or a
+    named source). Not a verdict on truth — a prompt to check it."""
+    text: str
+    reason: str
+
+
 class PostPreview(BaseModel):
     id: str
     topic: str
@@ -231,6 +238,7 @@ class PostPreview(BaseModel):
     image_model_used: Optional[str]
     created_at: datetime
     sources: list[dict] = []           # [{title,url}] from web-grounded LLM (:online)
+    claims: list[ClaimFlag] = []       # sentences to verify (computed from the caption)
     scheduled_at: Optional[datetime] = None
     published_at: Optional[datetime] = None
     schedule_error: Optional[str] = None

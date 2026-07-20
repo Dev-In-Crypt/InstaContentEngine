@@ -637,3 +637,14 @@ async def test_variations_come_back_polished(httpx_mock: HTTPXMock):
                                      platform=Platform.INSTAGRAM)
     await client.close()
     assert out == ["Bold idea, for you.", "Plain idea."]
+
+
+def test_all_prompts_forbid_fabricated_statistics():
+    """A brand can't defend a number the model rounded in its own favour."""
+    from services.caption_generator import (
+        INSTAGRAM_SYSTEM_PROMPT, LINKEDIN_SYSTEM_PROMPT,
+        X_SYSTEM_PROMPT, X_THREAD_SYSTEM_PROMPT, X_LONG_SYSTEM_PROMPT,
+    )
+    for prompt in (INSTAGRAM_SYSTEM_PROMPT, LINKEDIN_SYSTEM_PROMPT,
+                   X_SYSTEM_PROMPT, X_THREAD_SYSTEM_PROMPT, X_LONG_SYSTEM_PROMPT):
+        assert "Do not invent statistics" in prompt

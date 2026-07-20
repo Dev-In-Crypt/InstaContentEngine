@@ -509,3 +509,22 @@ def test_generate_refuses_when_photos_are_missing(client, staging_root):
     assert res.status_code == 422
     detail = res.json()["detail"]
     assert "5" in detail and "3" in detail          # says what it needed and what it got
+
+
+# ── claim flags in the preview (PART XXVIII) ────────────────────────────────
+
+def test_preview_flags_a_statistic_and_clears_it_after_an_edit(client, seeded):
+    # Seeded caption "Run every day." carries no claim.
+    assert client.get(f"/api/posts/{seeded}").json()["claims"] == []
+
+    client.put(f"/api/posts/{seeded}/caption",
+               json={"caption": "Running lowers mortality risk by 30%."})
+    flagged = client.get(f"/api/posts/{seeded}").json()["claims"]
+    assert len(flagged) == 1
+    assert "30%" in flagged[0]["text"]
+
+    # Editing the number out clears the flag on the next preview — it's computed,
+    # not stored.
+    client.put(f"/api/posts/{seeded}/caption",
+               json={"caption": "Running is good for your heart."})
+    assert client.get(f"/api/posts/{seeded}").json()["claims"] == []

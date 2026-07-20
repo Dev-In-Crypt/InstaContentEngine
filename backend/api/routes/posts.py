@@ -38,6 +38,7 @@ from models.schemas import (
     PublishResult, StagedUpload, XPostMode,
 )
 from services import staging
+from services.claims import find_claims
 from services.content_engine import ContentEngine, GeneratedPost, _num_slides
 from services.pillars import classify_pillar, pillar_mix, suggest_today
 from services.image_router import SlideImageConfig
@@ -95,6 +96,10 @@ def _to_preview(post: PostModel) -> PostPreview:
         _build_slide_preview(post, s)
         for s in sorted(post.slides, key=lambda s: s.slide_number)
     ]
+    # Sentences the author should verify before posting, computed from the text as
+    # it stands now — so a claim removed by an edit disappears on the next preview.
+    # A thread carries its lines separately, so scan both.
+    claim_source = "\n".join([post.caption or "", *(post.thread_parts or [])])
     return PostPreview(
         id=post.id,
         topic=post.topic,
@@ -112,6 +117,7 @@ def _to_preview(post: PostModel) -> PostPreview:
         image_model_used=post.image_model,
         created_at=post.created_at or datetime.now(timezone.utc),
         sources=post.sources or [],
+        claims=find_claims(claim_source),
         scheduled_at=post.scheduled_at,
         published_at=post.published_at,
         schedule_error=post.schedule_error,

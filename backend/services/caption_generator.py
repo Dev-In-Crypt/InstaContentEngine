@@ -115,6 +115,9 @@ RULES:
 - Plain text only. Instagram renders no markdown: no **bold**, no [text](url), no headings.
 - Do NOT paste source links into the caption. Links are not clickable on Instagram and
   the sources are shown to the author separately.
+- Do not invent statistics, percentages, or study results. Use a specific number
+  ONLY if it comes from a cited source; otherwise state the claim qualitatively
+  ("research links X to Y"), never with a made-up figure.
 - Make the final caption ready to copy and paste.
 - "image_search_queries": short broad 2-4 word stock terms (one per slide).
 - "image_gen_prompts": detailed visual descriptions (only used when source=AI).
@@ -154,6 +157,9 @@ RULES:
 - Do not overuse hashtags or emojis. Do NOT use em dashes.
 - Plain text only. LinkedIn renders no markdown: no **bold**, no [text](url), no headings.
   Cite a source by naming it and putting the bare URL in parentheses.
+- Do not invent statistics, percentages, or study results. Use a specific number
+  ONLY if it comes from a cited source; otherwise state the claim qualitatively
+  ("research links X to Y"), never with a made-up figure.
 - Make the final post ready to copy and paste.
 - "image_search_queries": short broad 2-4 word stock terms (one per slide).
 - "image_gen_prompts": detailed visual descriptions (only used when source=AI).
@@ -176,6 +182,9 @@ Write for X. HARD RULES:
 - One sharp hook, one idea, natural English, no em-dash.
 - Plain text only. X renders no markdown: no [text](url), no **bold**, no headings.
   Cite a source by naming it and putting the bare URL in parentheses.
+- Do not invent statistics, percentages, or study results. Use a specific number
+  ONLY if it comes from a cited source; otherwise state the claim qualitatively
+  ("research links X to Y"), never with a made-up figure.
 - 1-2 relevant hashtags maximum, in the "hashtags" field (X posts do not use hashtag walls).
 - A single image accompanies the post; no carousels.
 - Ready to copy-paste, no preamble.
@@ -212,6 +221,9 @@ Write ONE thread. HARD RULES:
 - Natural English, no em-dash, ready to copy-paste.
 - Plain text only. X renders no markdown: no [text](url), no **bold**, no headings.
   Cite a source by naming it and putting the bare URL in parentheses.
+- Do not invent statistics, percentages, or study results. Use a specific number
+  ONLY if it comes from a cited source; otherwise state the claim qualitatively
+  ("research links X to Y"), never with a made-up figure.
 - "caption" must repeat the FIRST tweet verbatim (it is what previews show).
 
 {length_instruction}
@@ -243,6 +255,9 @@ does not apply). HARD RULES:
 - Few emojis. No em-dash.
 - Plain text only. X renders no markdown: no [text](url), no **bold**, no headings.
   Cite a source by naming it and putting the bare URL in parentheses.
+- Do not invent statistics, percentages, or study results. Use a specific number
+  ONLY if it comes from a cited source; otherwise state the claim qualitatively
+  ("research links X to Y"), never with a made-up figure.
 - Leave "thread" out entirely — this is a single post.
 
 {length_instruction}
