@@ -451,3 +451,61 @@ def test_regenerate_slide_falls_back_to_default_image_model(client, seeded):
 
     cfg = client.fake_engine.image_router.fetch_image.await_args.args[0]
     assert cfg.gen_model == IMAGE_MODEL
+
+
+# ── staging own photos before generation (PART XXVII) ───────────────────────
+
+@pytest.fixture
+def staging_root(tmp_path, monkeypatch):
+    """Keep test uploads out of the real backend/uploads/staging."""
+    from services import staging
+    root = tmp_path / "staging"
+    monkeypatch.setattr(staging, "STAGING_ROOT", root)
+    return root
+
+
+def _files(n: int, content_type="image/jpeg"):
+    return [("files", (f"photo{i}.jpg", _jpeg(), content_type)) for i in range(n)]
+
+
+def test_stage_uploads_returns_one_id_per_file(client, staging_root):
+    res = client.post("/api/posts/uploads", files=_files(3))
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body) == 3
+    assert len({u["id"] for u in body}) == 3          # distinct ids
+    assert all(len(u["id"]) == 32 for u in body)      # server-minted, not filenames
+    assert all(u["bytes"] > 0 for u in body)
+
+
+def test_stage_uploads_rejects_a_non_image(client, staging_root):
+    res = client.post("/api/posts/uploads",
+                      files=[("files", ("notes.txt", b"hello", "text/plain"))])
+    assert res.status_code == 415
+
+
+def test_stage_uploads_rejects_an_empty_file(client, staging_root):
+    res = client.post("/api/posts/uploads",
+                      files=[("files", ("empty.jpg", b"", "image/jpeg"))])
+    assert res.status_code == 400
+
+
+def test_stage_uploads_rejects_more_than_a_carousel(client, staging_root):
+    """10 slides is the biggest post there is; 11 photos is a mistake or an abuse."""
+    res = client.post("/api/posts/uploads", files=_files(11))
+    assert res.status_code == 422
+    assert "10" in res.json()["detail"]
+
+
+def test_generate_refuses_when_photos_are_missing(client, staging_root):
+    """A 5-slide carousel with 3 photos would silently produce holes."""
+    staged = client.post("/api/posts/uploads", files=_files(3)).json()
+    res = client.post("/api/posts/generate", json={
+        "topic": "Meal prep for busy people",
+        "format": "carousel_5",
+        "default_image_source": "upload",
+        "upload_ids": [u["id"] for u in staged],
+    })
+    assert res.status_code == 422
+    detail = res.json()["detail"]
+    assert "5" in detail and "3" in detail          # says what it needed and what it got

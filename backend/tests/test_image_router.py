@@ -105,3 +105,35 @@ async def test_canva_no_template_id_raises():
     router = ImageRouter(canva_client=canva)
     with pytest.raises(ImageFetchError, match="canva_template_id"):
         await router.fetch_image(make_config(ImageSource.CANVA))
+
+
+# ── the user's own photo (PART XXVII) ───────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_upload_source_reads_through_the_injected_reader():
+    """The router never touches the filesystem: the caller binds a reader that
+    already knows which tenant is asking."""
+    router = ImageRouter(upload_reader={"abc": b"my-photo"}.__getitem__)
+    data, attribution = await router.fetch_image(
+        SlideImageConfig(slide_number=1, image_source=ImageSource.UPLOAD, upload_id="abc"))
+    assert data == b"my-photo"
+    assert attribution is None          # it's the user's own image, nothing to credit
+
+
+@pytest.mark.asyncio
+async def test_upload_without_an_id_is_an_error():
+    router = ImageRouter(upload_reader=lambda _id: b"x")
+    with pytest.raises(ImageFetchError, match="slide 2"):
+        await router.fetch_image(
+            SlideImageConfig(slide_number=2, image_source=ImageSource.UPLOAD))
+
+
+@pytest.mark.asyncio
+async def test_unreadable_upload_surfaces_as_a_fetch_error():
+    def boom(_id):
+        raise KeyError("gone")
+
+    router = ImageRouter(upload_reader=boom)
+    with pytest.raises(ImageFetchError):
+        await router.fetch_image(
+            SlideImageConfig(slide_number=1, image_source=ImageSource.UPLOAD, upload_id="x"))

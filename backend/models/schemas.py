@@ -19,6 +19,7 @@ class ImageSource(str, Enum):
     STOCK = "stock"
     AI_GEN = "ai_gen"
     CANVA = "canva"
+    UPLOAD = "upload"      # the user's own photo, staged before generation
 
 
 class Platform(str, Enum):
@@ -75,6 +76,13 @@ class OutputChoice(str, Enum):
     SCHEDULE = "schedule"
 
 
+class StagedUpload(BaseModel):
+    """A photo parked for an upcoming generation (POST /api/posts/uploads)."""
+    id: str
+    filename: str = ""
+    bytes: int = 0
+
+
 # --- Request Models ---
 
 class SlideConfig(BaseModel):
@@ -84,6 +92,7 @@ class SlideConfig(BaseModel):
     gen_prompt: Optional[str] = None
     gen_model: Optional[str] = None
     canva_template_id: Optional[str] = None
+    upload_id: Optional[str] = None         # id from POST /api/posts/uploads
     page_number: Optional[int] = None       # manual carousel page number; None → none rendered
 
 
@@ -93,6 +102,8 @@ class GenerateRequest(BaseModel):
     text_model: Optional[str] = None        # None → use DEFAULT_TEXT_MODEL from .env
     image_model: Optional[str] = None       # None → use DEFAULT_IMAGE_MODEL from .env
     default_image_source: ImageSource = ImageSource.STOCK
+    # Own photos, in slide order — required when default_image_source is "upload".
+    upload_ids: list[str] = Field(default_factory=list)
     slides: Optional[list[SlideConfig]] = None
     tone: str = "professional"
     niche: Optional[str] = None

@@ -374,3 +374,49 @@ async def test_no_niche_means_no_niche_box_text():
     kwargs = engine.brand_engine.create_branded_card.call_args_list[0].kwargs
     assert kwargs["niche_text"] == ""
     assert post.slides[0].render_params["niche_text"] == ""
+
+
+# ── the user's own photos (PART XXVII) ──────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_uploaded_photos_are_handed_out_in_slide_order():
+    engine, _, img_router = make_engine()
+    await engine.generate_post(
+        topic="Meal prep", format=PostFormat.CAROUSEL_3,
+        default_image_source=ImageSource.UPLOAD,
+        upload_ids=["aaa", "bbb", "ccc"],
+    )
+    configs = [c.args[0] for c in img_router.fetch_image.call_args_list]
+    by_slide = {c.slide_number: c for c in configs}
+    assert [by_slide[i].upload_id for i in (1, 2, 3)] == ["aaa", "bbb", "ccc"]
+    assert all(c.image_source == ImageSource.UPLOAD for c in configs)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_upload_is_not_silently_replaced_by_stock():
+    """Swapping in a stock photo would publish an image the user never chose."""
+    from services.image_router import ImageFetchError
+    engine, _, img_router = make_engine()
+    img_router.fetch_image.side_effect = ImageFetchError("file gone")
+
+    with pytest.raises(ImageFetchError):
+        await engine.generate_post(
+            topic="Meal prep", format=PostFormat.SINGLE,
+            default_image_source=ImageSource.UPLOAD, upload_ids=["aaa"],
+        )
+    # One attempt only — no second call with a stock fallback config.
+    assert img_router.fetch_image.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_stock_still_falls_back_when_a_fetch_fails():
+    """Regression: the no-fallback rule is for uploads only."""
+    from services.image_router import ImageFetchError
+    engine, _, img_router = make_engine()
+    img_router.fetch_image.side_effect = [ImageFetchError("rate limited"), make_jpeg()]
+
+    post = await engine.generate_post(topic="AI trends", format=PostFormat.SINGLE)
+
+    assert len(post.slides) == 1
+    assert img_router.fetch_image.call_count == 2
+    assert img_router.fetch_image.call_args_list[1].args[0].image_source == ImageSource.STOCK

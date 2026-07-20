@@ -35,9 +35,10 @@ from models.schemas import (
     CaptionUpdate, GenerateRequest, ImageSource, OverlayUpdateRequest, Platform,
     PostInsightSchema, PostPreview, PostStatus, PostSummary, RegenFieldRequest,
     RegenFieldResponse, ReplaceSlideRequest, ScheduleRequest, SlidePreview,
-    PublishResult, XPostMode,
+    PublishResult, StagedUpload, XPostMode,
 )
-from services.content_engine import ContentEngine, GeneratedPost
+from services import staging
+from services.content_engine import ContentEngine, GeneratedPost, _num_slides
 from services.pillars import classify_pillar, pillar_mix, suggest_today
 from services.image_router import SlideImageConfig
 from services.instagram import InstagramPublisher
@@ -206,10 +207,22 @@ async def generate_post(
                 gen_prompt=s.gen_prompt,
                 gen_model=s.gen_model,
                 canva_template_id=s.canva_template_id,
+                upload_id=s.upload_id,
                 page_number=s.page_number,
             )
             for s in body.slides
         ]
+
+    # Own photos: one per slide, in the order they were picked. Refuse up front
+    # rather than generating a post with holes in it.
+    if body.default_image_source == ImageSource.UPLOAD:
+        needed = _num_slides(body.format)
+        if len(body.upload_ids) < needed:
+            raise HTTPException(
+                status_code=422,
+                detail=(f"This format needs {needed} photo(s), "
+                        f"but {len(body.upload_ids)} were uploaded."),
+            )
 
     # The model comes from the tenant's own AI settings (they pay for it), with an
     # optional per-post override. No platform default in cloud.
@@ -260,6 +273,7 @@ async def generate_post(
                     text_model=text_model,
                     image_model=image_model,
                     default_image_source=body.default_image_source,
+                    upload_ids=body.upload_ids,
                     slide_configs=slide_configs,
                     tone=body.tone,
                     niche=niche,
@@ -525,6 +539,49 @@ async def get_slide_image(
 
 _MAX_UPLOAD_BYTES = 20 * 1024 * 1024     # 20 MB
 _ACCEPTED_UPLOAD_TYPES = {"image/jpeg", "image/png", "image/webp"}
+#: A carousel tops out at 10 slides, so nobody needs to stage more in one go.
+_MAX_UPLOAD_FILES = 10
+
+
+def _validated_upload(file: UploadFile, data: bytes) -> None:
+    """The three checks every upload path here shares."""
+    if file.content_type not in _ACCEPTED_UPLOAD_TYPES:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file type {file.content_type!r}. Allowed: jpeg, png, webp.",
+        )
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 20 MB)")
+
+
+@router.post("/uploads", response_model=list[StagedUpload])
+async def stage_uploads(
+    user: Annotated[UserModel, Depends(get_current_user)],
+    files: list[UploadFile] = File(...),
+) -> list[StagedUpload]:
+    """Park the user's own photos so `generate` can refer to them by id.
+
+    Generation streams over SSE with a JSON body, so the files cannot travel with
+    it. They land in the tenant's staging folder and are swept after a day if the
+    generation never happens.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+    if len(files) > _MAX_UPLOAD_FILES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Too many files: {len(files)}. A carousel takes at most {_MAX_UPLOAD_FILES}.",
+        )
+
+    staged: list[StagedUpload] = []
+    for file in files:
+        data = await file.read()
+        _validated_upload(file, data)
+        upload_id = staging.save(str(user.id), data, file.content_type)
+        staged.append(StagedUpload(id=upload_id, filename=file.filename or "", bytes=len(data)))
+    return staged
 
 
 async def _slide_with_post(
@@ -659,7 +716,7 @@ async def upload_slide(
     raw_path.write_bytes(raw_bytes)
 
     # Custom upload — no stock attribution, no search query.
-    slide.image_source = ImageSource.STOCK.value     # reuse enum; treat upload as 'stock-like' source
+    slide.image_source = ImageSource.UPLOAD.value
     slide.search_query = None
     slide.gen_prompt = None
     slide.attribution = None

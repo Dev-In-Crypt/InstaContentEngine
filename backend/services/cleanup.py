@@ -5,7 +5,9 @@ Each post keeps its rendered slides, raw backgrounds, and reel under
 stay, so a multi-tenant deploy slowly fills its disk with orphans. A daily job
 (wired in services/scheduler) reconciles the directory against the live post ids
 and removes only the ones with no matching post — never files of a live post, so
-overlay-edit (which needs the raw image) is unaffected.
+overlay-edit (which needs the raw image) is unaffected. The same job sweeps
+`uploads/staging`, where a user's own photos wait between being picked and being
+generated from.
 """
 from __future__ import annotations
 
@@ -15,6 +17,8 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from sqlalchemy import select
+
+from services import staging
 
 log = logging.getLogger(__name__)
 
@@ -66,4 +70,12 @@ async def run_upload_cleanup(sessionmaker, posts_root: Path | None = None) -> di
     if result["removed"]:
         log.info("Upload cleanup removed %d orphaned dir(s), freed %d bytes",
                  result["removed"], result["freed_bytes"])
+
+    # Photos staged for a generation that never happened: the ids are only useful
+    # for the few minutes between picking files and hitting Generate.
+    staged = staging.sweep()
+    if staged["files"]:
+        log.info("Staging sweep removed %d file(s), freed %d bytes",
+                 staged["files"], staged["bytes"])
+    result["staged_removed"] = staged["files"]
     return result

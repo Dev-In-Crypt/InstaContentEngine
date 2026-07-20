@@ -82,6 +82,7 @@ class ContentEngine:
         text_model: str = "",
         image_model: Optional[str] = None,
         default_image_source: ImageSource = ImageSource.STOCK,
+        upload_ids: Optional[list[str]] = None,
         slide_configs: Optional[list[SlideImageConfig]] = None,
         tone: str = "professional",
         niche: Optional[str] = None,
@@ -131,6 +132,7 @@ class ContentEngine:
                 search_queries=caption_data.image_search_queries,
                 gen_prompts=caption_data.image_gen_prompts,
                 image_model=image_model,
+                upload_ids=upload_ids or [],
             )
 
         # 3. Fetch + brand all slides in parallel
@@ -190,6 +192,10 @@ class ContentEngine:
         try:
             result = await self.image_router.fetch_image(cfg)
         except (ImageFetchError, OpenRouterError, StockError):
+            # A user's own photo is a deliberate choice — quietly swapping a stock
+            # picture in when it fails would publish something they never picked.
+            if cfg.image_source == ImageSource.UPLOAD:
+                raise
             fallback = SlideImageConfig(
                 slide_number=cfg.slide_number,
                 image_source=ImageSource.STOCK,
@@ -293,7 +299,9 @@ class ContentEngine:
         search_queries: list[str],
         gen_prompts: list[str],
         image_model: Optional[str],
+        upload_ids: Optional[list[str]] = None,
     ) -> list[SlideImageConfig]:
+        uploads = upload_ids or []
         configs = []
         for i in range(1, num + 1):
             idx = i - 1
@@ -303,5 +311,7 @@ class ContentEngine:
                 search_query=search_queries[idx] if idx < len(search_queries) else f"slide {i}",
                 gen_prompt=gen_prompts[idx] if idx < len(gen_prompts) else None,
                 gen_model=image_model,
+                # Photos are handed out in the order the user picked them.
+                upload_id=uploads[idx] if idx < len(uploads) else None,
             ))
         return configs

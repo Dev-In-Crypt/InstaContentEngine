@@ -55,11 +55,14 @@ def test_content_engine_uses_separate_providers():
     from api.deps import get_content_engine
 
     text, image = object(), object()
+    user = SimpleNamespace(id="u1")
     engine = get_content_engine(text_provider=text, image_provider=image,
-                                stock=None, brand_engine=None)
+                                stock=None, brand_engine=None, user=user)
     assert engine.caption_gen.text_provider is text
     assert engine.image_router.image_provider is image
     assert engine.caption_gen.text_provider is not engine.image_router.image_provider
+    # The upload reader is bound to this user, so another tenant's id can't resolve.
+    assert engine.image_router.upload_reader is not None
 
 
 # ── API round-trip (cloud) ───────────────────────────────────────────────────

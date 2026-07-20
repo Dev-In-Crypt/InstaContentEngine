@@ -31,6 +31,8 @@ class SlideImageConfig:
     gen_model: Optional[str] = None
     # canva
     canva_template_id: Optional[str] = None
+    # the user's own photo, staged before generation
+    upload_id: Optional[str] = None
     # carousel
     page_number: Optional[int] = None    # manual page number for branded card
 
@@ -41,10 +43,14 @@ class ImageRouter:
         image_provider=None,   # services.ai ImageProvider (may differ from the text one)
         stock_client=None,     # StockClient
         canva_client=None,     # CanvaClient (optional)
+        upload_reader=None,    # Callable[[str], bytes] over the caller's staged photos
     ):
         self.image_provider = image_provider
         self.stock = stock_client
         self.canva = canva_client
+        # Injected rather than read from disk here: the router has no business
+        # knowing where a tenant's uploads live, and tests hand it a dict.
+        self.upload_reader = upload_reader
 
     async def fetch_image(
         self, config: SlideImageConfig
@@ -61,8 +67,21 @@ class ImageRouter:
                 return await self._fetch_ai(config), None
             case ImageSource.CANVA:
                 return await self._fetch_canva(config), None
+            case ImageSource.UPLOAD:
+                return self._read_upload(config), None
             case _:
                 raise ImageFetchError(f"Unknown image source: {config.image_source}")
+
+    def _read_upload(self, config: SlideImageConfig) -> bytes:
+        """The user's own photo. No attribution: they own it."""
+        if not self.upload_reader:
+            raise ImageFetchError("Uploads are not available in this context")
+        if not config.upload_id:
+            raise ImageFetchError(f"No photo attached to slide {config.slide_number}")
+        try:
+            return self.upload_reader(config.upload_id)
+        except Exception as e:
+            raise ImageFetchError(f"Uploaded photo is unavailable: {e}") from e
 
     async def _fetch_stock(
         self, config: SlideImageConfig

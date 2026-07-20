@@ -25,6 +25,7 @@ from services.auth import decode_access_token_claims
 from services.openrouter import OpenRouterClient
 from services.caption_generator import CaptionGenerator
 from services.image_router import ImageRouter
+from services import staging
 from services.brand_engine import PillowBrandEngine, BrandConfig
 from services.exporter import TemplateExporter
 from services.stock import UnsplashClient, PexelsClient, StockClient
@@ -265,10 +266,16 @@ def get_content_engine(
     image_provider: Annotated[object, Depends(get_image_provider)],
     stock: Annotated[StockClient, Depends(get_stock)],
     brand_engine: Annotated[PillowBrandEngine, Depends(get_brand_engine)],
+    user: Annotated[UserModel, Depends(get_current_user)],
 ) -> ContentEngine:
     # Text and images are independent: a tenant may use OpenRouter for copy and
     # Google for images, so these are two different objects.
     caption_gen = CaptionGenerator(text_provider)
-    image_router = ImageRouter(image_provider=image_provider, stock_client=stock)
+    # Bound to THIS user: an upload id from another tenant must not resolve.
+    def read_upload(upload_id: str) -> bytes:
+        return staging.read(str(user.id), upload_id)
+
+    image_router = ImageRouter(image_provider=image_provider, stock_client=stock,
+                               upload_reader=read_upload)
     exporter = TemplateExporter()
     return ContentEngine(caption_gen, image_router, brand_engine, exporter)
