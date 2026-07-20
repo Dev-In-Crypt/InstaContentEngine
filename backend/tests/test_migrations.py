@@ -21,6 +21,7 @@ def test_migrations_build_full_schema_on_fresh_db(tmp_path):
     assert {"users", "posts", "slides", "user_credentials", "alembic_version"} <= tables
     cols = {r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(users)")}
     assert "token_version" in cols          # the newest column is in the baseline
+    assert "logo_path" in cols              # added by the latest incremental revision
 
 
 def test_migrations_autostamp_preexisting_db(tmp_path):

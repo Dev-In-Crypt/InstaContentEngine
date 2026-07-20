@@ -173,3 +173,99 @@ def test_x_settings_is_per_user(cloud_client):
 
 def test_x_settings_requires_auth(cloud_client):
     assert cloud_client.get("/api/settings/x").status_code in (401, 403)
+
+
+# ── brand logo resolver (PART XXX) ──────────────────────────────────────────
+
+def test_apply_user_slide_style_sets_logo_for_a_cloud_tenant():
+    from services.brand_engine import BrandConfig
+    from services.user_settings import apply_user_slide_style
+
+    u = SimpleNamespace(slide_accent_color=None, slide_text_box_color=None,
+                        is_local=False, logo_path="/data/logos/u1.png")
+    from pathlib import Path
+    cfg = apply_user_slide_style(BrandConfig(), u)
+    assert cfg.logo_path == Path("/data/logos/u1.png")
+
+
+def test_cloud_tenant_without_a_logo_gets_no_platform_logo():
+    """A tenant's own logo, or none — the platform default must never leak."""
+    from pathlib import Path
+    from services.brand_engine import BrandConfig
+    from services.user_settings import apply_user_slide_style
+
+    cfg = BrandConfig(logo_path=Path("/platform/default_logo.png"))   # inherited default
+    u = SimpleNamespace(slide_accent_color=None, slide_text_box_color=None,
+                        is_local=False, logo_path=None)
+    cfg = apply_user_slide_style(cfg, u)
+    assert cfg.logo_path is None
+
+
+def test_local_user_keeps_the_config_logo():
+    from pathlib import Path
+    from services.brand_engine import BrandConfig
+    from services.user_settings import apply_user_slide_style
+
+    cfg = BrandConfig(logo_path=Path("/desktop/logo.png"))
+    u = SimpleNamespace(slide_accent_color=None, slide_text_box_color=None,
+                        is_local=True, logo_path=None)
+    cfg = apply_user_slide_style(cfg, u)
+    assert cfg.logo_path == Path("/desktop/logo.png")
+
+
+# ── brand logo API round-trip ───────────────────────────────────────────────
+
+@pytest.fixture
+def logo_root(tmp_path, monkeypatch):
+    from services import logo_store
+    root = tmp_path / "logos"
+    monkeypatch.setattr(logo_store, "LOGO_ROOT", root)
+    return root
+
+
+def _png() -> bytes:
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGBA", (64, 64), (255, 0, 0, 128)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _token(c, email):
+    return c.post("/api/auth/register",
+                  json={"email": email, "password": "password123"}).json()["access_token"]
+
+
+def test_logo_upload_get_and_delete(cloud_client, logo_root):
+    h = {"Authorization": f"Bearer {_token(cloud_client, 'logo@example.com')}"}
+    assert cloud_client.get("/api/settings/logo", headers=h).json() == {"set": False, "url": None}
+
+    up = cloud_client.post("/api/settings/logo", headers=h,
+                           files={"file": ("logo.png", _png(), "image/png")})
+    assert up.status_code == 200 and up.json()["set"] is True
+
+    got = cloud_client.get("/api/settings/logo", headers=h).json()
+    assert got["set"] is True and got["url"] == "/api/settings/logo/image"
+    img = cloud_client.get("/api/settings/logo/image", headers=h)
+    assert img.status_code == 200 and img.content == _png()
+
+    cloud_client.delete("/api/settings/logo", headers=h)
+    assert cloud_client.get("/api/settings/logo", headers=h).json()["set"] is False
+    assert cloud_client.get("/api/settings/logo/image", headers=h).status_code == 404
+
+
+def test_logo_rejects_non_image(cloud_client, logo_root):
+    h = {"Authorization": f"Bearer {_token(cloud_client, 'logo2@example.com')}"}
+    res = cloud_client.post("/api/settings/logo", headers=h,
+                            files={"file": ("x.txt", b"hello", "text/plain")})
+    assert res.status_code == 415
+
+
+def test_one_tenant_cannot_see_anothers_logo(cloud_client, logo_root):
+    ha = {"Authorization": f"Bearer {_token(cloud_client, 'a@example.com')}"}
+    hb = {"Authorization": f"Bearer {_token(cloud_client, 'b@example.com')}"}
+    cloud_client.post("/api/settings/logo", headers=ha,
+                      files={"file": ("logo.png", _png(), "image/png")})
+    # B has uploaded nothing — must not receive A's logo.
+    assert cloud_client.get("/api/settings/logo", headers=hb).json()["set"] is False
+    assert cloud_client.get("/api/settings/logo/image", headers=hb).status_code == 404

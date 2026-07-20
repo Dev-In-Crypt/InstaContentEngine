@@ -797,6 +797,22 @@
         <button id="save-style-btn" onclick="saveSlideStyle()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">💾 Save colours</button>
         <button onclick="resetSlideStyle()" class="ce-btn-ghost px-4 py-2 text-sm">↶ Reset to default</button>
       </div>
+
+      <!-- Brand logo -->
+      <div class="border-t border-gray-800 pt-4 space-y-2">
+        <label class="block text-sm text-gray-300">Brand logo</label>
+        <div class="flex items-center gap-3">
+          <!-- checkerboard so a transparent PNG reads clearly -->
+          <div id="logo-preview" class="w-16 h-16 rounded-lg border border-gray-700 flex items-center justify-center text-[10px] text-gray-600"
+            style="background-image:linear-gradient(45deg,#374151 25%,transparent 25%),linear-gradient(-45deg,#374151 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#374151 75%),linear-gradient(-45deg,transparent 75%,#374151 75%);background-size:12px 12px;background-position:0 0,0 6px,6px -6px,-6px 0;">none</div>
+          <label class="ce-btn-ghost px-3 py-1.5 text-sm cursor-pointer">
+            📁 Upload logo
+            <input id="logo-input" type="file" accept="image/png,image/webp,image/jpeg" class="hidden" onchange="uploadLogo(event)" />
+          </label>
+          <button id="logo-remove-btn" onclick="removeLogo()" class="hidden ce-btn-ghost px-3 py-1.5 text-sm">Remove</button>
+        </div>
+        <p class="text-xs text-gray-500">PNG with a transparent background works best. It sits in the corner of every slide when “Show logo on slides” is on.</p>
+      </div>
     </section>
 
     <!-- Brand voice (cloud accounts only) -->
@@ -3100,6 +3116,52 @@ async function loadSlideStyle() {
       wrap.appendChild(b);
     });
   }
+  await loadLogo();
+}
+
+// ===== BRAND LOGO =====
+function _renderLogo(set) {
+  const box = document.getElementById('logo-preview');
+  const removeBtn = document.getElementById('logo-remove-btn');
+  if (!box) return;
+  if (set) {
+    // Cache-bust so a just-uploaded logo replaces the old preview.
+    box.innerHTML = `<img src="${API}/api/settings/logo/image?t=${Date.now()}" alt="Brand logo" class="max-w-full max-h-full object-contain" />`;
+    removeBtn.classList.remove('hidden');
+  } else {
+    box.textContent = 'none';
+    removeBtn.classList.add('hidden');
+  }
+}
+
+async function loadLogo() {
+  try {
+    const res = await apiFetch(`${API}/api/settings/logo`);
+    if (res.ok) _renderLogo((await res.json()).set);
+  } catch { /* 401 handled by apiFetch */ }
+}
+
+async function uploadLogo(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await apiFetch(`${API}/api/settings/logo`, { method: 'POST', body: form });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Upload failed'); }
+    _renderLogo(true);
+    toast('✅ Logo saved', 'success');
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+async function removeLogo() {
+  try {
+    const res = await apiFetch(`${API}/api/settings/logo`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Remove failed');
+    _renderLogo(false);
+    toast('Logo removed', 'info');
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
 }
 
 async function _putSlideStyle(accent, textBox, btn) {

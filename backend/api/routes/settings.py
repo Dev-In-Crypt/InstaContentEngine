@@ -5,7 +5,8 @@ in plaintext — GET reports only which keys are set, plus a short masked tail.
 """
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,13 +14,18 @@ from api.deps import _CRED_FIELDS, get_current_user, get_db
 from models.database import User as UserModel, UserCredentials as UserCredentialsModel
 from models.schemas import (
     NICHE_BOX_PALETTE, AISettingsResponse, AISettingsUpdate, AITestRequest, AITestResponse,
-    BrandVoiceResponse, BrandVoiceUpdate, ProfileResponse, ProfileUpdate,
+    BrandVoiceResponse, BrandVoiceUpdate, LogoSettingsResponse, ProfileResponse, ProfileUpdate,
     SlideStyleResponse, SlideStyleUpdate, XSettingsResponse, XSettingsUpdate,
 )
+from services import logo_store
 from services.ai.catalog import IMAGE, PROVIDERS, TEXT, is_valid_provider
 from services.brand_engine import BrandConfig
 from services.brand_voice import DEFAULT_PRESET, is_valid_preset, list_presets
 from services.secrets import decrypt, encrypt
+
+# Same limits as the composer's photo uploads (api/routes/posts.py).
+_LOGO_MAX_BYTES = 20 * 1024 * 1024
+_LOGO_TYPES = {"image/png", "image/webp", "image/jpeg"}
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -192,6 +198,65 @@ async def put_x_settings(
     user.x_premium = body.x_premium
     await db.commit()
     return {"status": "ok"}
+
+
+# ── Brand logo (per-tenant, drawn in the corner of every slide) ─────────────
+
+_LOGO_URL = "/api/settings/logo/image"
+
+
+@router.get("/logo", response_model=LogoSettingsResponse)
+async def get_logo(
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> LogoSettingsResponse:
+    has = bool(logo_store.path_for(str(user.id)))
+    return LogoSettingsResponse(set=has, url=_LOGO_URL if has else None)
+
+
+@router.post("/logo", response_model=LogoSettingsResponse)
+async def put_logo(
+    user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    file: UploadFile = File(...),
+) -> LogoSettingsResponse:
+    if file.content_type not in _LOGO_TYPES:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file type {file.content_type!r}. Allowed: png, webp, jpeg.",
+        )
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(data) > _LOGO_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 20 MB)")
+
+    path = logo_store.save(str(user.id), data, file.content_type)
+    user.logo_path = str(path)
+    await db.commit()
+    return LogoSettingsResponse(set=True, url=_LOGO_URL)
+
+
+@router.delete("/logo", response_model=LogoSettingsResponse)
+async def delete_logo(
+    user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> LogoSettingsResponse:
+    logo_store.delete(str(user.id))
+    user.logo_path = None
+    await db.commit()
+    return LogoSettingsResponse(set=False, url=None)
+
+
+@router.get("/logo/image")
+async def get_logo_image(
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> FileResponse:
+    # Behind auth, unlike slide images: a logo is an account setting, not part of
+    # an already-published post (where it's baked into the slide JPEG anyway).
+    path = logo_store.path_for(str(user.id))
+    if not path:
+        raise HTTPException(status_code=404, detail="No logo set")
+    return FileResponse(path)
 
 
 # ── AI provider + model (each tenant picks, and pays for, their own) ─────────

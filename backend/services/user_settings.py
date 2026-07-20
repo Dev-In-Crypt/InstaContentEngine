@@ -94,14 +94,22 @@ def resolve_ai_choice(user: Optional[UserModel], settings: Settings,
 
 
 def apply_user_slide_style(cfg, user: Optional[UserModel]):
-    """Overlay the user's own slide colours onto a loaded BrandConfig. Unset
-    colours keep the platform default preset. Mutates and returns `cfg`."""
+    """Overlay the tenant's own slide style — colours and logo — onto a loaded
+    BrandConfig. Unset colours keep the platform default preset. Mutates and
+    returns `cfg`."""
     if user is None:
         return cfg
     if getattr(user, "slide_accent_color", None):
         cfg.niche_box_color = user.slide_accent_color
     if getattr(user, "slide_text_box_color", None):
         cfg.desc_box_color = user.slide_text_box_color
+    if not getattr(user, "is_local", False):
+        # A cloud tenant gets exactly their own logo, or none — clearing the path
+        # so the platform's default logo never leaks onto someone else's brand.
+        # The desktop/local user keeps whatever the loaded config carries.
+        from pathlib import Path
+        logo = getattr(user, "logo_path", None)
+        cfg.logo_path = Path(logo) if logo else None
     return cfg
 
 

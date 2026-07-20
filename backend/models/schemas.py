@@ -368,6 +368,12 @@ class SlideStyleResponse(BaseModel):
 
 # --- X-specific account settings ---
 
+class LogoSettingsResponse(BaseModel):
+    """The tenant's brand logo — whether one is set, and where to preview it."""
+    set: bool = False
+    url: Optional[str] = None
+
+
 class XSettingsUpdate(BaseModel):
     # Our own record of the tenant's X plan, not a check against X. Enabling it
     # unlocks the long-post mode; if the account isn't actually Premium, X
