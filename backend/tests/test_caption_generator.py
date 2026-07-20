@@ -144,10 +144,11 @@ async def test_generate_invalid_json(httpx_mock: HTTPXMock):
     httpx_mock.add_response(
         url=f"{BASE}/chat/completions",
         json={"choices": [{"message": {"content": "This is not JSON at all."}}]},
+        is_reusable=True,   # the generator retries once on a parse failure
     )
     client = OpenRouterClient(api_key="test-key")
     gen = CaptionGenerator(client)
-    with pytest.raises(CaptionParseError, match="Could not parse JSON"):
+    with pytest.raises(CaptionParseError, match="JSON"):
         await gen.generate(topic="AI trends", format="single")
     await client.close()
 
@@ -159,6 +160,7 @@ async def test_generate_missing_field(httpx_mock: HTTPXMock):
     httpx_mock.add_response(
         url=f"{BASE}/chat/completions",
         json={"choices": [{"message": {"content": json.dumps(bad)}}]},
+        is_reusable=True,   # the generator retries once on a parse failure
     )
     client = OpenRouterClient(api_key="test-key")
     gen = CaptionGenerator(client)
@@ -648,3 +650,87 @@ def test_all_prompts_forbid_fabricated_statistics():
     for prompt in (INSTAGRAM_SYSTEM_PROMPT, LINKEDIN_SYSTEM_PROMPT,
                    X_SYSTEM_PROMPT, X_THREAD_SYSTEM_PROMPT, X_LONG_SYSTEM_PROMPT):
         assert "Do not invent statistics" in prompt
+
+
+# ── lenient JSON parsing + one auto-retry (PART XXIX) ───────────────────────
+
+def test_loads_lenient_leaves_valid_json_untouched():
+    from services.caption_generator import loads_lenient
+    assert loads_lenient(json.dumps(GOOD_JSON)) == GOOD_JSON
+
+
+def test_loads_lenient_repairs_a_hashtag_missing_its_quote():
+    """The exact live failure: a hashtag with no opening quote inside the array."""
+    from services.caption_generator import loads_lenient
+    broken = json.dumps(GOOD_JSON).replace('"#AI"', '#AI"')
+    obj = loads_lenient(broken)
+    assert isinstance(obj, dict)
+    assert obj["caption"] == GOOD_JSON["caption"]    # required fields survive
+    assert obj["hook"] == GOOD_JSON["hook"]
+
+
+def test_loads_lenient_repairs_a_trailing_comma():
+    from services.caption_generator import loads_lenient
+    assert loads_lenient('{"a": 1, "b": 2,}') == {"a": 1, "b": 2}
+
+
+@pytest.mark.asyncio
+async def test_generate_rejects_hopeless_output(httpx_mock: HTTPXMock):
+    """Repair never raises; a reply with no object at all must still fail loudly,
+    not ship an empty post."""
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": "Sorry, I can't help with that."}}]},
+        is_reusable=True,   # retry hits the mock a second time
+    )
+    client = OpenRouterClient(api_key="test-key")
+    gen = CaptionGenerator(client)
+    with pytest.raises(CaptionParseError):
+        await gen.generate(topic="AI", format="single", num_slides=1)
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_generate_retries_once_on_broken_json():
+    """Broken JSON on the first sample, valid on the second → one post, two calls."""
+    from unittest.mock import AsyncMock
+    incomplete = dict(GOOD_JSON)
+    del incomplete["caption"]   # repair can't invent a missing required field
+    provider = AsyncMock()
+    provider.generate_text = AsyncMock(
+        side_effect=[(json.dumps(incomplete), []), (json.dumps(GOOD_JSON), [])])
+    gen = CaptionGenerator(provider)
+
+    result = await gen.generate(topic="AI", format="single", num_slides=1)
+
+    assert result.caption == GOOD_JSON["caption"]
+    assert provider.generate_text.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_generate_gives_up_after_one_retry():
+    """Broken both times → error, and exactly two calls (no infinite loop)."""
+    from unittest.mock import AsyncMock
+    provider = AsyncMock()
+    provider.generate_text = AsyncMock(return_value=("not json at all", []))
+    gen = CaptionGenerator(provider)
+
+    with pytest.raises(CaptionParseError):
+        await gen.generate(topic="AI", format="single", num_slides=1)
+    assert provider.generate_text.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_generate_repairs_broken_json_without_a_retry():
+    """A repairable reply (a hashtag missing its quote) parses on the first sample —
+    _parse must route through the repairer, so no second generation is spent."""
+    from unittest.mock import AsyncMock
+    broken = json.dumps(GOOD_JSON).replace('"#AI"', '#AI"')   # missing opening quote
+    provider = AsyncMock()
+    provider.generate_text = AsyncMock(return_value=(broken, []))
+    gen = CaptionGenerator(provider)
+
+    result = await gen.generate(topic="AI", format="single", num_slides=1)
+
+    assert result.caption == GOOD_JSON["caption"]
+    assert provider.generate_text.await_count == 1     # repaired in place, no retry

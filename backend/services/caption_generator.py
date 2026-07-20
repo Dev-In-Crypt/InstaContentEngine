@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -8,6 +9,8 @@ from services.brand_voice import resolve_brand_voice
 from services.text_polish import polish
 from services.x_text import clamp_count, enforce_parts
 
+
+log = logging.getLogger(__name__)
 
 _FENCE = re.compile(r"```(?:json)?\s*(.+?)\s*```", re.DOTALL)
 
@@ -51,6 +54,28 @@ def extract_json(raw: str) -> str:
             if depth == 0:
                 return text[start:index + 1]
     return text
+
+
+def loads_lenient(raw: str) -> object:
+    """Parse the model's reply, repairing near-JSON only when strict parsing fails.
+
+    A grounded model occasionally emits structurally broken JSON — a hashtag with
+    no opening quote, a trailing comma, single quotes — and a hard `json.loads`
+    turns a usable answer into "Generation failed". Valid JSON takes the untouched
+    fast path; only on failure does json-repair salvage it.
+
+    The repair is best-effort: it may drop the broken token (a mangled hashtag)
+    while keeping the fields that matter (caption, hook). It never raises — hopeless
+    input comes back as "" or {}, which the caller's required-field check rejects,
+    so a repaired-into-garbage response still fails loudly rather than shipping an
+    empty post.
+    """
+    text = extract_json(raw)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        from json_repair import repair_json
+        return repair_json(text, return_objects=True)
 
 
 def _frame_brand_voice(brand_voice: Optional[str]) -> str:
@@ -374,14 +399,25 @@ class CaptionGenerator:
         max_tokens = 3000 if length_tier == LengthTier.DEEP_DIVE else 2000
         if platform == Platform.X and x_mode == XPostMode.THREAD:
             max_tokens = max(max_tokens, 400 * thread_max)   # room for every tweet
-        raw, citations = await self.text_provider.generate_text(
-            model=text_model,
-            system_prompt=system,
-            user_prompt=user,
-            max_tokens=max_tokens,
-            web_grounded=web_grounded,
-        )
-        result = self._parse(raw)
+        async def _call():
+            return await self.text_provider.generate_text(
+                model=text_model,
+                system_prompt=system,
+                user_prompt=user,
+                max_tokens=max_tokens,
+                web_grounded=web_grounded,
+            )
+
+        raw, citations = await _call()
+        try:
+            result = self._parse(raw)
+        except CaptionParseError:
+            # Broken JSON is usually a one-off dice roll; a fresh sample almost
+            # always parses. Exactly one retry — costs one more generation, and
+            # beats showing "Generation failed" for an achievable result.
+            log.warning("Caption JSON unparseable even after repair; retrying once")
+            raw, citations = await _call()
+            result = self._parse(raw)
         result.sources = citations
 
         # No network renders markdown, so every published field gets flattened —
@@ -510,7 +546,7 @@ class CaptionGenerator:
     @staticmethod
     def _parse_variants(raw: str, is_list: bool) -> list:
         try:
-            data = json.loads(extract_json(raw))
+            data = loads_lenient(raw)
         except json.JSONDecodeError as e:
             raise CaptionParseError(f"Could not parse variants JSON: {e}\n\nRaw:\n{raw}") from e
         variants = data.get("variants") if isinstance(data, dict) else data
@@ -530,9 +566,13 @@ class CaptionGenerator:
 
     def _parse(self, raw: str) -> GeneratedCaption:
         try:
-            data = json.loads(extract_json(raw))
+            data = loads_lenient(raw)
         except json.JSONDecodeError as e:
             raise CaptionParseError(f"Could not parse JSON from model response: {e}\n\nRaw:\n{raw}") from e
+        if not isinstance(data, dict):
+            # Repair returned "" / a list for hopeless input; treat it as unparseable
+            # rather than let a later .get() raise a bare AttributeError.
+            raise CaptionParseError(f"Model response is not a JSON object.\n\nRaw:\n{raw}")
 
         required = ("caption", "hashtags", "cta", "hook", "image_search_queries", "image_gen_prompts", "alt_text")
         for key in required:
