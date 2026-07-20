@@ -528,3 +528,66 @@ def test_preview_flags_a_statistic_and_clears_it_after_an_edit(client, seeded):
     client.put(f"/api/posts/{seeded}/caption",
                json={"caption": "Running is good for your heart."})
     assert client.get(f"/api/posts/{seeded}").json()["claims"] == []
+
+
+# ── batch: POST /plan proposes topics, generate accepts a plan_date (PART XXXI) ──
+
+def test_plan_returns_dated_topics(client):
+    from api.deps import get_text_provider
+    from unittest.mock import AsyncMock
+    topics = json.dumps([
+        {"topic": f"Distinct specific topic {i}", "pillar": "educational", "angle": "why"}
+        for i in range(3)
+    ])
+    provider = AsyncMock()
+    provider.generate_text = AsyncMock(return_value=(topics, []))
+    app.dependency_overrides[get_text_provider] = lambda: provider
+    try:
+        res = client.post("/api/posts/plan", json={
+            "count": 3, "start_date": "2026-08-01", "cadence_days": 2,
+            "platform": "instagram",
+        })
+        assert res.status_code == 200, res.text
+        items = res.json()["items"]
+        assert len(items) == 3
+        assert [it["date"] for it in items] == ["2026-08-01", "2026-08-03", "2026-08-05"]
+        assert all(it["pillar_label"] == "Educational" for it in items)
+        # No posts were created by planning.
+        assert client.get("/api/posts").json() == []
+    finally:
+        app.dependency_overrides.pop(get_text_provider, None)
+
+
+def test_plan_rejects_a_silly_count(client):
+    res = client.post("/api/posts/plan", json={
+        "count": 50, "start_date": "2026-08-01", "cadence_days": 1, "platform": "instagram"})
+    assert res.status_code == 422
+
+
+def test_generate_with_plan_date_is_a_dated_preview_not_scheduled(client, generated_ids):
+    post_id = str(uuid.uuid4())
+    generated_ids.append(post_id)
+
+    async def fake_generate(**kwargs):
+        return _generated(post_id)
+
+    client.fake_engine.generate_post.side_effect = fake_generate
+
+    res = client.post("/api/posts/generate", json={
+        "topic": "AI trends", "format": "single",
+        "plan_date": "2026-08-05T00:00:00",
+    })
+    assert res.status_code == 200, res.text
+    assert _sse_events(res)[-1]["type"] == "complete"
+
+    got = client.get(f"/api/posts/{post_id}").json()
+    assert got["scheduled_at"].startswith("2026-08-05")   # pinned to its calendar day
+    assert got["status"] == "preview"                     # a draft, NOT auto-scheduled
+
+
+def test_generate_without_plan_date_leaves_scheduled_at_null(client, generated_ids):
+    post_id = str(uuid.uuid4())
+    generated_ids.append(post_id)
+    client.fake_engine.generate_post.side_effect = lambda **k: _generated(post_id)
+    client.post("/api/posts/generate", json={"topic": "AI trends", "format": "single"})
+    assert client.get(f"/api/posts/{post_id}").json()["scheduled_at"] is None

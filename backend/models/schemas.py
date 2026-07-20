@@ -1,6 +1,6 @@
 from __future__ import annotations
 import re
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -104,6 +104,9 @@ class GenerateRequest(BaseModel):
     default_image_source: ImageSource = ImageSource.STOCK
     # Own photos, in slide order — required when default_image_source is "upload".
     upload_ids: list[str] = Field(default_factory=list)
+    # Batch planning: the calendar date this draft belongs to. Sets scheduled_at
+    # WITHOUT scheduling a publish — the post stays a preview for the user to review.
+    plan_date: Optional[datetime] = None
     slides: Optional[list[SlideConfig]] = None
     tone: str = "professional"
     niche: Optional[str] = None
@@ -146,6 +149,28 @@ class GenerateRequest(BaseModel):
 
 class ScheduleRequest(BaseModel):
     publish_at: datetime
+
+
+# --- Batch plan (a week of topics, reviewed before any post is generated) ---
+
+class PlanRequest(BaseModel):
+    theme: Optional[str] = Field(None, max_length=200)
+    count: int = Field(7, ge=2, le=14)          # a carousel of a week or two, bounded
+    start_date: date
+    cadence_days: int = Field(1, ge=1, le=7)    # 1 = daily, 2 = every other day, …
+    platform: Platform = Platform.INSTAGRAM
+
+
+class PlanItem(BaseModel):
+    topic: str
+    pillar: str
+    pillar_label: str
+    angle: str = ""
+    date: date
+
+
+class PlanResponse(BaseModel):
+    items: list[PlanItem] = []
 
 
 class CaptionUpdate(BaseModel):

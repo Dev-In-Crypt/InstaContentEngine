@@ -5,7 +5,7 @@ import logging
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated, Optional
 from collections.abc import AsyncGenerator
@@ -17,8 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from api.deps import (
-    get_content_engine, get_current_user, get_db, get_settings, load_brand_config,
-    owned_post, require_local, require_token, require_verified,
+    get_content_engine, get_current_user, get_db, get_settings, get_text_provider,
+    load_brand_config, owned_post, require_local, require_token, require_verified,
 )
 from api.ratelimit import limiter
 from services.brand_engine import PillowBrandEngine
@@ -35,12 +35,15 @@ from models.schemas import (
     CaptionUpdate, GenerateRequest, ImageSource, OverlayUpdateRequest, Platform,
     PostInsightSchema, PostPreview, PostStatus, PostSummary, RegenFieldRequest,
     RegenFieldResponse, ReplaceSlideRequest, ScheduleRequest, SlidePreview,
-    PublishResult, StagedUpload, XPostMode,
+    PlanItem, PlanRequest, PlanResponse, PublishResult, StagedUpload, XPostMode,
 )
 from services import staging
 from services.claims import find_claims
 from services.content_engine import ContentEngine, GeneratedPost, _num_slides
-from services.pillars import classify_pillar, pillar_mix, suggest_today
+from services.content_plan import plan_topics
+from services.pillars import (
+    _PILLAR_BY_KEY, classify_pillar, pillar_mix, suggest_today,
+)
 from services.image_router import SlideImageConfig
 from services.instagram import InstagramPublisher
 from services.openrouter import OpenRouterError
@@ -303,6 +306,11 @@ async def generate_post(
                     generated, db, body.template_style.value,
                     user_id=user.id,
                 )
+                if body.plan_date is not None:
+                    # A batch draft: pin it to its calendar date but leave it a
+                    # preview — no publish job. The user reviews, then schedules.
+                    db_post.scheduled_at = body.plan_date
+                    await db.commit()
                 preview = _to_preview(db_post)
                 # Persist any buffered LLM usage from this generation.
                 try:
@@ -962,6 +970,57 @@ async def regenerate_field(
         raise HTTPException(status_code=502, detail=f"Regeneration failed: {e}") from e
 
     return RegenFieldResponse(field=body.field, variants=variants)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Batch: propose a week of topics (cheap — no posts created here)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/plan", response_model=PlanResponse)
+@limiter.limit("15/minute;150/hour")
+async def plan_week(
+    request: Request,
+    body: PlanRequest,
+    text_provider: Annotated[object, Depends(get_text_provider)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> PlanResponse:
+    """Propose `count` post topics, balanced across pillars and on-brand. Creates
+    NO posts — the user reviews and prunes this list, then generates the approved
+    topics one by one through the normal pipeline."""
+    _tp, text_model, _key = resolve_ai_choice(user, settings, "text")
+    if text_provider is None or not text_model:
+        raise HTTPException(
+            status_code=400,
+            detail="No text model selected. Choose a provider and model in Account → AI models.",
+        )
+    profile = resolve_user_profile(user)
+    try:
+        topics = await plan_topics(
+            text_provider,
+            niche=profile["niche"],
+            target_audience=profile["target_audience"],
+            theme=body.theme,
+            platform=body.platform.value,
+            count=body.count,
+            text_model=text_model,
+            brand_voice=resolve_user_brand_voice(user),
+        )
+    except Exception as e:
+        log.exception("Topic planning failed")
+        raise HTTPException(status_code=502, detail="Could not plan topics. Try again.") from e
+
+    items = [
+        PlanItem(
+            topic=t["topic"],
+            pillar=t["pillar"],
+            pillar_label=_PILLAR_BY_KEY.get(t["pillar"], {}).get("label", t["pillar"]),
+            angle=t["angle"],
+            date=body.start_date + timedelta(days=i * body.cadence_days),
+        )
+        for i, t in enumerate(topics)
+    ]
+    return PlanResponse(items=items)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
