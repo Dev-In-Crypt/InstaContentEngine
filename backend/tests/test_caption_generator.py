@@ -459,3 +459,11 @@ async def test_short_x_caption_within_budget_is_untouched(httpx_mock: HTTPXMock)
                                 platform=Platform.X, x_mode=XPostMode.SHORT)
     await client.close()
     assert result.caption == GOOD_JSON["caption"]
+
+
+def test_short_x_prompt_keeps_hashtags_out_of_the_caption():
+    """publisher_flow appends the hashtags field to the caption. If the prompt also
+    asks for them inline, every short X post ships its hashtags twice."""
+    from services.caption_generator import X_SYSTEM_PROMPT
+    assert "WITHOUT hashtags" in X_SYSTEM_PROMPT
+    assert "hashtags included" not in X_SYSTEM_PROMPT

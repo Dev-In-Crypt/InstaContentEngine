@@ -120,9 +120,11 @@ BRAND/PERSON CONTEXT:
 Tone: {tone}
 
 Write for X. HARD RULES:
-- The "caption" field is the full tweet and MUST be 250 characters or fewer, hashtags included.
+- The "caption" field is the tweet text WITHOUT hashtags — they are appended from the
+  "hashtags" field when the post goes out, so repeating them here publishes them twice.
+- Caption plus hashtags must fit 250 characters, so keep the caption near 200.
 - One sharp hook, one idea, natural English, no em-dash.
-- 1-2 relevant hashtags maximum (X posts do not use hashtag walls).
+- 1-2 relevant hashtags maximum, in the "hashtags" field (X posts do not use hashtag walls).
 - A single image accompanies the post; no carousels.
 - Ready to copy-paste, no preamble.
 
@@ -343,7 +345,8 @@ class CaptionGenerator:
             system_prompt="You tighten social copy without losing meaning.",
             user_prompt=(
                 f"Rewrite the text below so it is at most {limit} characters, including "
-                f"spaces, punctuation and hashtags. Keep the meaning and the tone. "
+                f"spaces and punctuation. Keep the meaning and the tone. It must read as "
+                f"a finished thought — never end with an ellipsis or a cut-off word. "
                 f"Return ONLY the rewritten text, no quotes and no preamble.\n\n{text}"
             ),
             max_tokens=300,
