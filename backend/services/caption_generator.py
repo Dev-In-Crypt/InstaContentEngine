@@ -17,9 +17,12 @@ def _frame_brand_voice(brand_voice: Optional[str]) -> str:
 
 
 # Shared JSON envelope so _parse stays uniform across platforms.
+# Single braces on purpose: this string is substituted INTO the templates as a
+# .format() *value*, so it is never itself formatted — doubling the braces would
+# ship a literal "{{" to the model, which then copies it and emits invalid JSON.
 _JSON_FORMAT = """\
 RESPOND IN THIS EXACT JSON FORMAT (no markdown, no code fences):
-{{
+{
     "hook": "Complete sentence (or two short ones), max 80 characters total. Must end with . ! or ?. Fits comfortably on 2 lines of an image overlay. No hashtags.",
     "caption": "Body text that follows the hook without repeating it...",
     "cta": "A single call-to-action sentence.",
@@ -29,7 +32,7 @@ RESPOND IN THIS EXACT JSON FORMAT (no markdown, no code fences):
     "image_gen_prompts": ["detailed image generation prompt for slide 1"],
     "slide_overlays": ["Short complete sentence for slide 1 (≤80 chars, ends with . ! or ?). Same idea as hook.", "Short complete sentence for slide 2 (≤80 chars).", "..."],
     "alt_text": "Accessibility description of the post"
-}}"""
+}"""
 
 INSTAGRAM_SYSTEM_PROMPT = """\
 Act as an expert Instagram SEO strategist, social media copywriter, and growth marketer.

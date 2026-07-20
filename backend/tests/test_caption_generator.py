@@ -52,6 +52,27 @@ def _sys_user(httpx_mock: HTTPXMock):
     return msgs["system"], msgs["user"]
 
 
+def test_json_spec_reaches_model_with_single_braces():
+    """Regression: `_JSON_FORMAT` is substituted as a .format() VALUE, so its braces
+    are never unescaped. Doubling them shipped a literal '{{' to the model, which
+    cheap models copied verbatim and emitted invalid JSON — measured ~50% failed
+    generations on X with deepseek before this was fixed."""
+    from models.schemas import LengthTier
+    from services.caption_generator import (
+        INSTAGRAM_SYSTEM_PROMPT, LINKEDIN_SYSTEM_PROMPT, X_SYSTEM_PROMPT,
+        LENGTH_TIER_INSTRUCTIONS, _JSON_FORMAT, _frame_brand_voice,
+    )
+    for template in (INSTAGRAM_SYSTEM_PROMPT, LINKEDIN_SYSTEM_PROMPT, X_SYSTEM_PROMPT):
+        rendered = template.format(
+            brand_voice=_frame_brand_voice(None), tone="professional",
+            length_instruction=LENGTH_TIER_INSTRUCTIONS[LengthTier.SWEET_SPOT],
+            json_format=_JSON_FORMAT,
+        )
+        assert "{{" not in rendered and "}}" not in rendered
+        # and the example the model is told to copy must be parseable JSON shape
+        assert '\n{\n' in rendered
+
+
 @pytest.mark.asyncio
 async def test_prompts_are_niche_neutral(httpx_mock: HTTPXMock):
     """The system prompt must not hardcode the old fitness/self-dev niche."""
