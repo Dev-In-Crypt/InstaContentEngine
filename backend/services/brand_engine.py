@@ -174,7 +174,12 @@ class PillowBrandEngine:
         # ── Niche box: fit width to its text content ─────────────────────────
         niche_font = self._load_font(self.config.heading_font_path, self.config.niche_box_font_size)
         niche_label = (niche_text or "").strip()
+        # One line, always: this box is a label ("Fitness"), not a paragraph. Two or
+        # more lines of small type over a photo reads as a smudge, not as branding —
+        # so anything longer is ellipsised rather than wrapped.
         niche_lines = self._wrap_lines(draw, niche_label, niche_font, max_box_inner_w) if (show_niche_box and niche_label) else []
+        if len(niche_lines) > 1:
+            niche_lines = [niche_lines[0].rstrip(" ,.;:—-") + "…"]
         niche_lh = draw.textbbox((0, 0), "Ag", font=niche_font)[3] + 8
         niche_top = int(th * 0.62)
         niche_h = 0

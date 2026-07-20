@@ -358,3 +358,48 @@ def test_wrap_lines_normal_words_unchanged():
     font = ImageFont.load_default()
     lines = PillowBrandEngine._wrap_lines(draw, "run every single day", font, 10000)
     assert lines == ["run every single day"]
+
+
+def test_niche_label_stays_on_one_line(engine):
+    """A sentence in the niche box used to wrap into a small-type strip across the
+    photo. It's a label, so it gets ellipsised instead."""
+    long_label = "How to start strength training after 40 without getting injured"
+    result = engine.create_branded_card(
+        background_image=make_jpeg_bytes(800, 800, "white"),
+        niche_text=long_label,
+        description_text="Hello world.",
+        niche_box_color="#0076cb",
+    )
+    img = open_result(result).convert("RGB")
+    target = (0x00, 0x76, 0xcb)
+
+    def is_box(px):
+        return all(abs(px[i] - target[i]) < 8 for i in range(3))
+
+    rows = [y for y in range(int(1350 * 0.60), int(1350 * 0.75))
+            if is_box(img.getpixel((70, y)))]
+    # Box height for one line of the niche font; two lines would be ~1.7x taller.
+    one_line = engine.create_branded_card(
+        background_image=make_jpeg_bytes(800, 800, "white"),
+        niche_text="Fitness", description_text="Hello world.", niche_box_color="#0076cb",
+    )
+    ref = open_result(one_line).convert("RGB")
+    ref_rows = [y for y in range(int(1350 * 0.60), int(1350 * 0.75))
+                if is_box(ref.getpixel((70, y)))]
+    assert rows and abs(len(rows) - len(ref_rows)) <= 2
+
+
+def test_empty_niche_draws_no_box(engine):
+    """No niche set → no orange strip at all, just the description box."""
+    result = engine.create_branded_card(
+        background_image=make_jpeg_bytes(800, 800, "white"),
+        niche_text="",
+        description_text="Hello world.",
+        niche_box_color="#0076cb",
+    )
+    img = open_result(result).convert("RGB")
+    target = (0x00, 0x76, 0xcb)
+    band = {img.getpixel((x, y))
+            for y in range(int(1350 * 0.60), int(1350 * 0.72), 3)
+            for x in range(60, 400, 20)}
+    assert not any(all(abs(px[i] - target[i]) < 8 for i in range(3)) for px in band)

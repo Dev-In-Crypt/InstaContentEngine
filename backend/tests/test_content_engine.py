@@ -356,3 +356,21 @@ async def test_one_slide_failure_lets_siblings_finish_before_raising():
 
     # Both siblings ran to completion rather than being abandoned when slide 1 blew up.
     assert completed == {2, 3}
+
+
+@pytest.mark.asyncio
+async def test_no_niche_means_no_niche_box_text():
+    """The box used to fall back to the whole topic, which rendered as an unreadable
+    strip across the photo. Empty niche → empty label → brand_engine skips the box."""
+    engine, _, _ = make_engine()
+    engine.brand_engine = MagicMock()
+    engine.brand_engine.create_branded_card.return_value = b"card"
+    post = await engine.generate_post(
+        topic="How to start strength training after 40 without getting injured",
+        format=PostFormat.SINGLE,
+        template_style=TemplateStyle.BRANDED_CARD,
+        niche=None,
+    )
+    kwargs = engine.brand_engine.create_branded_card.call_args_list[0].kwargs
+    assert kwargs["niche_text"] == ""
+    assert post.slides[0].render_params["niche_text"] == ""

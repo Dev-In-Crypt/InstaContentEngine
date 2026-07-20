@@ -222,7 +222,11 @@ class ContentEngine:
             )
             render_params = {
                 "template_style": "branded_card",
-                "niche_text": (niche or topic) if is_first else "",
+                # No fallback to the topic: the box is a short label ("Fitness"),
+                # and a whole topic sentence in it renders as an unreadable strip
+                # across the photo. No niche → no box; the user can still add one
+                # per slide in the overlay editor.
+                "niche_text": (niche or "").strip() if is_first else "",
                 "overlay_text": overlay_text,
                 "show_niche_box": is_first,
                 "niche_box_color": niche_box_color,
