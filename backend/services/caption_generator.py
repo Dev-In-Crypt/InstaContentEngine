@@ -8,6 +8,50 @@ from services.brand_voice import resolve_brand_voice
 from services.x_text import clamp_count, enforce_parts, strip_markdown
 
 
+_FENCE = re.compile(r"```(?:json)?\s*(.+?)\s*```", re.DOTALL)
+
+
+def extract_json(raw: str) -> str:
+    """Pull the JSON object out of a model reply that also contains prose.
+
+    Models regularly ignore "respond with JSON only" and wrap the object in a
+    preamble, a ```json fence and a bullet-point summary of what they just wrote.
+    Parsing the whole reply then fails and the user sees "Generation failed" for
+    a response that was perfectly usable — measured live on X thread and long
+    posts. So: take the fenced block if there is one, else the first balanced
+    {...} object, else the raw text (so the caller still reports a real error).
+    """
+    text = (raw or "").strip()
+    fenced = _FENCE.search(text)
+    if fenced:
+        text = fenced.group(1).strip()
+
+    start = text.find("{")
+    if start == -1:
+        return text
+    depth, in_string, escaped = 0, False, False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            # Braces inside a caption ("use {this}") must not close the object.
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:index + 1]
+    return text
+
+
 def _frame_brand_voice(brand_voice: Optional[str]) -> str:
     """Wrap the (user-editable) brand voice so the model treats it as style guidance
     only — it can't override the output format/rules that follow it in the prompt.
@@ -432,11 +476,8 @@ class CaptionGenerator:
 
     @staticmethod
     def _parse_variants(raw: str, is_list: bool) -> list:
-        text_ = raw.strip()
-        text_ = re.sub(r"^```(?:json)?\s*", "", text_)
-        text_ = re.sub(r"\s*```$", "", text_)
         try:
-            data = json.loads(text_)
+            data = json.loads(extract_json(raw))
         except json.JSONDecodeError as e:
             raise CaptionParseError(f"Could not parse variants JSON: {e}\n\nRaw:\n{raw}") from e
         variants = data.get("variants") if isinstance(data, dict) else data
@@ -455,13 +496,8 @@ class CaptionGenerator:
         return [str(v) for v in variants if str(v).strip()]
 
     def _parse(self, raw: str) -> GeneratedCaption:
-        # Strip markdown code fences if model wraps response
-        text_ = raw.strip()
-        text_ = re.sub(r"^```(?:json)?\s*", "", text_)
-        text_ = re.sub(r"\s*```$", "", text_)
-
         try:
-            data = json.loads(text_)
+            data = json.loads(extract_json(raw))
         except json.JSONDecodeError as e:
             raise CaptionParseError(f"Could not parse JSON from model response: {e}\n\nRaw:\n{raw}") from e
 

@@ -527,3 +527,55 @@ async def test_last_tweet_reserves_room_for_the_hashtags(httpx_mock: HTTPXMock):
     tags = " ".join(result.hashtags)
     assert len(f"{result.thread_parts[-1]}\n\n{tags}") <= TWEET_CHAR_LIMIT
     assert result.thread_parts[0] == "Hook tweet."      # only the last one is squeezed
+
+
+# ── models wrap their JSON in prose; that must not fail the whole generation ──
+
+def test_extract_json_from_prose_and_fence():
+    """Live failure: deepseek answered with a preamble, a ```json fence and a
+    bullet-point summary. The reply was fine; only our parser refused it."""
+    from services.caption_generator import extract_json
+    raw = (
+        "Here's a concise thread for your running topic:\n\n"
+        '```json\n{"caption": "text", "thread": ["one", "two"]}\n```\n\n'
+        "Key features:\n1. Provocative hook\n2. Ends with an engagement prompt"
+    )
+    assert json.loads(extract_json(raw))["thread"] == ["one", "two"]
+
+
+def test_extract_json_without_a_fence():
+    from services.caption_generator import extract_json
+    raw = 'Sure! {"caption": "hi", "hook": "yo"} Hope that helps.'
+    assert json.loads(extract_json(raw))["caption"] == "hi"
+
+
+def test_extract_json_keeps_braces_inside_strings():
+    """A caption may legitimately contain a brace; it must not end the object."""
+    from services.caption_generator import extract_json
+    # An UNBALANCED brace inside the string: without string-awareness it closes
+    # the object early and the rest of the JSON is lost.
+    raw = 'Note: {"caption": "a stray } brace and \\"quotes\\"", "hook": "h"} done'
+    data = json.loads(extract_json(raw))
+    assert data["caption"] == 'a stray } brace and "quotes"'
+    assert data["hook"] == "h"
+
+
+def test_extract_json_leaves_clean_json_alone():
+    from services.caption_generator import extract_json
+    raw = json.dumps(GOOD_JSON)
+    assert json.loads(extract_json(raw)) == GOOD_JSON
+
+
+@pytest.mark.asyncio
+async def test_generate_survives_a_chatty_model(httpx_mock: HTTPXMock):
+    chatty = ("Sure, here you go!\n\n```json\n" + json.dumps(GOOD_JSON) +
+              "\n```\n\nLet me know if you want a different angle.")
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": chatty}}]},
+    )
+    client = OpenRouterClient(api_key="test-key")
+    gen = CaptionGenerator(client)
+    result = await gen.generate(topic="AI", format="single", num_slides=1)
+    await client.close()
+    assert result.caption == GOOD_JSON["caption"]
