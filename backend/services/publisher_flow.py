@@ -74,10 +74,19 @@ async def publish_now(sessionmaker, post_id: str) -> str:
             await _mark_failed(db, post, "No slides to publish")
             raise PublishError("No slides to publish")
 
-        caption = f"{post.caption or ''}\n\n{' '.join(post.hashtags or [])}".strip()
+        tags = " ".join(post.hashtags or []).strip()
+        caption = f"{post.caption or ''}\n\n{tags}".strip()
+        thread_parts = list(post.thread_parts or [])
 
         try:
-            outcome = await publisher.publish(images, caption, post.alt_text or "")
+            if thread_parts and platform == "x":
+                # Hashtags belong at the END of a thread, not on the hook tweet.
+                if tags:
+                    thread_parts[-1] = f"{thread_parts[-1]}\n\n{tags}".strip()
+                outcome = await publisher.publish_thread(
+                    thread_parts, images, post.alt_text or "")
+            else:
+                outcome = await publisher.publish(images, caption, post.alt_text or "")
         except Exception as e:
             # Any failure (upload, platform API, timeout, network) marks the post
             # failed so it never sits stuck 'scheduled'.

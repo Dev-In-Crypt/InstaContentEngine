@@ -282,3 +282,79 @@ async def test_publish_reel_rejects_non_instagram(sessionmaker, monkeypatch):
     monkeypatch.setattr(pf, "settings_for_post_owner", AsyncMock(return_value=_fake_settings()))
     with pytest.raises(pf.PublishError, match="Instagram only"):
         await pf.publish_reel_now(sessionmaker, pid, "https://x/v.mp4")
+
+
+# ── thread routing (PART XXIV) ──────────────────────────────────────────────
+
+class _FakeThreadPublisher(_FakePublisher):
+    """Adds the thread entry point so we can see which one the flow picked."""
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.thread_called_with = None
+
+    async def publish_thread(self, parts, images, alt_text=None):
+        self.thread_called_with = (list(parts), images, alt_text)
+        return self.outcome
+
+
+async def _seed_post_with_slide(sm, tmp_path, pid, **cols):
+    img_path = tmp_path / f"{pid}.jpg"
+    img_path.write_bytes(_jpeg())
+    await _seed(sm, id=pid, topic="t", format="single", status="preview", **cols)
+    async with sm() as s:
+        s.add(SlideModel(post_id=pid, slide_number=1, image_source="stock",
+                         image_path=str(img_path)))
+        await s.commit()
+
+
+async def test_x_post_with_thread_parts_goes_to_publish_thread(
+        sessionmaker, monkeypatch, tmp_path):
+    """A generated thread must be posted as a chain, not flattened into one tweet."""
+    pid = str(uuid.uuid4())
+    await _seed_post_with_slide(sessionmaker, tmp_path, pid, platform="x",
+                                caption="One.\n\nTwo.", hashtags=["#run"],
+                                thread_parts=["One.", "Two."])
+
+    fake = _FakeThreadPublisher()
+    monkeypatch.setattr(pf, "settings_for_post_owner", AsyncMock(return_value=_fake_settings()))
+    monkeypatch.setattr(pf, "make_publisher_for", lambda *a, **k: fake)
+
+    await pf.publish_now(sessionmaker, pid)
+
+    assert fake.called_with is None                       # single-tweet path untouched
+    parts, images, _ = fake.thread_called_with
+    assert parts[0] == "One."                             # hook stays clean
+    assert parts[-1].endswith("#run")                     # hashtags ride the LAST tweet
+    assert images == [_jpeg()]
+
+
+async def test_x_post_without_thread_parts_still_uses_publish(
+        sessionmaker, monkeypatch, tmp_path):
+    pid = str(uuid.uuid4())
+    await _seed_post_with_slide(sessionmaker, tmp_path, pid, platform="x",
+                                caption="Just one.", hashtags=["#run"])
+
+    fake = _FakeThreadPublisher()
+    monkeypatch.setattr(pf, "settings_for_post_owner", AsyncMock(return_value=_fake_settings()))
+    monkeypatch.setattr(pf, "make_publisher_for", lambda *a, **k: fake)
+
+    await pf.publish_now(sessionmaker, pid)
+
+    assert fake.thread_called_with is None
+    assert fake.called_with[1] == "Just one.\n\n#run"
+
+
+async def test_instagram_ignores_thread_parts(sessionmaker, monkeypatch, tmp_path):
+    """thread_parts on a non-X post must never reroute Instagram — X-only feature."""
+    pid = str(uuid.uuid4())
+    await _seed_post_with_slide(sessionmaker, tmp_path, pid, platform="instagram",
+                                caption="Cap", thread_parts=["a", "b"])
+
+    fake = _FakeThreadPublisher()
+    monkeypatch.setattr(pf, "settings_for_post_owner", AsyncMock(return_value=_fake_settings()))
+    monkeypatch.setattr(pf, "make_publisher_for", lambda *a, **k: fake)
+
+    await pf.publish_now(sessionmaker, pid)
+
+    assert fake.thread_called_with is None
+    assert fake.called_with[1] == "Cap"
