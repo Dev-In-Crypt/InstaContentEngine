@@ -12,7 +12,6 @@ functions here so the rules are testable without touching a provider.
 """
 from __future__ import annotations
 
-import re
 from collections.abc import Awaitable, Callable
 from typing import Optional
 
@@ -40,33 +39,6 @@ def fit_tweet(text: str, limit: int = TWEET_CHAR_LIMIT) -> str:
     if not cut:                       # one unbroken token longer than the limit
         cut = text[: limit - len(_ELLIPSIS)]
     return cut + _ELLIPSIS
-
-
-#: [label](https://…) — the form web-grounded models reach for by default.
-_MD_LINK = re.compile(r"\[([^\]\n]+)\]\((https?://[^)\s]+)\)")
-#: **bold** / __bold__ / *italic* / _italic_ / `code`, paired around real text.
-#: The lookarounds keep it off word-internal markers — "file_name.py" and "snake_case"
-#: are not emphasis, and "3 * 4" is arithmetic.
-_MD_EMPHASIS = re.compile(r"(?<![\w*_`])(\*\*|__|\*|_|`)(\S(?:[^\n]*?\S)?)\1(?![\w*_`])")
-#: "## Heading" at the start of a line.
-_MD_HEADING = re.compile(r"^#{1,6}[ \t]+", re.MULTILINE)
-
-
-def strip_markdown(text: str) -> str:
-    """Flatten markdown that X would publish literally.
-
-    X renders no markdown, so a grounded model's "[JAMA study](https://…)" goes out
-    with the brackets showing. Links keep their URL — naming a source without letting
-    the reader check it is worse than a few characters spent — everything else loses
-    only its markers. List dashes stay: they read fine on X.
-    """
-    text = text or ""
-    text = _MD_LINK.sub(r"\1 (\2)", text)
-    text = _MD_HEADING.sub("", text)
-    # Twice: "**_word_**" needs an inner pass. Bounded, so no runaway loop.
-    for _ in range(2):
-        text = _MD_EMPHASIS.sub(r"\2", text)
-    return text
 
 
 def append_tags(text: str, tags: str, limit: Optional[int] = TWEET_CHAR_LIMIT) -> str:

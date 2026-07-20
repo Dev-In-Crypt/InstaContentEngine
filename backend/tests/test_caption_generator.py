@@ -579,3 +579,61 @@ async def test_generate_survives_a_chatty_model(httpx_mock: HTTPXMock):
     result = await gen.generate(topic="AI", format="single", num_slides=1)
     await client.close()
     assert result.caption == GOOD_JSON["caption"]
+
+
+# ── polish applies to every platform, not just X (PART XXVI) ────────────────
+
+@pytest.mark.asyncio
+async def test_instagram_caption_is_cleaned_of_markdown_dashes_and_link_dump(
+        httpx_mock: HTTPXMock):
+    """Straight from a live carousel run: bold markers, an em dash and a trailing
+    block of source links, all of which Instagram publishes literally."""
+    body = dict(
+        GOOD_JSON,
+        caption=("Meal prep doesn't have to be overwhelming.\n\n"
+                 "1. **Cook grains in bulk**: rice, quinoa, or pasta—pick your favorite.\n\n"
+                 "[grabguides.com](https://grabguides.com/blog/2-hour-sunday-meal-prep)"),
+        hook="**Hate cooking?** Try this system.",
+        slide_overlays=["**Cook grains** in bulk.", "Prep proteins—it is quick."],
+        cta="Save this—try it Sunday.",
+    )
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(body)}}]},
+    )
+    client = OpenRouterClient(api_key="test-key")
+    gen = CaptionGenerator(client)
+    result = await gen.generate(topic="meal prep", format="carousel_3", num_slides=2,
+                                platform=Platform.INSTAGRAM)
+    await client.close()
+
+    assert "**" not in result.caption
+    assert "grabguides" not in result.caption          # trailing link dump gone
+    assert "—" not in result.caption
+    assert result.caption.endswith("pick your favorite.")
+    assert result.hook == "Hate cooking? Try this system."
+    assert result.cta == "Save this, try it Sunday."
+    assert result.slide_overlays == ["Cook grains in bulk.", "Prep proteins, it is quick."]
+
+
+def test_instagram_and_linkedin_prompts_ban_markdown():
+    from services.caption_generator import INSTAGRAM_SYSTEM_PROMPT, LINKEDIN_SYSTEM_PROMPT
+    assert "renders no markdown" in INSTAGRAM_SYSTEM_PROMPT
+    assert "Do NOT paste source links" in INSTAGRAM_SYSTEM_PROMPT
+    assert "renders no markdown" in LINKEDIN_SYSTEM_PROMPT
+
+
+@pytest.mark.asyncio
+async def test_variations_come_back_polished(httpx_mock: HTTPXMock):
+    """A variation lands in the field we just cleaned — it has to be clean too."""
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(
+            {"variants": ["**Bold** idea—for you.", "Plain idea."]})}}]},
+    )
+    client = OpenRouterClient(api_key="test-key")
+    gen = CaptionGenerator(client)
+    out = await gen.regenerate_field("caption", topic="t", current_value="c",
+                                     platform=Platform.INSTAGRAM)
+    await client.close()
+    assert out == ["Bold idea, for you.", "Plain idea."]

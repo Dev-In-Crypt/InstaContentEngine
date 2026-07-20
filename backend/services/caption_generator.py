@@ -5,7 +5,8 @@ from typing import Optional
 
 from models.schemas import LengthTier, Platform, TWEET_CHAR_LIMIT, XPostMode
 from services.brand_voice import resolve_brand_voice
-from services.x_text import clamp_count, enforce_parts, strip_markdown
+from services.text_polish import polish
+from services.x_text import clamp_count, enforce_parts
 
 
 _FENCE = re.compile(r"```(?:json)?\s*(.+?)\s*```", re.DOTALL)
@@ -111,6 +112,9 @@ RULES:
 - Write in clear, natural English. Short, easy-to-read sentences.
 - Avoid exaggerated claims. Avoid overused AI-style wording. Do not sound salesy.
 - Do not use too many emojis. Use line breaks. Do NOT use em dashes.
+- Plain text only. Instagram renders no markdown: no **bold**, no [text](url), no headings.
+- Do NOT paste source links into the caption. Links are not clickable on Instagram and
+  the sources are shown to the author separately.
 - Make the final caption ready to copy and paste.
 - "image_search_queries": short broad 2-4 word stock terms (one per slide).
 - "image_gen_prompts": detailed visual descriptions (only used when source=AI).
@@ -148,6 +152,8 @@ RULES:
 - Write in natural English, easy to read on mobile. Short paragraphs.
 - Avoid sounding like AI. Avoid exaggerated claims and motivational clichés.
 - Do not overuse hashtags or emojis. Do NOT use em dashes.
+- Plain text only. LinkedIn renders no markdown: no **bold**, no [text](url), no headings.
+  Cite a source by naming it and putting the bare URL in parentheses.
 - Make the final post ready to copy and paste.
 - "image_search_queries": short broad 2-4 word stock terms (one per slide).
 - "image_gen_prompts": detailed visual descriptions (only used when source=AI).
@@ -363,11 +369,17 @@ class CaptionGenerator:
         result = self._parse(raw)
         result.sources = citations
 
-        if platform == Platform.X:
-            # Before any length work: X publishes markdown literally, so the flattened
-            # text is what the budget below has to be measured against.
-            result.caption = strip_markdown(result.caption)
-            result.thread_parts = [strip_markdown(p) for p in result.thread_parts]
+        # No network renders markdown, so every published field gets flattened —
+        # and before any length work, since polishing changes the length. Instagram
+        # drops link URLs: they aren't clickable there, and the sources already have
+        # their own panel. Hashtags/keywords/alt text are not prose; leave them.
+        keep_urls = platform != Platform.INSTAGRAM
+        result.caption = polish(result.caption, keep_urls)
+        result.hook = polish(result.hook, keep_urls)
+        result.cta = polish(result.cta, keep_urls)
+        result.thread_parts = [polish(p, keep_urls) for p in result.thread_parts]
+        # Overlays are printed onto the image, where stray "**" is most visible.
+        result.slide_overlays = [polish(s, keep_urls) for s in result.slide_overlays]
 
         if platform == Platform.X and x_mode == XPostMode.THREAD and result.thread_parts:
             # Models overshoot the per-tweet budget and the requested count; fix both
@@ -472,7 +484,13 @@ class CaptionGenerator:
         raw, _citations = await self.text_provider.generate_text(
             model=text_model, system_prompt=system, user_prompt=user, max_tokens=1200,
         )
-        return self._parse_variants(raw, is_list=is_list)
+        variants = self._parse_variants(raw, is_list=is_list)
+        if is_list:
+            return variants
+        # Same cleanup as generation: a variation feeds the very field we polished,
+        # so an unpolished one would put the markdown right back.
+        keep_urls = platform != Platform.INSTAGRAM
+        return [polish(v, keep_urls) for v in variants]
 
     @staticmethod
     def _parse_variants(raw: str, is_list: bool) -> list:

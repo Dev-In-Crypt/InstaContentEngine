@@ -3,7 +3,7 @@ import pytest
 
 from models.schemas import TWEET_CHAR_LIMIT
 from services.x_text import (
-    append_tags, clamp_count, enforce_parts, fit_tweet, looks_truncated, strip_markdown,
+    append_tags, clamp_count, enforce_parts, fit_tweet, looks_truncated,
 )
 
 
@@ -138,22 +138,3 @@ def test_append_tags_skips_the_limit_for_long_form():
     out = append_tags(body, "#Premium", limit=None)
     assert len(out) > TWEET_CHAR_LIMIT
     assert "…" not in out
-
-
-# ── strip_markdown: X publishes markdown literally ──────────────────────────
-
-def test_strip_markdown_keeps_the_url_of_a_link():
-    out = strip_markdown("A [JAMA study](https://jama.org/x) found that walking works.")
-    assert out == "A JAMA study (https://jama.org/x) found that walking works."
-
-
-def test_strip_markdown_removes_emphasis_and_headings():
-    assert strip_markdown("**Bold** and _italic_ and `code`.") == "Bold and italic and code."
-    assert strip_markdown("## Heading\nBody.") == "Heading\nBody."
-
-
-def test_strip_markdown_leaves_plain_text_untouched():
-    """Guard against over-eager regexes: a lone asterisk or underscore is content."""
-    for text in ("3 * 4 = 12", "file_name.py and snake_case", "Cost: 5 * 2 dollars",
-                 "- first bullet\n- second bullet", "Nothing to strip here."):
-        assert strip_markdown(text) == text
