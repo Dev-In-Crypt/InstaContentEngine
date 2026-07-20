@@ -445,7 +445,26 @@
       <div class="flex flex-wrap gap-2" id="source-btns">
         <button data-val="stock"  class="src-btn">📷 Stock photos</button>
         <button data-val="ai_gen" class="src-btn">🎨 AI generated</button>
+        <button data-val="upload" class="src-btn">📁 My photos</button>
         <button data-val="canva"  class="src-btn">🎯 Canva template</button>
+      </div>
+
+      <!-- Own photos: shown only while "My photos" is the source (see onSourceChange). -->
+      <div id="own-photos" class="hidden mt-3 space-y-2">
+        <div class="flex flex-wrap items-center gap-3">
+          <label class="ce-btn-ghost px-3 py-1.5 text-sm cursor-pointer">
+            📁 Choose photos
+            <input id="own-photos-input" type="file" multiple
+              accept="image/jpeg,image/png,image/webp" class="hidden"
+              onchange="addOwnPhotos(event)" />
+          </label>
+          <span id="own-photos-count" class="text-xs text-gray-400"></span>
+        </div>
+        <div id="own-photos-grid" class="flex flex-wrap gap-2"></div>
+        <p class="text-xs text-gray-500">
+          One photo per slide, in this order. Each is cropped to the post format from the
+          centre, so portrait shots fit best. Nothing is sent to a stock or AI provider.
+        </p>
       </div>
     </div>
 
@@ -476,7 +495,7 @@
       <button onclick="goStep(1)" class="flex-1 bg-gray-700 hover:bg-gray-600 transition rounded-xl py-3 font-semibold">
         ← Back
       </button>
-      <button onclick="generatePost()" class="flex-1 bg-purple-600 hover:bg-purple-500 transition rounded-xl py-3 font-semibold text-white">
+      <button id="generate-btn" onclick="generatePost()" class="flex-1 bg-purple-600 hover:bg-purple-500 transition rounded-xl py-3 font-semibold text-white">
         ✨ Generate
       </button>
     </div>
@@ -870,6 +889,7 @@ const S = {
   authTab: 'login',        // 'login' | 'register'
   format: 'single',
   source: 'stock',
+  ownPhotos: [],           // File objects picked in step 2 for source='upload'
   platform: 'instagram',
   templateStyle: 'branded_card',
   nicheBoxColor: null,
@@ -1241,6 +1261,92 @@ function initToggleGroup(selector, stateKey, defaultVal, onChange) {
   if (onChange) onChange(defaultVal);
 }
 
+// ===== OWN PHOTOS =====
+
+/** How many images a post of the current format needs — mirrors _num_slides. */
+function slidesNeeded() {
+  if (S.network === 'x') return 1;          // X posts carry a single image
+  return { carousel_3: 3, carousel_5: 5, carousel_10: 10 }[S.format] || 1;
+}
+
+function onSourceChange(source) {
+  const box = document.getElementById('own-photos');
+  if (box) box.classList.toggle('hidden', source !== 'upload');
+  renderOwnPhotos();
+}
+
+function addOwnPhotos(ev) {
+  const picked = Array.from(ev.target.files || []);
+  const room = slidesNeeded() - S.ownPhotos.length;
+  if (room <= 0) { toast('That is already enough photos for this format', 'warn'); }
+  else S.ownPhotos.push(...picked.slice(0, room));
+  ev.target.value = '';                     // so picking the same file again re-fires
+  renderOwnPhotos();
+}
+
+function removeOwnPhoto(index) {
+  S.ownPhotos.splice(index, 1);
+  renderOwnPhotos();
+}
+
+function renderOwnPhotos() {
+  const grid = document.getElementById('own-photos-grid');
+  const count = document.getElementById('own-photos-count');
+  if (!grid || !count) return;
+  const need = slidesNeeded();
+
+  // Thumbnails come straight off the local File — no round-trip, and nothing is
+  // uploaded until the user actually hits Generate.
+  grid.innerHTML = '';
+  S.ownPhotos.forEach((file, i) => {
+    const cell = document.createElement('div');
+    cell.className = 'relative';
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(file);
+    img.onload = () => URL.revokeObjectURL(img.src);
+    img.className = 'w-16 h-20 object-cover rounded-lg border border-gray-700';
+    img.alt = `Photo ${i + 1}`;
+    cell.appendChild(img);
+    const badge = document.createElement('span');
+    badge.className = 'absolute top-1 left-1 bg-black/70 text-[10px] px-1.5 rounded-full';
+    badge.textContent = i + 1;
+    cell.appendChild(badge);
+    const del = document.createElement('button');
+    del.className = 'absolute -top-1 -right-1 bg-gray-800 border border-gray-600 rounded-full w-5 h-5 text-xs leading-none';
+    del.textContent = '×';
+    del.title = 'Remove';
+    del.setAttribute('aria-label', `Remove photo ${i + 1}`);
+    del.onclick = () => removeOwnPhoto(i);
+    cell.appendChild(del);
+    grid.appendChild(cell);
+  });
+
+  const have = S.ownPhotos.length;
+  count.textContent = `${have} of ${need} photo${need > 1 ? 's' : ''}`;
+  count.className = 'text-xs ' + (have >= need ? 'text-green-400' : 'text-yellow-300');
+
+  const btn = document.getElementById('generate-btn');
+  if (btn) {
+    const short = S.source === 'upload' && have < need;
+    btn.disabled = short;
+    btn.classList.toggle('opacity-50', short);
+    btn.classList.toggle('cursor-not-allowed', short);
+    btn.title = short ? `Add ${need - have} more photo(s) first` : '';
+  }
+}
+
+/** Park the chosen files server-side and return their ids, in order. */
+async function stageOwnPhotos() {
+  const form = new FormData();
+  S.ownPhotos.forEach(f => form.append('files', f));
+  const res = await apiFetch(`${API}/api/posts/uploads`, { method: 'POST', body: form });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Upload failed');
+  }
+  return (await res.json()).map(u => u.id);
+}
+
 // ===== GENERATE =====
 function addProgress(msg) {
   const li = document.createElement('li');
@@ -1255,6 +1361,10 @@ async function generatePost() {
   if (!topic) { goStep(1); return; }
   if (S.generating) return;          // ignore a second click while one is in flight
   if (!await guardGenerateKeys()) return;   // cloud: needs an OpenRouter key first
+  if (S.source === 'upload' && S.ownPhotos.length < slidesNeeded()) {
+    toast(`Add ${slidesNeeded() - S.ownPhotos.length} more photo(s) first`, 'warn');
+    return;
+  }
   S.generating = true;
 
   showStep(3);
@@ -1278,6 +1388,19 @@ async function generatePost() {
     niche_box_color: S.nicheBoxColor,
     show_logo: document.getElementById('show-logo').checked,
   };
+  if (S.source === 'upload') {
+    // Files can't ride the SSE JSON body, so they are parked first and the
+    // generation refers to them by id — in the order shown in step 2.
+    try {
+      document.getElementById('loading-msg').textContent = 'Uploading your photos…';
+      body.upload_ids = await stageOwnPhotos();
+    } catch (e) {
+      S.generating = false;
+      showStep(2);
+      toast('❌ ' + e.message, 'error');
+      return;
+    }
+  }
   if (S.platform === 'x') {
     body.x_mode = S.xMode || 'short';
     if (body.x_mode === 'thread') {
@@ -1321,6 +1444,10 @@ async function generatePost() {
         if (ev.type === 'complete') {
           sawTerminal = true;
           S.postId = ev.post.id;
+          // The photos belong to this post now; the next one starts empty rather
+          // than silently reusing them.
+          S.ownPhotos = [];
+          renderOwnPhotos();
           renderPreview(ev.post);
           showStep(4);
         }
@@ -2337,6 +2464,7 @@ function setNetwork(net) {
   if (fmtGroup) fmtGroup.classList.toggle('hidden', !isIG);
   if (xGroup) xGroup.classList.toggle('hidden', isIG);
   if (!isIG) applyXPremiumGate();
+  renderOwnPhotos();          // X takes one image, Instagram may take up to 10
   setSection(S.section || 'create');
 }
 
@@ -3048,9 +3176,9 @@ async function restoreBackup(ev) {
 
 // ===== INIT =====
 applyTheme();
-initToggleGroup('.fmt-btn', 'format', 'single');
+initToggleGroup('.fmt-btn', 'format', 'single', renderOwnPhotos);
 initToggleGroup('.xmode-btn', 'xMode', 'short', onXModeChange);
-initToggleGroup('.src-btn', 'source', 'stock');
+initToggleGroup('.src-btn', 'source', 'stock', onSourceChange);
 initToggleGroup('.plt-btn', 'platform', 'instagram');
 initToggleGroup('.tpl-btn', 'templateStyle', 'branded_card');
 initNicheSwatches();
