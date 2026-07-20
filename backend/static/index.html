@@ -684,6 +684,56 @@
       <div id="pillar-bars" class="space-y-2"></div>
     </section>
 
+    <!-- Plan a week: propose topics (cheap), review, then generate as drafts -->
+    <section class="bg-gray-900 rounded-2xl p-6 space-y-4">
+      <h2 class="text-lg font-semibold text-purple-300">🗓 Plan a week</h2>
+      <p class="text-xs text-gray-500">Get a balanced set of topics first — edit or drop any before you spend on full generation. Posts land as drafts on the calendar for you to review; nothing is published automatically.</p>
+
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div class="col-span-2">
+          <label class="block text-xs text-gray-400 mb-1">Theme (optional)</label>
+          <input id="plan-theme" type="text" placeholder="e.g. New Year fitness reset"
+            class="ce-input w-full px-2 py-1.5 text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">How many</label>
+          <input id="plan-count" type="number" min="2" max="14" value="7" class="ce-input w-full px-2 py-1.5 text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Cadence</label>
+          <select id="plan-cadence" class="ce-input w-full px-2 py-1.5 text-sm">
+            <option value="1">Daily</option>
+            <option value="2">Every 2 days</option>
+            <option value="3">Every 3 days</option>
+            <option value="7">Weekly</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Start date</label>
+          <input id="plan-start" type="date" class="ce-input w-full px-2 py-1.5 text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Format</label>
+          <select id="plan-format" class="ce-input w-full px-2 py-1.5 text-sm">
+            <option value="single">Single image</option>
+            <option value="carousel_3">Carousel 3</option>
+            <option value="carousel_5">Carousel 5</option>
+          </select>
+        </div>
+      </div>
+
+      <button id="plan-suggest-btn" onclick="suggestPlan()" class="bg-gray-700 hover:bg-gray-600 transition rounded-lg px-4 py-2 text-sm font-semibold">✨ Suggest topics</button>
+
+      <div id="plan-list" class="hidden space-y-2"></div>
+
+      <div id="plan-actions" class="hidden flex flex-wrap items-center gap-3 border-t border-gray-800 pt-3">
+        <button id="plan-add-btn" onclick="addPlanRow()" class="ce-btn-ghost px-3 py-1.5 text-sm">+ Add topic</button>
+        <span id="plan-estimate" class="text-xs text-gray-500"></span>
+        <button id="plan-generate-btn" onclick="runBatch()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold ml-auto">✨ Generate posts</button>
+      </div>
+      <div id="plan-progress" class="hidden text-sm text-gray-300"></div>
+    </section>
+
     <section class="bg-gray-900 rounded-2xl p-6 space-y-4">
       <div class="flex items-center justify-between">
         <button onclick="calShift(-1)" class="bg-gray-800 hover:bg-gray-700 rounded-lg px-3 py-1.5 text-sm">← Prev</button>
@@ -1438,48 +1488,14 @@ async function generatePost() {
   }
 
   try {
-    const res = await apiFetch(`${API}/api/posts/generate`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `Server error ${res.status}`);
-    }
-
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '';
-    let sawTerminal = false;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const lines = buf.split('\n');
-      buf = lines.pop();
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        let ev;
-        try { ev = JSON.parse(line.slice(6)); }
-        catch { continue; }          // skip a malformed frame, don't kill the stream
-        if (ev.type === 'progress') addProgress(ev.message);
-        if (ev.type === 'complete') {
-          sawTerminal = true;
-          S.postId = ev.post.id;
-          // The photos belong to this post now; the next one starts empty rather
-          // than silently reusing them.
-          S.ownPhotos = [];
-          renderOwnPhotos();
-          renderPreview(ev.post);
-          showStep(4);
-        }
-        if (ev.type === 'error') { sawTerminal = true; throw new Error(ev.message); }
-      }
-    }
-    // Stream closed with no complete/error (backend crash, dropped connection) —
-    // don't leave the spinner turning forever.
-    if (!sawTerminal) throw new Error('Generation stream ended unexpectedly. Please try again.');
+    const post = await streamGenerate(body, addProgress);
+    S.postId = post.id;
+    // The photos belong to this post now; the next one starts empty rather than
+    // silently reusing them.
+    S.ownPhotos = [];
+    renderOwnPhotos();
+    renderPreview(post);
+    showStep(4);
   } catch(e) {
     document.getElementById('loading-spinner').classList.add('hidden');
     const errEl = document.getElementById('gen-error');
@@ -1488,6 +1504,41 @@ async function generatePost() {
   } finally {
     S.generating = false;
   }
+}
+
+// One SSE implementation for both the composer and the batch loop. Resolves with
+// the completed post, or throws on error / unexpected stream end.
+async function streamGenerate(body, onProgress) {
+  const res = await apiFetch(`${API}/api/posts/generate`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Server error ${res.status}`);
+  }
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '', post = null, sawTerminal = false;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      let ev;
+      try { ev = JSON.parse(line.slice(6)); }
+      catch { continue; }            // skip a malformed frame, don't kill the stream
+      if (ev.type === 'progress' && onProgress) onProgress(ev.message);
+      if (ev.type === 'complete') { sawTerminal = true; post = ev.post; }
+      if (ev.type === 'error') { throw new Error(ev.message); }
+    }
+  }
+  if (!sawTerminal) throw new Error('Generation stream ended unexpectedly. Please try again.');
+  return post;
 }
 
 // ===== PREVIEW =====
@@ -2307,6 +2358,8 @@ function postsForNetwork() {
 
 async function renderCalendar() {
   if (!S.calRef) S.calRef = _todayRef();
+  const startEl = document.getElementById('plan-start');
+  if (startEl && !startEl.value) startEl.value = _tomorrowISO();
   const { year, month } = S.calRef;
   document.getElementById('cal-title').textContent =
     new Date(year, month, 1).toLocaleString(undefined, { month: 'long', year: 'numeric' });
@@ -2382,6 +2435,123 @@ async function openPost(postId) {
 }
 
 // ===== CONTENT PILLARS =====
+// ===== PLAN A WEEK (batch) =====
+// Each row: {topic, pillar, pillar_label, date, status: '' | 'done' | 'failed'}
+S.planRows = [];
+
+function _tomorrowISO() {
+  const d = new Date(); d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function _batchFormat() { return document.getElementById('plan-format').value; }
+function _batchSlides() {
+  return { carousel_3: 3, carousel_5: 5 }[_batchFormat()] || 1;
+}
+
+async function suggestPlan() {
+  if (!await guardGenerateKeys()) return;
+  const btn = document.getElementById('plan-suggest-btn');
+  const prev = btn.textContent; btn.disabled = true; btn.textContent = '⏳ Thinking…';
+  try {
+    const res = await apiFetch(`${API}/api/posts/plan`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        theme: document.getElementById('plan-theme').value || null,
+        count: Math.min(14, Math.max(2, parseInt(document.getElementById('plan-count').value, 10) || 7)),
+        start_date: document.getElementById('plan-start').value || _tomorrowISO(),
+        cadence_days: parseInt(document.getElementById('plan-cadence').value, 10) || 1,
+        platform: S.network || 'instagram',
+      }),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Planning failed'); }
+    S.planRows = (await res.json()).items.map(it => ({ ...it, status: '' }));
+    renderPlan();
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = prev; }
+}
+
+function renderPlan() {
+  const list = document.getElementById('plan-list');
+  const actions = document.getElementById('plan-actions');
+  const empty = S.planRows.length === 0;
+  list.classList.toggle('hidden', empty);
+  actions.classList.toggle('hidden', empty);
+  list.innerHTML = '';
+  S.planRows.forEach((row, i) => {
+    const el = document.createElement('div');
+    el.className = 'flex items-center gap-2 bg-gray-800 rounded-lg px-2 py-1.5';
+    const mark = row.status === 'done' ? '✅' : row.status === 'failed' ? '⚠️' : '';
+    el.innerHTML = `
+      <span class="text-[10px] text-purple-300 whitespace-nowrap">${esc(row.pillar_label || row.pillar)}</span>
+      <span class="text-[10px] text-gray-500 whitespace-nowrap">${esc(row.date)}</span>
+      <input value="${esc(row.topic)}" aria-label="Topic ${i + 1}"
+        class="flex-1 bg-transparent text-sm text-white focus:outline-none min-w-0" />
+      <span class="text-xs w-4 text-center">${mark}</span>
+      <button title="Remove" aria-label="Remove topic ${i + 1}" class="text-gray-500 hover:text-white text-sm">×</button>`;
+    el.querySelector('input').addEventListener('input', e => { S.planRows[i].topic = e.target.value; });
+    el.querySelector('button').onclick = () => { S.planRows.splice(i, 1); renderPlan(); };
+    list.appendChild(el);
+  });
+  const n = S.planRows.length;
+  // ~$0.007 per post is the measured order of magnitude for text + a few stock slides.
+  const est = (n * _batchSlides() * 0.0015 + n * 0.004).toFixed(2);
+  document.getElementById('plan-estimate').textContent =
+    `${n} post${n === 1 ? '' : 's'} · ~$${est}`;
+  document.getElementById('plan-generate-btn').textContent = `✨ Generate ${n} post${n === 1 ? '' : 's'}`;
+}
+
+function addPlanRow() {
+  const last = S.planRows[S.planRows.length - 1];
+  const nextDate = last ? last.date : (document.getElementById('plan-start').value || _tomorrowISO());
+  S.planRows.push({ topic: '', pillar: 'educational', pillar_label: 'Educational', date: nextDate, status: '' });
+  renderPlan();
+}
+
+async function runBatch() {
+  const rows = S.planRows.filter(r => (r.topic || '').trim());
+  if (!rows.length) { toast('Add at least one topic', 'warn'); return; }
+  if (S.batchRunning) return;
+  S.batchRunning = true;
+  const genBtn = document.getElementById('plan-generate-btn');
+  genBtn.disabled = true;
+  const prog = document.getElementById('plan-progress');
+  prog.classList.remove('hidden');
+
+  let done = 0, failed = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    prog.textContent = `Generating ${i + 1} of ${rows.length}: ${row.topic.slice(0, 40)}…`;
+    try {
+      await streamGenerate({
+        topic: row.topic.trim(),
+        format: _batchFormat(),
+        tone: 'professional',
+        apply_branding: true,
+        default_image_source: 'stock',
+        platform: S.network || 'instagram',
+        length_tier: 'sweet_spot',
+        template_style: 'branded_card',
+        show_logo: true,
+        // Pin to the planned calendar day; server keeps it a preview draft.
+        plan_date: row.date + 'T09:00:00',
+      });
+      row.status = 'done'; done++;
+    } catch (e) {
+      row.status = 'failed'; failed++;
+    }
+    renderPlan();
+  }
+
+  prog.textContent = failed
+    ? `${done} of ${rows.length} generated, ${failed} failed. Fix or remove the ⚠️ topics and generate again.`
+    : `✅ ${done} draft${done === 1 ? '' : 's'} added to the calendar for review.`;
+  genBtn.disabled = false;
+  S.batchRunning = false;
+  renderCalendar();             // re-fetch so the new drafts show up
+  if (done) toast(`✅ ${done} draft${done === 1 ? '' : 's'} on the calendar`, 'success');
+}
+
 async function renderPillars() {
   try {
     const res = await apiFetch(`${API}/api/posts/pillars/mix`);
