@@ -318,6 +318,21 @@ class CaptionGenerator:
             result.thread_parts = parts
             # `caption` is left as the model wrote it; content_engine joins the parts
             # for the stored caption so there is exactly one place that decides it.
+
+        if platform == Platform.X and x_mode == XPostMode.SHORT:
+            # "250 characters including everything" — the hashtags are appended to
+            # the caption at publish time, so the caption's own budget is what's
+            # left after them. Enforcing it here means the user sees the real post
+            # in the preview instead of discovering a cut after publishing.
+            tags = " ".join(result.hashtags or []).strip()
+            budget = TWEET_CHAR_LIMIT - (len(tags) + 2 if tags else 0)
+            if budget > 0 and len(result.caption or "") > budget:
+                fixed = await enforce_parts(
+                    [result.caption],
+                    shorten=lambda text, limit: self.shorten_text(text, limit, text_model),
+                    limit=budget,
+                )
+                result.caption = fixed[0]
         return result
 
     async def shorten_text(self, text: str, limit: int, text_model: str = "") -> str:

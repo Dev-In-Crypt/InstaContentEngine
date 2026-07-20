@@ -420,3 +420,42 @@ def test_parse_without_thread_is_unaffected():
     """Existing Instagram/LinkedIn responses have no 'thread' key — soft parse."""
     gen = CaptionGenerator(OpenRouterClient(api_key="k"))
     assert gen._parse(json.dumps(GOOD_JSON)).thread_parts == []
+
+
+@pytest.mark.asyncio
+async def test_short_x_caption_leaves_room_for_the_hashtags(httpx_mock: HTTPXMock):
+    """"250 characters including everything": the hashtags are appended at publish,
+    so caption + hashtags — not the caption alone — must fit the budget."""
+    from models.schemas import TWEET_CHAR_LIMIT, XPostMode
+    long_caption = dict(GOOD_JSON,
+                        caption="word " * 80,                    # ~400 chars
+                        hashtags=["#SleepBetter", "#HealthyHabits"])
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(long_caption)}}]},
+    )
+    client = OpenRouterClient(api_key="test-key")
+    gen = CaptionGenerator(client)
+    gen.shorten_text = AsyncMock(side_effect=AssertionError("offline: use the hard cut"))
+    result = await gen.generate(topic="sleep", format="single", num_slides=1,
+                                platform=Platform.X, x_mode=XPostMode.SHORT)
+    await client.close()
+
+    tags = " ".join(result.hashtags)
+    assert len(f"{result.caption}\n\n{tags}") <= TWEET_CHAR_LIMIT
+
+
+@pytest.mark.asyncio
+async def test_short_x_caption_within_budget_is_untouched(httpx_mock: HTTPXMock):
+    """A caption that already fits must not be reworded or ellipsised."""
+    from models.schemas import XPostMode
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(GOOD_JSON)}}]},
+    )
+    client = OpenRouterClient(api_key="test-key")
+    gen = CaptionGenerator(client)
+    result = await gen.generate(topic="AI", format="single", num_slides=1,
+                                platform=Platform.X, x_mode=XPostMode.SHORT)
+    await client.close()
+    assert result.caption == GOOD_JSON["caption"]
