@@ -176,7 +176,7 @@ def test_run_bot_forwards_ssl_verify(monkeypatch):
     engine = run_bot.build_engine(
         Settings(ssl_verify=False, unsplash_access_key="u", pexels_api_key="p")
     )
-    assert engine.image_router.openrouter._ssl_verify is False
+    assert engine.image_router.image_provider._ssl_verify is False
     assert engine.image_router.stock.unsplash._ssl_verify is False
     assert engine.image_router.stock.pexels._ssl_verify is False
 

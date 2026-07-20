@@ -1,0 +1,161 @@
+"""Curated model catalogue.
+
+Why curated: OpenRouter alone exposes ~340 models — an unusable dropdown. We ship a
+short, opinionated list per provider (prices verified against each provider's public
+list), and every provider also accepts a free-text "custom model id" so a user is
+never blocked when a model is added or retired between releases.
+
+The catalogue is served WITHOUT the user's API key, because the model dropdown has
+to populate *before* the key is entered.
+
+Prices are USD per 1M tokens and are used for two things: showing cost in the UI and
+estimating spend for providers that (unlike OpenRouter) do not return a cost field.
+They are indicative, not billing-grade — see estimate_cost().
+"""
+from __future__ import annotations
+
+from typing import Optional
+
+TEXT = "text"
+IMAGE = "image"
+
+
+def _m(model_id: str, label: str, price_in: float, price_out: float) -> dict:
+    return {"id": model_id, "label": label, "price_in": price_in, "price_out": price_out}
+
+
+# provider key → metadata. `key_field` is the Settings/credentials field holding the
+# API key, so one key per provider serves both text and images.
+PROVIDERS: dict[str, dict] = {
+    "openrouter": {
+        "label": "OpenRouter",
+        "key_field": "openrouter_api_key",
+        "key_url": "https://openrouter.ai/keys",
+        "hint": "One key, every vendor's models. The only provider with live web search.",
+        "supports_grounding": True,
+        "text_models": [
+            _m("anthropic/claude-sonnet-5", "Claude Sonnet 5", 2.00, 10.00),
+            _m("anthropic/claude-opus-4.8", "Claude Opus 4.8", 5.00, 25.00),
+            _m("anthropic/claude-haiku-4.5", "Claude Haiku 4.5", 1.00, 5.00),
+            _m("openai/gpt-5.4", "GPT-5.4", 2.50, 15.00),
+            _m("openai/gpt-5", "GPT-5", 1.25, 10.00),
+            _m("openai/gpt-5-mini", "GPT-5 mini", 0.25, 2.00),
+            _m("google/gemini-3.5-flash", "Gemini 3.5 Flash", 1.50, 9.00),
+            _m("google/gemini-2.5-flash", "Gemini 2.5 Flash", 0.30, 2.50),
+            _m("x-ai/grok-4.5", "Grok 4.5", 2.00, 6.00),
+            _m("deepseek/deepseek-chat", "DeepSeek Chat", 0.20, 0.80),
+        ],
+        "image_models": [
+            _m("google/gemini-3.1-flash-image", "Gemini 3.1 Flash Image", 0.50, 3.00),
+            _m("google/gemini-3-pro-image", "Gemini 3 Pro Image", 2.00, 12.00),
+            _m("google/gemini-2.5-flash-image", "Gemini 2.5 Flash Image", 0.30, 2.50),
+            _m("google/gemini-3.1-flash-lite-image", "Gemini 3.1 Flash Lite Image", 0.25, 1.50),
+            _m("openai/gpt-5-image-mini", "GPT-5 Image mini", 2.50, 2.00),
+        ],
+    },
+    "openai": {
+        "label": "OpenAI",
+        "key_field": "openai_api_key",
+        "key_url": "https://platform.openai.com/api-keys",
+        "hint": "Direct OpenAI account. Text and images.",
+        "supports_grounding": False,
+        "text_models": [
+            _m("gpt-5.4", "GPT-5.4", 2.50, 15.00),
+            _m("gpt-5", "GPT-5", 1.25, 10.00),
+            _m("gpt-5-mini", "GPT-5 mini", 0.25, 2.00),
+            _m("gpt-4.1", "GPT-4.1", 2.00, 8.00),
+            _m("gpt-4o", "GPT-4o", 2.50, 10.00),
+            _m("gpt-4o-mini", "GPT-4o mini", 0.15, 0.60),
+        ],
+        "image_models": [
+            _m("gpt-image-1", "GPT Image 1", 5.00, 40.00),
+            _m("gpt-image-1-mini", "GPT Image 1 mini", 2.50, 20.00),
+        ],
+    },
+    "anthropic": {
+        "label": "Anthropic",
+        "key_field": "anthropic_api_key",
+        "key_url": "https://console.anthropic.com/settings/keys",
+        "hint": "Direct Anthropic account. Text only — Anthropic does not generate images.",
+        "supports_grounding": False,
+        "text_models": [
+            _m("claude-sonnet-5", "Claude Sonnet 5", 2.00, 10.00),
+            _m("claude-opus-4-8", "Claude Opus 4.8", 5.00, 25.00),
+            _m("claude-haiku-4-5", "Claude Haiku 4.5", 1.00, 5.00),
+        ],
+        "image_models": [],          # no image generation — hidden in the image picker
+    },
+    "google": {
+        "label": "Google Gemini",
+        "key_field": "google_api_key",
+        "key_url": "https://aistudio.google.com/apikey",
+        "hint": "Google AI Studio key. Strong and cheap for images.",
+        "supports_grounding": False,
+        "text_models": [
+            _m("gemini-2.5-pro", "Gemini 2.5 Pro", 1.25, 10.00),
+            _m("gemini-2.5-flash", "Gemini 2.5 Flash", 0.30, 2.50),
+            _m("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite", 0.10, 0.40),
+        ],
+        "image_models": [
+            _m("gemini-2.5-flash-image", "Gemini 2.5 Flash Image", 0.30, 2.50),
+        ],
+    },
+}
+
+#: Providers that can generate images at all (used by the UI and by validation).
+IMAGE_CAPABLE = [k for k, v in PROVIDERS.items() if v["image_models"]]
+
+
+def is_valid_provider(provider: Optional[str], kind: str = TEXT) -> bool:
+    if not provider or provider not in PROVIDERS:
+        return False
+    if kind == IMAGE:
+        return bool(PROVIDERS[provider]["image_models"])
+    return True
+
+
+def key_field_for(provider: str) -> Optional[str]:
+    """Which credential field holds this provider's key."""
+    meta = PROVIDERS.get(provider)
+    return meta["key_field"] if meta else None
+
+
+def supports_grounding(provider: Optional[str]) -> bool:
+    meta = PROVIDERS.get(provider or "")
+    return bool(meta and meta["supports_grounding"])
+
+
+def list_providers(kind: str = TEXT) -> list[dict]:
+    """Catalogue for the settings dropdowns. Never includes keys or secrets.
+    For kind=image, providers without image models are omitted."""
+    out = []
+    for key, meta in PROVIDERS.items():
+        models = meta["image_models"] if kind == IMAGE else meta["text_models"]
+        if not models:
+            continue
+        out.append({
+            "key": key,
+            "label": meta["label"],
+            "hint": meta["hint"],
+            "key_field": meta["key_field"],
+            "key_url": meta["key_url"],
+            "supports_grounding": meta["supports_grounding"],
+            "models": models,
+        })
+    return out
+
+
+def estimate_cost(provider: str, model: str,
+                  prompt_tokens: Optional[int], completion_tokens: Optional[int]) -> float:
+    """Approximate USD spend from token counts, for providers that do not report a
+    cost (everyone except OpenRouter). Unknown model → 0.0 rather than a wrong guess."""
+    meta = PROVIDERS.get(provider)
+    if not meta:
+        return 0.0
+    for bucket in ("text_models", "image_models"):
+        for m in meta[bucket]:
+            if m["id"] == model:
+                return round(
+                    (prompt_tokens or 0) / 1e6 * m["price_in"]
+                    + (completion_tokens or 0) / 1e6 * m["price_out"], 6)
+    return 0.0

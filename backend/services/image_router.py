@@ -38,11 +38,11 @@ class SlideImageConfig:
 class ImageRouter:
     def __init__(
         self,
-        openrouter=None,       # OpenRouterClient
+        image_provider=None,   # services.ai ImageProvider (may differ from the text one)
         stock_client=None,     # StockClient
         canva_client=None,     # CanvaClient (optional)
     ):
-        self.openrouter = openrouter
+        self.image_provider = image_provider
         self.stock = stock_client
         self.canva = canva_client
 
@@ -86,13 +86,15 @@ class ImageRouter:
         raise ImageFetchError(f"Stock photo search exhausted all fallbacks. Last error: {last_exc}")
 
     async def _fetch_ai(self, config: SlideImageConfig) -> bytes:
-        if not self.openrouter:
-            raise ImageFetchError("No OpenRouter client configured")
+        if not self.image_provider:
+            raise ImageFetchError(
+                "No image provider configured. Choose one in Account → AI models.")
         prompt = config.gen_prompt or "A beautiful abstract image"
         model = config.gen_model or ""
         if not model:
-            raise ImageFetchError("No image model configured. Set DEFAULT_IMAGE_MODEL in .env")
-        return await self.openrouter.generate_image(model=model, prompt=prompt)
+            raise ImageFetchError(
+                "No image model selected. Choose one in Account → AI models.")
+        return await self.image_provider.generate_image(model=model, prompt=prompt)
 
     async def _fetch_canva(self, config: SlideImageConfig) -> bytes:
         if not self.canva:

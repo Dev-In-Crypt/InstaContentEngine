@@ -28,7 +28,7 @@ def build_engine(settings) -> ContentEngine:
     stock = StockClient(unsplash=unsplash, pexels=pexels)
     brand_engine = PillowBrandEngine(BrandConfig())
     caption_gen = CaptionGenerator(openrouter)
-    image_router = ImageRouter(openrouter=openrouter, stock_client=stock)
+    image_router = ImageRouter(image_provider=openrouter, stock_client=stock)
     exporter = TemplateExporter()
     return ContentEngine(caption_gen, image_router, brand_engine, exporter)
 

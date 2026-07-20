@@ -54,7 +54,7 @@ async def test_stock_no_client_raises():
 async def test_ai_gen_fetch():
     openrouter = AsyncMock()
     openrouter.generate_image.return_value = b"ai-image-bytes"
-    router = ImageRouter(openrouter=openrouter)
+    router = ImageRouter(image_provider=openrouter)
     img, attrib = await router.fetch_image(make_config(
         ImageSource.AI_GEN, gen_prompt="a robot", gen_model="openai/dall-e-3"
     ))
@@ -69,15 +69,15 @@ async def test_ai_gen_fetch():
 async def test_ai_gen_without_model_raises():
     """The route supplies DEFAULT_IMAGE_MODEL; the router itself refuses to guess."""
     openrouter = AsyncMock()
-    router = ImageRouter(openrouter=openrouter)
-    with pytest.raises(ImageFetchError, match="No image model configured"):
+    router = ImageRouter(image_provider=openrouter)
+    with pytest.raises(ImageFetchError, match="No image model selected"):
         await router.fetch_image(make_config(ImageSource.AI_GEN, gen_prompt="abstract"))
 
 
 @pytest.mark.asyncio
 async def test_ai_gen_no_openrouter_raises():
     router = ImageRouter()
-    with pytest.raises(ImageFetchError, match="No OpenRouter"):
+    with pytest.raises(ImageFetchError, match="No image provider configured"):
         await router.fetch_image(make_config(ImageSource.AI_GEN, gen_prompt="test"))
 
 

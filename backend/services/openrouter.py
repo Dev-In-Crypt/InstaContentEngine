@@ -112,9 +112,16 @@ class OpenRouterClient:
 
     async def generate_text(
         self, model: str, system_prompt: str, user_prompt: str, max_tokens: int = 2000,
+        web_grounded: bool = False,
     ) -> tuple[str, list[dict]]:
-        """Returns (content, citations). Citations are populated when the model
-        is suffixed with ':online' (OpenRouter web grounding via Exa.ai)."""
+        """Returns (content, citations).
+
+        `web_grounded` appends OpenRouter's ':online' suffix, which runs a live web
+        search (Exa.ai) and returns url citations. Grounding is an OpenRouter
+        feature, so the suffix is applied here rather than by the caller.
+        """
+        if web_grounded and model and not model.endswith(":online"):
+            model = f"{model}:online"
         response = await self._post_with_retry({
             "model": model,
             "messages": [

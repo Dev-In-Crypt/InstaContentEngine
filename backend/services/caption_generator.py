@@ -5,7 +5,6 @@ from typing import Optional
 
 from models.schemas import Platform, LengthTier
 from services.brand_voice import resolve_brand_voice
-from services.openrouter import OpenRouterClient
 
 
 def _frame_brand_voice(brand_voice: Optional[str]) -> str:
@@ -176,8 +175,10 @@ class CaptionParseError(Exception):
 
 
 class CaptionGenerator:
-    def __init__(self, openrouter: OpenRouterClient):
-        self.openrouter = openrouter
+    def __init__(self, text_provider):
+        """`text_provider` is any services.ai TextProvider (or the raw
+        OpenRouterClient, which satisfies the same generate_text contract)."""
+        self.text_provider = text_provider
 
     async def generate(
         self,
@@ -216,18 +217,15 @@ class CaptionGenerator:
             additional_instructions=additional_instructions or "None",
         )
 
-        # OpenRouter web-grounding: append :online suffix so the model performs a
-        # live search (Exa.ai under the hood) and returns annotations with citations.
-        model_id = text_model
-        if web_grounded and model_id and not model_id.endswith(":online"):
-            model_id = f"{model_id}:online"
-
+        # Web grounding is a provider capability (only OpenRouter has it today);
+        # the provider decides what to do with the flag.
         max_tokens = 3000 if length_tier == LengthTier.DEEP_DIVE else 2000
-        raw, citations = await self.openrouter.generate_text(
-            model=model_id,
+        raw, citations = await self.text_provider.generate_text(
+            model=text_model,
             system_prompt=system,
             user_prompt=user,
             max_tokens=max_tokens,
+            web_grounded=web_grounded,
         )
         result = self._parse(raw)
         result.sources = citations
@@ -278,7 +276,7 @@ class CaptionGenerator:
             f"in the same brand voice. Keep the format valid for {platform.value}.\n"
             f'Respond with ONLY this JSON (no code fences): {{"variants": {shape}}}'
         )
-        raw, _citations = await self.openrouter.generate_text(
+        raw, _citations = await self.text_provider.generate_text(
             model=text_model, system_prompt=system, user_prompt=user, max_tokens=1200,
         )
         return self._parse_variants(raw, is_list=is_list)
