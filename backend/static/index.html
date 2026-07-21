@@ -77,6 +77,12 @@
     .sec-btn{ color:var(--muted); transition:background .12s,color .12s; }
     .sec-btn:hover{ background:var(--accent-dim); color:var(--text); }
     .sec-btn.sec-active{ background:var(--accent-dim); color:var(--text); font-weight:600; }
+    /* Business vs Creator app-shell: one engine, two experiences (gated on account_type) */
+    .business-only{ display:none; }
+    body[data-account-type="business"] .business-only{ display:block; }
+    body[data-account-type="business"] .creator-only{ display:none; }
+    body[data-account-type="business"] .rail-net{ display:none; }
+    body[data-account-type="business"] #section-nav .business-only{ display:inline-block; }
     .soon-badge{ font-size:9px; font-weight:700; letter-spacing:.04em; padding:1px 4px; border-radius:5px; background:var(--accent-dim); color:var(--muted); text-transform:uppercase; }
     /* muted status dot (fits the monochrome look) */
     .bg-green-400{ background-color:#5aa17c !important; }
@@ -372,10 +378,13 @@
 
   <!-- top section nav (scoped to the active network) -->
   <div id="section-nav" class="flex gap-1 overflow-x-auto pb-1 border-b" style="border-color:var(--border)">
-    <button data-section="create" onclick="setSection('create')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">✎ Create</button>
-    <button data-section="calendar" onclick="setSection('calendar')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">▦ Calendar</button>
-    <button data-section="feed" onclick="setSection('feed')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">▤ Feed</button>
-    <button data-section="analytics" onclick="setSection('analytics')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">📊 Analytics</button>
+    <button data-section="create" onclick="setSection('create')" class="creator-only sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">✎ Create</button>
+    <button data-section="calendar" onclick="setSection('calendar')" class="creator-only sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">▦ Calendar</button>
+    <button data-section="feed" onclick="setSection('feed')" class="creator-only sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">▤ Feed</button>
+    <button data-section="analytics" onclick="setSection('analytics')" class="creator-only sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">📊 Analytics</button>
+    <button data-section="biz-sources" onclick="setSection('biz-sources')" class="business-only sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">🔗 Sources</button>
+    <button data-section="biz-leads" onclick="setSection('biz-leads')" class="business-only sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">📰 Leads</button>
+    <button data-section="biz-drafts" onclick="setSection('biz-drafts')" class="business-only sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">✎ Drafts</button>
     <button data-section="keys" onclick="setSection('keys')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">🔑 <span id="net-keys-label">Instagram</span> keys</button>
     <button data-section="account" onclick="setSection('account')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap ml-auto">⚙ Account</button>
   </div>
@@ -982,6 +991,41 @@
     </div>
   </div>
 
+  <!-- ===== BUSINESS: Sources ===== -->
+  <div id="view-biz-sources" class="hidden space-y-4">
+    <div class="ce-card p-5">
+      <h2 class="text-lg font-semibold" style="color:var(--accent)">🔗 Sources</h2>
+      <p class="text-xs text-gray-400 mt-1">Public links we watch for you — release notes, an RSS feed, a changelog page. We check them hourly and collect what's worth posting into Leads.</p>
+      <div class="mt-4 flex flex-col sm:flex-row gap-2">
+        <input id="biz-source-url" type="url" placeholder="https://github.com/your-org/your-repo" class="ce-input flex-1 px-4 py-3" />
+        <button id="biz-source-add" onclick="addSource()" class="ce-btn px-5 py-3 text-sm">Add source</button>
+      </div>
+      <p id="biz-source-status" class="hidden text-sm text-gray-400 mt-2"></p>
+      <div id="biz-sources-list" class="mt-4 space-y-2">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ===== BUSINESS: Leads feed ===== -->
+  <div id="view-biz-leads" class="hidden space-y-4">
+    <div class="ce-card p-5">
+      <div class="flex items-center gap-2 flex-wrap">
+        <h2 class="text-lg font-semibold" style="color:var(--accent)">📰 Leads</h2>
+        <span class="text-xs text-gray-400">Newsworthy updates from your sources. Pick one to draft a post.</span>
+        <button id="biz-digest-btn" onclick="makeDigest()" class="ce-btn-ghost px-3 py-1.5 text-xs ml-auto hidden">Make digest from selected</button>
+      </div>
+      <div id="biz-leads-list" class="mt-4 space-y-3">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ===== BUSINESS: Drafts ===== -->
+  <div id="view-biz-drafts" class="hidden space-y-4">
+    <div class="ce-card p-5">
+      <h2 class="text-lg font-semibold" style="color:var(--accent)">✎ Drafts</h2>
+      <p class="text-xs text-gray-400 mt-1">Posts drafted from your leads. Review before anything goes out.</p>
+      <div id="biz-drafts-list" class="mt-4 space-y-3">Loading…</div>
+    </div>
+  </div>
+
   <!-- ===== Edit Slide Modal ===== -->
   <div id="edit-slide-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4">
     <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
@@ -1207,13 +1251,235 @@ function renderDemoLead(lead) {
   return wrap;
 }
 
+// ===== BUSINESS APP-SHELL (account_type=business) — Sources / Leads / Drafts =====
+// All source data is untrusted → esc()/safeUrl() everywhere. Authenticated calls
+// go through apiFetch (401 handled). Backend gates everything on the workspace.
+S.bizDigestSel = new Set();
+
+const SOURCE_STATUS = {
+  ok: { label: 'OK', color: '#5aa17c' },
+  unreachable: { label: 'Unreachable', color: '#c2704e' },
+  format_changed: { label: 'Format changed', color: '#c2a04e' },
+};
+
+async function loadSources() {
+  const box = document.getElementById('biz-sources-list');
+  box.textContent = 'Loading…';
+  try {
+    const res = await apiFetch(`${API}/api/business/sources`);
+    const list = res.ok ? await res.json() : [];
+    if (!list.length) { box.innerHTML = '<div class="text-sm text-gray-400">No sources yet. Add a public link above.</div>'; return; }
+    box.innerHTML = '';
+    list.forEach(s => box.appendChild(renderSourceRow(s)));
+  } catch { box.innerHTML = '<div class="text-sm text-gray-400">Couldn\'t load sources.</div>'; }
+}
+
+function renderSourceRow(s) {
+  const st = SOURCE_STATUS[s.status] || SOURCE_STATUS.ok;
+  const row = document.createElement('div');
+  row.className = 'ce-card p-3 flex items-center gap-3';
+  row.innerHTML = `
+    <div class="min-w-0 flex-1">
+      <a href="${safeUrl(s.url)}" target="_blank" rel="noopener noreferrer" class="text-sm underline break-all" style="color:var(--accent)">${esc(s.url)}</a>
+      <div class="text-xs text-gray-500 mt-0.5">${esc(s.kind)} · <span style="color:${st.color}">${st.label}</span></div>
+    </div>
+    <button class="ce-btn-ghost px-2 py-1 text-xs" data-act="refresh">↻ Refresh</button>
+    <button class="ce-btn-ghost px-2 py-1 text-xs" data-act="delete">✕</button>
+  `;
+  row.querySelector('[data-act="refresh"]').onclick = () => refreshSource(s.id);
+  row.querySelector('[data-act="delete"]').onclick = () => deleteSource(s.id);
+  return row;
+}
+
+async function addSource() {
+  const input = document.getElementById('biz-source-url');
+  const btn = document.getElementById('biz-source-add');
+  const status = document.getElementById('biz-source-status');
+  const url = (input.value || '').trim();
+  const setStatus = (m) => { status.textContent = m; status.classList.remove('hidden'); };
+  if (!/^https?:\/\//i.test(url)) return setStatus('Enter a public http(s) URL.');
+  btn.disabled = true; setStatus('Adding and checking the source…');
+  try {
+    const res = await apiFetch(`${API}/api/business/sources`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) { setStatus('Couldn\'t add that source.'); return; }
+    const d = await res.json();
+    input.value = '';
+    setStatus(`Added. Found ${d.leads_found} lead${d.leads_found === 1 ? '' : 's'} in the last 90 days.`);
+    await loadSources();
+  } catch { setStatus('Something went wrong. Please try again.'); }
+  finally { btn.disabled = false; }
+}
+
+async function refreshSource(id) {
+  try {
+    const res = await apiFetch(`${API}/api/business/sources/${encodeURIComponent(id)}/refresh`, { method: 'POST' });
+    if (res.ok) { const d = await res.json(); toast(`Found ${d.leads_found} new lead(s)`, 'success'); }
+    else toast('Couldn\'t reach that source', 'warn');
+    await loadSources();
+  } catch { toast('Refresh failed', 'error'); }
+}
+
+async function deleteSource(id) {
+  try {
+    await apiFetch(`${API}/api/business/sources/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await loadSources();
+  } catch { toast('Delete failed', 'error'); }
+}
+
+const STRENGTH_BADGE = {
+  worthy: { label: 'Worth posting', color: '#5aa17c' },
+  weak: { label: 'Maybe', color: '#c2a04e' },
+};
+
+async function loadLeads() {
+  const box = document.getElementById('biz-leads-list');
+  box.textContent = 'Loading…';
+  S.bizDigestSel.clear();
+  updateDigestBtn();
+  try {
+    const res = await apiFetch(`${API}/api/business/leads?status=new`);
+    const list = res.ok ? await res.json() : [];
+    if (!list.length) { box.innerHTML = '<div class="text-sm text-gray-400">No leads yet. Add a source and we\'ll collect what\'s worth posting.</div>'; return; }
+    box.innerHTML = '';
+    list.forEach(l => box.appendChild(renderLeadRow(l)));
+  } catch { box.innerHTML = '<div class="text-sm text-gray-400">Couldn\'t load leads.</div>'; }
+}
+
+function renderLeadRow(lead) {
+  const b = STRENGTH_BADGE[lead.strength] || STRENGTH_BADGE.weak;
+  const row = document.createElement('div');
+  row.className = 'ce-card p-4';
+  row.innerHTML = `
+    <div class="flex items-start gap-2">
+      <input type="checkbox" class="mt-1 biz-lead-check" />
+      <div class="min-w-0 flex-1">
+        <div class="text-xs mb-1" style="color:${b.color}">${b.label} · ${esc(lead.reason || '')}</div>
+        <div class="font-semibold">${esc(lead.what_happened || '')}</div>
+        <a href="${safeUrl(lead.source_url)}" target="_blank" rel="noopener noreferrer" class="text-xs underline break-all" style="color:var(--accent)">${esc(lead.source_url || '')}</a>
+        ${lead.quote ? `<div class="text-sm text-gray-400 mt-1 whitespace-pre-line">${esc(lead.quote)}</div>` : ''}
+      </div>
+    </div>
+    <div class="flex gap-2 mt-3 flex-wrap">
+      <button class="ce-btn px-3 py-1.5 text-xs" data-act="post">✎ Make a post</button>
+      <button class="ce-btn-ghost px-3 py-1.5 text-xs" data-act="dismiss">Skip</button>
+      <button class="ce-btn-ghost px-3 py-1.5 text-xs" data-act="snooze">Don't show this kind</button>
+    </div>
+  `;
+  row.querySelector('.biz-lead-check').onchange = (e) => {
+    if (e.target.checked) S.bizDigestSel.add(lead.id); else S.bizDigestSel.delete(lead.id);
+    updateDigestBtn();
+  };
+  row.querySelector('[data-act="post"]').onclick = () => makePost(lead.id, row);
+  row.querySelector('[data-act="dismiss"]').onclick = () => leadAction(lead.id, 'dismiss', row);
+  row.querySelector('[data-act="snooze"]').onclick = () => leadAction(lead.id, 'snooze-kind', row);
+  return row;
+}
+
+async function leadAction(id, action, row) {
+  try {
+    await apiFetch(`${API}/api/business/leads/${encodeURIComponent(id)}/${action}`, { method: 'POST' });
+    row.remove();
+    S.bizDigestSel.delete(id); updateDigestBtn();
+  } catch { toast('Action failed', 'error'); }
+}
+
+function updateDigestBtn() {
+  const btn = document.getElementById('biz-digest-btn');
+  if (!btn) return;
+  btn.classList.toggle('hidden', S.bizDigestSel.size < 2);
+  btn.textContent = `Make digest from ${S.bizDigestSel.size} selected`;
+}
+
+// makePost / makeDigest / loadDrafts are defined with the Phase 3 draft flow below.
+async function loadDrafts() {
+  const box = document.getElementById('biz-drafts-list');
+  box.textContent = 'Loading…';
+  try {
+    const res = await apiFetch(`${API}/api/business/drafts`);
+    const list = res.ok ? await res.json() : [];
+    if (!list.length) { box.innerHTML = '<div class="text-sm text-gray-400">No drafts yet. Turn a lead into a post from the Leads tab.</div>'; return; }
+    box.innerHTML = '';
+    list.forEach(p => box.appendChild(renderDraftRow(p)));
+  } catch { box.innerHTML = '<div class="text-sm text-gray-400">No drafts yet.</div>'; }
+}
+
+function renderDraftRow(p) {
+  const row = document.createElement('div');
+  row.className = 'ce-card p-4';
+  const tags = (p.hashtags || []).map(h => esc(h)).join(' ');
+  const origin = p.source_kind === 'digest' ? 'Weekly digest' : 'From a source lead';
+  row.innerHTML = `
+    <div class="text-xs text-gray-500 mb-1">🔗 ${origin}${p.source_url ? ` · <a href="${safeUrl(p.source_url)}" target="_blank" rel="noopener noreferrer" class="underline" style="color:var(--accent)">source</a>` : ''}</div>
+    ${p.hook ? `<div class="font-semibold text-sm">${esc(p.hook)}</div>` : ''}
+    <div class="text-sm mt-1 whitespace-pre-line">${esc(p.caption || p.topic || '')}</div>
+    ${tags ? `<div class="text-xs text-gray-400 mt-1">${tags}</div>` : ''}
+  `;
+  return row;
+}
+
+// Stream a draft (or digest) from the Business generation endpoint (user's key).
+async function _streamBiz(url, body, onDone) {
+  try {
+    const res = await apiFetch(`${API}${url}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    if (!res.ok) { toast('Generation failed. Check your AI key in Account.', 'error'); return; }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '', ok = false;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n'); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        let ev; try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+        if (ev.type === 'progress') toast(ev.message, 'info');
+        else if (ev.type === 'error') toast(ev.message, 'error');
+        else if (ev.type === 'complete') ok = true;
+      }
+    }
+    if (ok && onDone) onDone();
+  } catch { toast('Generation failed. Please try again.', 'error'); }
+}
+
+async function makePost(leadId, row) {
+  toast('Drafting a post…', 'info');
+  await _streamBiz(`/api/business/leads/${encodeURIComponent(leadId)}/draft`, {}, () => {
+    toast('Draft created — see the Drafts tab.', 'success');
+    if (row) row.remove();
+    S.bizDigestSel.delete(leadId); updateDigestBtn();
+  });
+}
+
+async function makeDigest() {
+  const ids = Array.from(S.bizDigestSel);
+  if (ids.length < 2) return;
+  toast('Building a digest…', 'info');
+  await _streamBiz('/api/business/digest', { lead_ids: ids }, () => {
+    toast('Digest drafted — see the Drafts tab.', 'success');
+    loadLeads();
+  });
+}
+
 // One-time app bootstrap after a user is known (intervals registered once).
 async function startApp() {
   if (S.appStarted) return;
   S.appStarted = true;
-  setNetwork('instagram');   // default network tab → drives sections + platform
   refreshCost();
   setInterval(refreshCost, 60000);
+  // Business is a separate app-shell: land on Sources, skip the creator composer
+  // loaders entirely. The creator experience below is untouched.
+  if (S.user && S.user.account_type === 'business' && !S.user.is_local) {
+    setSection('biz-sources');
+    return;
+  }
+  setNetwork('instagram');   // default network tab → drives sections + platform
   // Cloud accounts: load the brand profile (pre-fills the composer) and, on first
   // login with no profile yet, offer the skippable onboarding step.
   if (S.user && !S.user.is_local) {
@@ -3046,8 +3312,11 @@ async function saveXSettings() {
 function setSection(sec) {
   S.section = sec;
   const map = { create:'view-create', calendar:'view-calendar', feed:'view-grid',
-                analytics:'view-analytics', keys:'view-admin', account:'view-admin' };
-  for (const v of ['view-create','view-calendar','view-grid','view-admin','view-analytics']) {
+                analytics:'view-analytics', keys:'view-admin', account:'view-admin',
+                'biz-sources':'view-biz-sources', 'biz-leads':'view-biz-leads',
+                'biz-drafts':'view-biz-drafts' };
+  for (const v of ['view-create','view-calendar','view-grid','view-admin','view-analytics',
+                   'view-biz-sources','view-biz-leads','view-biz-drafts']) {
     const el = document.getElementById(v); if (el) el.classList.toggle('hidden', map[sec] !== v);
   }
   document.querySelectorAll('#section-nav .sec-btn').forEach(b => b.classList.toggle('sec-active', b.dataset.section === sec));
@@ -3055,6 +3324,9 @@ function setSection(sec) {
   else if (sec === 'feed') loadGrid();
   else if (sec === 'analytics') loadAnalytics();
   else if (sec === 'keys' || sec === 'account') loadAdmin();
+  else if (sec === 'biz-sources') loadSources();
+  else if (sec === 'biz-leads') loadLeads();
+  else if (sec === 'biz-drafts') loadDrafts();
 }
 
 // Back-compat alias for any old callers (grid click etc.).

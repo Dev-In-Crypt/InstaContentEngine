@@ -22,7 +22,7 @@ from models.schemas import NICHE_BOX_PALETTE
 from services.http_utils import setup_logging, setup_tls
 from api.deps import LOCAL_USER_EMAIL
 from api.ratelimit import limiter
-from api.routes import demo, posts, models, stock, admin, auth, settings as settings_routes
+from api.routes import business, demo, posts, models, stock, admin, auth, settings as settings_routes
 
 STATIC_DIR = Path(__file__).parent / "static"
 UPLOADS_DIR = Path(__file__).parent / "uploads"
@@ -169,7 +169,9 @@ async def lifespan(app: FastAPI):
     # the app from starting.
     try:
         from services.scheduler import init_scheduler, reconcile_scheduled
-        init_scheduler(settings.database_url, app.state.sessionmaker)
+        # Business source polling runs cloud-only (offline desktops have no sources).
+        init_scheduler(settings.database_url, app.state.sessionmaker,
+                       poll_sources=(settings.app_mode == "cloud"))
         # Recover posts left 'scheduled' with no live job (server was down at fire time).
         await reconcile_scheduled(app.state.sessionmaker)
     except Exception as exc:  # pragma: no cover
@@ -220,6 +222,7 @@ app.include_router(models.router)
 app.include_router(stock.router)
 app.include_router(admin.router)
 app.include_router(demo.router)
+app.include_router(business.router)
 
 # Serve built frontend assets (images, fonts, etc.) at /static/*
 if STATIC_DIR.exists():

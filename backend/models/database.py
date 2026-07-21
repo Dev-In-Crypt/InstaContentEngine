@@ -1,5 +1,8 @@
 import uuid
-from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, Text, DateTime, JSON
+from sqlalchemy import (
+    Boolean, Column, Float, ForeignKey, Index, Integer, String, Text, DateTime,
+    JSON, UniqueConstraint,
+)
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, relationship
 from sqlalchemy.sql import func
@@ -126,6 +129,12 @@ class Post(Base):
     schedule_error = Column(Text)          # last publish failure (status=failed)
     pillar = Column(String(30))            # content pillar (educational/inspirational/...)
     video_path = Column(Text)              # generated Reel MP4 on disk
+    # Business origin (Phase 3): a post drafted from a source lead. All nullable —
+    # creator posts leave them empty. lead_id is SET NULL so a post survives its
+    # lead being deleted; source_kind marks it "from Business" for badges/filters.
+    lead_id = Column(String(36), ForeignKey("leads.id", ondelete="SET NULL"), index=True)
+    workspace_id = Column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    source_kind = Column(String(20))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -233,3 +242,76 @@ class PostInsight(Base):
     raw = Column(JSON)               # full Graph API response
 
     post = relationship("Post", back_populates="insights")
+
+
+# ===== Business module (Phase 2): sources → leads =====
+
+class Workspace(Base):
+    """A business space. One per business user for now (unique owner); the FK is
+    the seam for future multi-brand/agency ownership without another rewrite."""
+    __tablename__ = "workspaces"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"),
+                           unique=True, index=True)
+    name = Column(String(120))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Source(Base):
+    """A public link a workspace watches (release notes, a feed, a changelog page)."""
+    __tablename__ = "sources"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workspace_id = Column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    url = Column(Text, nullable=False)
+    kind = Column(String(30), nullable=False)          # github_releases | rss | generic_page
+    status = Column(String(20), nullable=False, default="ok")   # ok | unreachable | format_changed
+    active = Column(Boolean, default=True)
+    config = Column(JSON)
+    last_checked_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class SourceSnapshot(Base):
+    """One row per item ever seen at a source — the key for change/dedup detection.
+    Unique on (source_id, external_id) so a re-poll of the same item is a no-op."""
+    __tablename__ = "source_snapshots"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    source_id = Column(String(36), ForeignKey("sources.id", ondelete="CASCADE"), index=True)
+    external_id = Column(String(255), nullable=False)   # stable per-item key from the fetcher
+    fingerprint = Column(String(64))                    # hash of title+body to catch edits
+    first_seen_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("source_id", "external_id", name="uq_snapshot_source_external"),
+    )
+
+
+class Lead(Base):
+    """A newsworthy thing that happened at a source. Raw fields + rules verdict are
+    written by the (LLM-free) poller; why_interesting/missing stay NULL until the
+    user drafts (Phase 3), which is the only place LLM spend happens."""
+    __tablename__ = "leads"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workspace_id = Column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    source_id = Column(String(36), ForeignKey("sources.id", ondelete="CASCADE"), index=True)
+    external_id = Column(String(255))
+    what_happened = Column(Text)          # the source item's headline (free, from the poller)
+    source_url = Column(Text)
+    quote = Column(Text)                  # a short excerpt of the source body
+    published_at = Column(DateTime(timezone=True))
+    why_interesting = Column(Text)        # LLM, NULL until the user drafts this lead
+    strength = Column(String(20))         # worthy | weak | duplicate
+    reason = Column(Text)                 # one-line explanation from the rules
+    missing = Column(JSON)                # LLM, NULL until drafted: questions the source doesn't answer
+    status = Column(String(20), nullable=False, default="new")  # new|dismissed|snoozed_kind|drafted|digested
+    raw = Column(JSON)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_leads_ws_status", "workspace_id", "status"),
+        Index("ix_leads_ws_created", "workspace_id", "created_at"),
+    )

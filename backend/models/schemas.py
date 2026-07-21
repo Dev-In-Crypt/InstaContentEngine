@@ -497,3 +497,66 @@ class AITestRequest(BaseModel):
 class AITestResponse(BaseModel):
     ok: bool
     message: str
+
+
+# ===== Business module (Phase 2-3) =====
+
+class SourceStatus(str, Enum):
+    OK = "ok"
+    UNREACHABLE = "unreachable"
+    FORMAT_CHANGED = "format_changed"
+
+
+class LeadStrength(str, Enum):
+    WORTHY = "worthy"
+    WEAK = "weak"
+    DUPLICATE = "duplicate"
+
+
+class LeadStatus(str, Enum):
+    NEW = "new"
+    DISMISSED = "dismissed"
+    SNOOZED_KIND = "snoozed_kind"
+    DRAFTED = "drafted"
+    DIGESTED = "digested"
+
+
+class SourceCreate(BaseModel):
+    url: str
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, v: str) -> str:
+        s = (v or "").strip()
+        if not (s.startswith("http://") or s.startswith("https://")):
+            raise ValueError("Enter a public http(s) URL")
+        if len(s) > 500:
+            raise ValueError("URL is too long")
+        return s
+
+
+class SourceOut(BaseModel):
+    id: str
+    url: str
+    kind: str
+    status: str
+    last_checked_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+
+class LeadOut(BaseModel):
+    id: str
+    what_happened: Optional[str] = None
+    source_url: Optional[str] = None
+    quote: Optional[str] = None
+    published_at: Optional[datetime] = None
+    why_interesting: Optional[str] = None
+    strength: Optional[str] = None
+    reason: Optional[str] = None
+    missing: Optional[list[str]] = None
+    status: str
+    created_at: Optional[datetime] = None
+
+
+class DigestRequest(BaseModel):
+    lead_ids: list[str] = Field(..., min_length=1, max_length=20)

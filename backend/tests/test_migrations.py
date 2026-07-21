@@ -19,11 +19,15 @@ def test_migrations_build_full_schema_on_fresh_db(tmp_path):
         "select name from sqlite_master where type='table'")}
     # baseline created the core tables + alembic's bookkeeping
     assert {"users", "posts", "slides", "user_credentials", "alembic_version"} <= tables
+    # Business tables (Phase 2) created by an incremental revision
+    assert {"workspaces", "sources", "source_snapshots", "leads"} <= tables
     cols = {r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(users)")}
     assert "token_version" in cols          # the newest column is in the baseline
     assert "logo_path" in cols              # added by an incremental revision
     assert "post_presets" in cols           # added by an incremental revision
-    assert "account_type" in cols           # added by the latest incremental revision
+    assert "account_type" in cols           # added by an incremental revision
+    post_cols = {r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(posts)")}
+    assert {"lead_id", "workspace_id", "source_kind"} <= post_cols  # Business links (latest)
 
 
 def test_migrations_autostamp_preexisting_db(tmp_path):

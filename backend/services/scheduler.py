@@ -33,7 +33,7 @@ def _sync_jobstore_url(database_url: str) -> str:
     )
 
 
-def init_scheduler(database_url: str, sessionmaker) -> AsyncIOScheduler:
+def init_scheduler(database_url: str, sessionmaker, poll_sources: bool = False) -> AsyncIOScheduler:
     global _scheduler, _sessionmaker
     _sessionmaker = sessionmaker
     jobstore = SQLAlchemyJobStore(url=_sync_jobstore_url(database_url))
@@ -49,6 +49,17 @@ def init_scheduler(database_url: str, sessionmaker) -> AsyncIOScheduler:
         id="upload_cleanup", replace_existing=True,
         misfire_grace_time=3600,
     )
+    # Business source polling (cloud only): rules-only, no LLM, once an hour.
+    if poll_sources:
+        _scheduler.add_job(
+            _run_source_poll_job, trigger="interval", hours=1,
+            id="source_poll", replace_existing=True,
+            misfire_grace_time=1800,
+        )
+    else:
+        # Local mode / previous cloud run: make sure a stale persisted job is gone.
+        if _scheduler.get_job("source_poll"):
+            _scheduler.remove_job("source_poll")
     log.info("APScheduler started with %d pending job(s)", len(_scheduler.get_jobs()))
     return _scheduler
 
@@ -121,6 +132,17 @@ async def _run_cleanup_job() -> None:
         await run_upload_cleanup(_sessionmaker)
     except Exception as e:
         log.error("Upload cleanup FAILED: %s", e)
+
+
+async def _run_source_poll_job() -> None:
+    """Hourly Business source poll (rules only, no LLM). Swallows all errors."""
+    from config import get_settings
+    from services.source_poller import poll_all
+
+    try:
+        await poll_all(_sessionmaker, ssl_verify=get_settings().ssl_verify)
+    except Exception as e:
+        log.error("Source poll FAILED: %s", e)
 
 
 async def reconcile_scheduled(sessionmaker) -> None:
