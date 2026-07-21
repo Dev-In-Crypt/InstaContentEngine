@@ -27,10 +27,26 @@ _IMPACT = re.compile(
     r"acqui\w*|partnership|integration|support for|support[s]? )\b",
     re.IGNORECASE,
 )
-# A launch/ship signal specifically.
+# A launch/ship signal specifically. Note: the bare word "release" is deliberately
+# NOT here — every changelog entry literally says "release", so it's noise, not a
+# launch signal (it inflated precision; see hypothesis test 2).
 _LAUNCH = re.compile(
-    r"\b(?:launch\w*|introduc\w*|announc\w*|releas\w*|ship\w*|now available|"
+    r"\b(?:launch\w*|introduc\w*|announc\w*|ship\w*|now available|"
     r"unveil\w*|rolling out|roll[s]? out)\b", re.IGNORECASE)
+
+# A dev-channel pre-release (nightly/alpha/canary/etc.) — a build a company ships
+# continuously, not something it posts about. Milestone pre-releases (beta/rc/
+# preview) are deliberately EXCLUDED: those get announced, so they stay worthy.
+_DEV_PRERELEASE = re.compile(
+    r"\b(?:alpha|canary|nightly|snapshot|dev)\b|-(?:alpha|canary|nightly|dev)\.?\d*",
+    re.IGNORECASE)
+
+# A semantic-version PATCH tag (x.y.Z with Z > 0) — the churn tier. On its own a
+# patch is rarely post-worthy; it needs a strong signal (a number, a before→after
+# change, a launch, or security) to clear the bar.
+_SEMVER_PATCH = re.compile(r"\bv?\d+\.\d+\.([1-9]\d*)\b")
+# Security is the one thing that keeps a patch worthy on its own.
+_SECURITY = re.compile(r"\b(?:security|vulnerab\w*|\bcve\b)\b", re.IGNORECASE)
 # A before→after change with a concrete result.
 _CHANGE = re.compile(
     r"\b(?:up to|from\s+\S+\s+to\s+\S+|increas\w*|decreas\w*|reduc\w*|doubl\w*|"
@@ -68,6 +84,14 @@ def detect_bad_news(item: FetchedItem) -> bool:
     return bool(_BAD_NEWS.search(text))
 
 
+def _is_dev_prerelease(item: FetchedItem) -> bool:
+    """True for a nightly/alpha/canary/dev build. We classify from the title/tag,
+    not `raw['prerelease']` — GitHub sets that flag for milestone betas too, and
+    those (beta/rc/preview) are intentionally kept worthy."""
+    tag = str((item.raw or {}).get("tag_name") or "")
+    return bool(_DEV_PRERELEASE.search(f"{item.title or ''} {tag}"))
+
+
 def _normalise(title: str) -> str:
     return " ".join((title or "").lower().split())
 
@@ -93,6 +117,11 @@ def score_item(item: FetchedItem, recent_titles: Iterable[str]) -> tuple[str, st
     if _TRIVIAL.search(title) and not _IMPACT.search(text):
         return ("weak", "looks like an internal or cosmetic change")
 
+    # Anti-rule: a dev-channel pre-release (nightly/alpha/canary) — continuous
+    # churn a company doesn't post about. Milestone pre-releases stay eligible.
+    if _is_dev_prerelease(item):
+        return ("weak", "a pre-release / dev-channel build — not usually post-worthy")
+
     signals: list[str] = []
     if _IMPACT.search(text):
         signals.append("affects customers (price, limits, availability, security)")
@@ -101,7 +130,15 @@ def score_item(item: FetchedItem, recent_titles: Iterable[str]) -> tuple[str, st
     if _CHANGE.search(text):
         signals.append("describes a before→after change")
     if _LAUNCH.search(text):
-        signals.append("a launch or release")
+        signals.append("a launch")
+
+    # Anti-rule: a semver patch (x.y.Z, Z>0) needs a STRONG signal to be worthy —
+    # a number, a before→after change, a launch, or security. A patch riding only
+    # the generic customer-impact keyword is churn; demote it. (Hypothesis test 2.)
+    if _SEMVER_PATCH.search(title) and not _SECURITY.search(text):
+        strong = _NUMBER.search(text) or _CHANGE.search(text) or _LAUNCH.search(text)
+        if not strong:
+            return ("weak", "patch release with no strong signal")
 
     if signals:
         return ("worthy", "; ".join(dict.fromkeys(signals)))
