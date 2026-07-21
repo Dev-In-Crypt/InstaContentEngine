@@ -9,29 +9,40 @@ draft/digest routes, which run on the user's own key via the normal engine.
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
+import json
 import logging
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_content_engine, get_current_user, get_db, get_settings, require_business
 from api.routes.posts import _persist, _sse, _to_preview
 from config import Settings
+from models.database import AuditEntry as AuditEntryModel
+from models.database import BrandRules as BrandRulesModel
 from models.database import Lead as LeadModel
 from models.database import Post as PostModel
 from models.database import Source as SourceModel
 from models.database import User as UserModel
-from models.schemas import DigestRequest, LeadOut, PostFormat, Platform, SourceCreate, SourceOut
+from models.schemas import (
+    BrandRulesOut, BrandRulesUpdate, DigestRequest, DraftEditRequest, LeadOut, PostFormat,
+    Platform, SourceCreate, SourceOut,
+)
+from services.claim_check import apply_brand_rules, verify_claims
 from services.content_engine import ContentEngine
 from services.source_poller import poll_source
 from services.sources import SourceFetchError, detect_source_type
 from services.user_settings import resolve_ai_choice
-from services.workspace import get_or_create_workspace, owned_lead, owned_source
+from services.workspace import (
+    get_or_create_workspace, owned_business_post, owned_lead, owned_source,
+)
 
 log = logging.getLogger(__name__)
 
@@ -194,22 +205,46 @@ _GROUND = ("Write ONLY from the facts in the SOURCE below. Do not invent numbers
            "names, dates, or claims; if a detail isn't in the source, leave it out.")
 
 
+async def _get_brand_rules(db: AsyncSession, ws) -> dict:
+    row = (await db.execute(
+        select(BrandRulesModel).where(BrandRulesModel.workspace_id == ws.id)
+    )).scalar_one_or_none()
+    if row is None:
+        return {"forbidden": [], "required_disclaimers": []}
+    return {"forbidden": row.forbidden or [], "required_disclaimers": row.required_disclaimers or []}
+
+
 async def _generate_business_post(
     engine: ContentEngine, db: AsyncSession, user: UserModel, ws, *,
-    topic: str, instructions: str, source_kind: str, source_url: Optional[str],
-    lead_id: Optional[str], text_model: str, progress,
+    topic: str, instructions: str, source_text: str, source_kind: str,
+    source_url: Optional[str], lead_id: Optional[str], text_model: str, progress,
 ) -> PostModel:
-    """Generate a post via the shared engine, persist it, and tag it as Business."""
+    """Generate a post via the shared engine, verify its claims, persist + tag it."""
     generated = await engine.generate_post(
         topic=topic, format=PostFormat.SINGLE, text_model=text_model,
         additional_instructions=instructions, platform=Platform.INSTAGRAM,
         progress=progress,
     )
+    await progress("Checking claims…")
+    # Verify factual claims against the source (blocking accuracy layer, Phase 4) +
+    # apply the workspace's brand rules. A claim-check failure must not lose the draft.
+    try:
+        claims = await verify_claims(
+            engine.caption_gen.text_provider, draft_text=generated.caption,
+            source_text=source_text, text_model=text_model)
+    except Exception:
+        log.exception("Claim check failed; draft kept without verdicts")
+        claims = []
+    brand = apply_brand_rules(generated.caption, await _get_brand_rules(db, ws))
+
     await progress("Saving draft…")
     post = await _persist(generated, db, "branded_card", user_id=user.id)
     post.workspace_id = ws.id
     post.source_kind = source_kind
     post.lead_id = lead_id
+    post.status = "draft"                 # enter the Business approval workflow (Phase 5)
+    post.ai_caption = generated.caption   # snapshot for the audit journal
+    post.claim_check = {"claims": claims, "brand": brand}
     if source_url:
         post.sources = [{"title": topic[:120], "url": source_url}]
     await db.commit()
@@ -217,7 +252,7 @@ async def _generate_business_post(
 
 
 def _draft_stream(db, user, ws, engine, text_model, *, topic, instructions,
-                  source_kind, source_url, lead, digest_leads=None):
+                  source_text, source_kind, source_url, lead, digest_leads=None):
     async def event_stream() -> AsyncGenerator[str, None]:
         queue: asyncio.Queue = asyncio.Queue()
 
@@ -228,7 +263,7 @@ def _draft_stream(db, user, ws, engine, text_model, *, topic, instructions,
             try:
                 post = await _generate_business_post(
                     engine, db, user, ws, topic=topic, instructions=instructions,
-                    source_kind=source_kind, source_url=source_url,
+                    source_text=source_text, source_kind=source_kind, source_url=source_url,
                     lead_id=(lead.id if lead else None), text_model=text_model,
                     progress=progress)
                 if lead is not None:
@@ -272,11 +307,12 @@ async def draft_lead(
         raise HTTPException(status_code=400,
                             detail="No text model selected. Choose one in Account → AI models.")
     topic = lead.what_happened or "Company update"
+    source_text = f"{lead.what_happened or ''}\n{lead.quote or ''}".strip()
     instructions = (f"This is a public update from the company's own source. {_GROUND}\n\n"
-                    f"SOURCE:\n{lead.what_happened or ''}\n{lead.quote or ''}")
+                    f"SOURCE:\n{source_text}")
     return _draft_stream(db, user, ws, engine, text_model, topic=topic,
-                         instructions=instructions, source_kind="lead",
-                         source_url=lead.source_url, lead=lead)
+                         instructions=instructions, source_text=source_text,
+                         source_kind="lead", source_url=lead.source_url, lead=lead)
 
 
 @router.post("/digest")
@@ -298,8 +334,8 @@ async def draft_digest(
     instructions = (f"Write one 'what's new this week' post summarising these updates. {_GROUND}\n\n"
                     f"SOURCE UPDATES:\n{bullets}")
     return _draft_stream(db, user, ws, engine, text_model, topic="What's new this week",
-                         instructions=instructions, source_kind="digest",
-                         source_url=None, lead=None, digest_leads=leads)
+                         instructions=instructions, source_text=bullets,
+                         source_kind="digest", source_url=None, lead=None, digest_leads=leads)
 
 
 @router.get("/drafts", response_model=list[dict])
@@ -315,11 +351,185 @@ async def list_drafts(
     out = []
     for p in rows:
         src = p.sources[0] if isinstance(p.sources, list) and p.sources else {}
+        cc = p.claim_check if isinstance(p.claim_check, dict) else {}
         out.append({
             "id": p.id, "topic": p.topic, "hook": p.hook, "caption": p.caption,
             "hashtags": p.hashtags or [], "source_kind": p.source_kind,
             "source_url": src.get("url") if isinstance(src, dict) else None,
-            "platform": p.platform,
+            "platform": p.platform, "status": p.status,
+            "checked_claims": cc.get("claims") or [],
+            "brand_flags": cc.get("brand") or {},
             "created_at": p.created_at.isoformat() if p.created_at else None,
         })
     return out
+
+
+# ── Brand rules (Phase 4) ────────────────────────────────────────────────────
+
+@router.get("/brand-rules", response_model=BrandRulesOut)
+async def get_brand_rules(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> BrandRulesOut:
+    ws = await get_or_create_workspace(db, user)
+    rules = await _get_brand_rules(db, ws)
+    return BrandRulesOut(forbidden=rules["forbidden"],
+                         required_disclaimers=rules["required_disclaimers"])
+
+
+@router.put("/brand-rules", response_model=BrandRulesOut)
+async def put_brand_rules(
+    body: BrandRulesUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> BrandRulesOut:
+    ws = await get_or_create_workspace(db, user)
+    row = (await db.execute(
+        select(BrandRulesModel).where(BrandRulesModel.workspace_id == ws.id)
+    )).scalar_one_or_none()
+    if row is None:
+        row = BrandRulesModel(workspace_id=ws.id)
+        db.add(row)
+    row.forbidden = body.forbidden
+    row.required_disclaimers = body.required_disclaimers
+    await db.commit()
+    return BrandRulesOut(forbidden=body.forbidden,
+                         required_disclaimers=body.required_disclaimers)
+
+
+# ── Approval workflow + audit journal (Phase 5) ──────────────────────────────
+# Solo model: the workspace owner is author + approver. Roles/invites are deferred.
+
+def _has_brand_issue(post: PostModel) -> bool:
+    cc = post.claim_check if isinstance(post.claim_check, dict) else {}
+    brand = cc.get("brand") or {}
+    return bool(brand.get("forbidden")) or bool(brand.get("missing_disclaimers"))
+
+
+@router.put("/drafts/{post_id}", response_model=dict)
+async def edit_draft(
+    post_id: str,
+    body: DraftEditRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> dict:
+    ws = await get_or_create_workspace(db, user)
+    post = await owned_business_post(db, post_id, ws)
+    if post.status not in ("draft", "in_review"):
+        raise HTTPException(status_code=409, detail="Only a draft or in-review post can be edited.")
+    post.caption = body.caption          # human edit; ai_caption is preserved for the audit
+    await db.commit()
+    return {"status": "ok"}
+
+
+@router.post("/posts/{post_id}/submit", response_model=dict)
+async def submit_post(
+    post_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> dict:
+    ws = await get_or_create_workspace(db, user)
+    post = await owned_business_post(db, post_id, ws)
+    if post.status != "draft":
+        raise HTTPException(status_code=409, detail="Only a draft can be submitted for review.")
+    post.status = "in_review"
+    await db.commit()
+    return {"status": "in_review"}
+
+
+@router.post("/posts/{post_id}/approve", response_model=dict)
+async def approve_post(
+    post_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> dict:
+    ws = await get_or_create_workspace(db, user)
+    post = await owned_business_post(db, post_id, ws)
+    if post.status != "in_review":
+        raise HTTPException(status_code=409, detail="Only an in-review post can be approved.")
+    if _has_brand_issue(post):
+        raise HTTPException(status_code=409,
+                            detail="Fix the brand-rule issues before approving.")
+    post.status = "approved"
+    src = post.sources[0] if isinstance(post.sources, list) and post.sources else {}
+    db.add(AuditEntryModel(
+        workspace_id=ws.id, post_id=post.id, lead_id=post.lead_id,
+        source_url=src.get("url") if isinstance(src, dict) else None,
+        ai_draft=post.ai_caption, human_edits=post.caption,
+        approved_by=user.id, approved_at=datetime.now(timezone.utc),
+    ))
+    await db.commit()
+    return {"status": "approved"}
+
+
+@router.post("/posts/{post_id}/reject", response_model=dict)
+async def reject_post(
+    post_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> dict:
+    ws = await get_or_create_workspace(db, user)
+    post = await owned_business_post(db, post_id, ws)
+    post.status = "rejected"
+    await db.commit()
+    return {"status": "rejected"}
+
+
+def _audit_row(a: AuditEntryModel) -> dict:
+    return {
+        "id": a.id, "post_id": a.post_id, "source_url": a.source_url,
+        "ai_draft": a.ai_draft, "human_edits": a.human_edits,
+        "approved_by": a.approved_by,
+        "approved_at": a.approved_at.isoformat() if a.approved_at else None,
+        "published_url": a.published_url,
+        "created_at": a.created_at.isoformat() if a.created_at else None,
+    }
+
+
+async def _journal_rows(db, ws, since: Optional[datetime], until: Optional[datetime]):
+    stmt = select(AuditEntryModel).where(AuditEntryModel.workspace_id == ws.id)
+    if since:
+        stmt = stmt.where(AuditEntryModel.created_at >= since)
+    if until:
+        stmt = stmt.where(AuditEntryModel.created_at <= until)
+    stmt = stmt.order_by(AuditEntryModel.created_at.desc())
+    return (await db.execute(stmt)).scalars().all()
+
+
+@router.get("/journal", response_model=list[dict])
+async def get_journal(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+    since: Optional[datetime] = Query(None, alias="from"),
+    until: Optional[datetime] = Query(None, alias="to"),
+) -> list[dict]:
+    ws = await get_or_create_workspace(db, user)
+    return [_audit_row(a) for a in await _journal_rows(db, ws, since, until)]
+
+
+@router.get("/journal/export")
+async def export_journal(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+    format: str = Query("csv"),
+    since: Optional[datetime] = Query(None, alias="from"),
+    until: Optional[datetime] = Query(None, alias="to"),
+) -> Response:
+    ws = await get_or_create_workspace(db, user)
+    rows = [_audit_row(a) for a in await _journal_rows(db, ws, since, until)]
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
+    if format == "json":
+        return Response(
+            content=json.dumps(rows, ensure_ascii=False, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="journal_{ts}.json"'})
+    cols = ["created_at", "approved_at", "approved_by", "source_url",
+            "ai_draft", "human_edits", "published_url", "post_id"]
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
+    writer.writeheader()
+    for r in rows:
+        writer.writerow(r)
+    return Response(
+        content=buf.getvalue(), media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="journal_{ts}.csv"'})

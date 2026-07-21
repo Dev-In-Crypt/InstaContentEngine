@@ -103,6 +103,12 @@ def _to_preview(post: PostModel) -> PostPreview:
     # it stands now — so a claim removed by an edit disappears on the next preview.
     # A thread carries its lines separately, so scan both.
     claim_source = "\n".join([post.caption or "", *(post.thread_parts or [])])
+    # Business (Phase 4): LLM-verified claims + brand-rule flags, computed once at draft
+    # time and stored on the post. Creator posts have no claim_check → these stay empty
+    # (no LLM ever runs on the creator preview path).
+    cc = post.claim_check if isinstance(post.claim_check, dict) else {}
+    checked_claims = cc.get("claims") or []
+    brand_flags = cc.get("brand") or {}
     return PostPreview(
         id=post.id,
         topic=post.topic,
@@ -121,6 +127,8 @@ def _to_preview(post: PostModel) -> PostPreview:
         created_at=post.created_at or datetime.now(timezone.utc),
         sources=post.sources or [],
         claims=find_claims(claim_source),
+        checked_claims=checked_claims,
+        brand_flags=brand_flags,
         scheduled_at=post.scheduled_at,
         published_at=post.published_at,
         schedule_error=post.schedule_error,
@@ -450,7 +458,12 @@ async def publish_post(
     """Publish immediately: slides → imgbb (public URLs) → Instagram."""
     from services.publisher_flow import publish_now, PublishError
     from services.scheduler import cancel_publish
-    await owned_post(db, post_id, user)   # ownership gate before touching the job/publish
+    post = await owned_post(db, post_id, user)   # ownership gate before touching the job/publish
+    # Business posts require a human sign-off: only an approved workspace post may publish
+    # (no auto-publish without a person — doc §8/§13).
+    if post.workspace_id and post.status != "approved":
+        raise HTTPException(status_code=409,
+                            detail="This post must be approved before it can be published.")
     # Drop any pending scheduled job so it can't fire and double-publish.
     cancel_publish(post_id)
     sessionmaker = request.app.state.sessionmaker

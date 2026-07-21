@@ -68,6 +68,10 @@ class PostStatus(str, Enum):
     SCHEDULED = "scheduled"
     EXPORTED = "exported"
     FAILED = "failed"
+    # Business approval workflow (Phase 5): draft → in_review → approved → published/rejected
+    IN_REVIEW = "in_review"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class OutputChoice(str, Enum):
@@ -246,6 +250,13 @@ class ClaimFlag(BaseModel):
     reason: str
 
 
+class VerifiedClaim(BaseModel):
+    """A Business claim after LLM verification against the source (Phase 4)."""
+    claim: str
+    status: str                       # confirmed | unconfirmed
+    evidence: str = ""                # verbatim source support, only when confirmed
+
+
 class PostPreview(BaseModel):
     id: str
     topic: str
@@ -264,6 +275,9 @@ class PostPreview(BaseModel):
     created_at: datetime
     sources: list[dict] = []           # [{title,url}] from web-grounded LLM (:online)
     claims: list[ClaimFlag] = []       # sentences to verify (computed from the caption)
+    # Business (Phase 4): LLM-verified claims + brand-rule flags, read from Post.claim_check.
+    checked_claims: list[VerifiedClaim] = []
+    brand_flags: dict = {}             # {"forbidden":[...],"missing_disclaimers":[...]}
     scheduled_at: Optional[datetime] = None
     published_at: Optional[datetime] = None
     schedule_error: Optional[str] = None
@@ -560,3 +574,22 @@ class LeadOut(BaseModel):
 
 class DigestRequest(BaseModel):
     lead_ids: list[str] = Field(..., min_length=1, max_length=20)
+
+
+class BrandRulesUpdate(BaseModel):
+    forbidden: list[str] = []
+    required_disclaimers: list[str] = []
+
+    @field_validator("forbidden", "required_disclaimers")
+    @classmethod
+    def _clean(cls, v: list[str]) -> list[str]:
+        return [s.strip() for s in (v or []) if s and s.strip()][:50]
+
+
+class BrandRulesOut(BaseModel):
+    forbidden: list[str] = []
+    required_disclaimers: list[str] = []
+
+
+class DraftEditRequest(BaseModel):
+    caption: str = Field(..., max_length=8000)

@@ -135,6 +135,13 @@ class Post(Base):
     lead_id = Column(String(36), ForeignKey("leads.id", ondelete="SET NULL"), index=True)
     workspace_id = Column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
     source_kind = Column(String(20))
+    # Business claim check (Phase 4): LLM verdict per factual claim + brand-rule flags,
+    # computed once at draft time (expensive), read back on preview. Creator posts NULL.
+    # {"claims":[{text,status,evidence}], "brand":{"forbidden":[...],"missing_disclaimers":[...]}}
+    claim_check = Column(JSON)
+    # Business approval workflow (Phase 5): snapshot of the AI's first caption, kept so
+    # the audit journal can show AI draft vs the human's edits. Creator posts NULL.
+    ai_caption = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -314,4 +321,40 @@ class Lead(Base):
     __table_args__ = (
         Index("ix_leads_ws_status", "workspace_id", "status"),
         Index("ix_leads_ws_created", "workspace_id", "created_at"),
+    )
+
+
+class BrandRules(Base):
+    """Per-workspace 'what the brand allows' (Phase 4). Not a legal check — the user's
+    own forbidden phrases + required disclaimers, applied to every Business draft."""
+    __tablename__ = "brand_rules"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workspace_id = Column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"),
+                          unique=True, index=True)
+    forbidden = Column(JSON)              # list of phrases that must not appear
+    required_disclaimers = Column(JSON)   # list of phrases that must appear
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class AuditEntry(Base):
+    """The human-in-the-loop record (Phase 5): one row per approval, snapshotting the
+    AI draft vs the human's edits, who signed off and when. For an agency this is the
+    report to the client."""
+    __tablename__ = "audit_entries"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    workspace_id = Column(String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    post_id = Column(String(36), ForeignKey("posts.id", ondelete="SET NULL"), index=True)
+    lead_id = Column(String(36))
+    source_url = Column(Text)
+    ai_draft = Column(Text)               # the caption as first generated
+    human_edits = Column(Text)            # the caption at approval time
+    approved_by = Column(String(36))      # user id
+    approved_at = Column(DateTime(timezone=True))
+    published_url = Column(Text)          # filled when/if the post is later published
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_audit_ws_created", "workspace_id", "created_at"),
     )

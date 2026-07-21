@@ -122,3 +122,19 @@ def test_refresh_triggers_poll(client):
                       json={"url": "https://github.com/o/r"}).json()["source"]
     r = client.post(f"/api/business/sources/{src['id']}/refresh", headers=h)
     assert r.status_code == 200 and r.json()["leads_found"] == 1
+
+
+def test_brand_rules_round_trip_and_isolation(client):
+    ha = _register(client, "br-a@ex.com")
+    hb = _register(client, "br-b@ex.com")
+    # default empty
+    assert client.get("/api/business/brand-rules", headers=ha).json() == {
+        "forbidden": [], "required_disclaimers": []}
+    # save + read back (blank lines stripped)
+    client.put("/api/business/brand-rules", headers=ha,
+               json={"forbidden": ["guaranteed", " "], "required_disclaimers": ["not advice"]})
+    assert client.get("/api/business/brand-rules", headers=ha).json() == {
+        "forbidden": ["guaranteed"], "required_disclaimers": ["not advice"]}
+    # user B's rules are separate
+    assert client.get("/api/business/brand-rules", headers=hb).json() == {
+        "forbidden": [], "required_disclaimers": []}

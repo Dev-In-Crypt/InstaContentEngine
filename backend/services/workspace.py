@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.database import Lead as LeadModel
+from models.database import Post as PostModel
 from models.database import Source as SourceModel
 from models.database import User as UserModel
 from models.database import Workspace as WorkspaceModel
@@ -49,3 +50,15 @@ async def owned_lead(db: AsyncSession, lead_id: str, workspace: WorkspaceModel) 
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead not found")
     return lead
+
+
+async def owned_business_post(db: AsyncSession, post_id: str, workspace: WorkspaceModel,
+                              *, options=()) -> PostModel:
+    stmt = select(PostModel).where(
+        PostModel.id == post_id, PostModel.workspace_id == workspace.id)
+    if options:
+        stmt = stmt.options(*options)
+    post = (await db.execute(stmt)).scalar_one_or_none()
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return post
