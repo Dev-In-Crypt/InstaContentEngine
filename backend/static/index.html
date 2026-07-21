@@ -391,6 +391,7 @@
     <button data-section="biz-sources" onclick="setSection('biz-sources')" class="business-only sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">🔗 Sources</button>
     <button data-section="biz-leads" onclick="setSection('biz-leads')" class="business-only sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">📰 Leads</button>
     <button data-section="biz-drafts" onclick="setSection('biz-drafts')" class="business-only sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">✎ Drafts</button>
+    <button data-section="biz-analytics" onclick="setSection('biz-analytics')" class="business-only sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">📊 Analytics</button>
     <button data-section="biz-journal" onclick="setSection('biz-journal')" class="business-only sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">📋 Journal</button>
     <button data-section="biz-rules" onclick="setSection('biz-rules')" class="business-only sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">🛡 Rules</button>
     <button data-section="keys" onclick="setSection('keys')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">🔑 <span id="net-keys-label">Instagram</span> keys</button>
@@ -1034,6 +1035,16 @@
     </div>
   </div>
 
+  <!-- ===== BUSINESS: Source analytics ===== -->
+  <div id="view-biz-analytics" class="hidden space-y-4">
+    <div class="ce-card p-5">
+      <h2 class="text-lg font-semibold" style="color:var(--accent)">📊 Source analytics</h2>
+      <p class="text-xs text-gray-400 mt-1">Which sources give you the best posts — ranked by your pipeline: leads → worthy → drafts → approved. Engagement stats arrive once publishing is enabled.</p>
+      <div id="biz-analytics-totals" class="mt-4"></div>
+      <div id="biz-analytics-list" class="mt-4 space-y-2">Loading…</div>
+    </div>
+  </div>
+
   <!-- ===== BUSINESS: Journal ===== -->
   <div id="view-biz-journal" class="hidden space-y-4">
     <div class="ce-card p-5">
@@ -1674,6 +1685,61 @@ function renderJournalRow(a) {
     <div class="text-xs text-gray-500">${esc(when)}${a.source_url ? ` · <a href="${safeUrl(a.source_url)}" target="_blank" rel="noopener noreferrer" class="underline" style="color:var(--accent)">source</a>` : ''}</div>
     <div class="mt-1 whitespace-pre-line">${esc(a.human_edits || a.ai_draft || '')}</div>
     ${edited ? '<div class="text-xs text-gray-400 mt-1">✎ edited by a human before approval</div>' : ''}
+  `;
+  return row;
+}
+
+function _saStat(label, val) {
+  return `<div class="bg-gray-900 rounded-lg px-2 py-2 text-center">
+    <div class="text-base font-semibold">${esc(String(val))}</div>
+    <div class="text-[10px] text-gray-400 uppercase tracking-wide">${esc(label)}</div>
+  </div>`;
+}
+
+async function loadSourceAnalytics() {
+  const box = document.getElementById('biz-analytics-list');
+  const totBox = document.getElementById('biz-analytics-totals');
+  box.textContent = 'Loading…'; totBox.innerHTML = '';
+  try {
+    const res = await apiFetch(`${API}/api/business/source-analytics`);
+    const data = res.ok ? await res.json() : { sources: [], totals: {}, digests: 0 };
+    const t = data.totals || {};
+    totBox.innerHTML = `<div class="grid grid-cols-3 sm:grid-cols-6 gap-2">
+      ${_saStat('Sources', t.sources || 0)}${_saStat('Leads', t.leads || 0)}${_saStat('Worthy', t.worthy || 0)}
+      ${_saStat('Drafts', t.drafts || 0)}${_saStat('Approved', t.approved || 0)}${_saStat('Published', t.published || 0)}
+    </div>${data.digests ? `<div class="text-xs text-gray-500 mt-2">+ ${esc(String(data.digests))} digest post(s) span multiple leads — not attributed to a single source.</div>` : ''}`;
+    const list = data.sources || [];
+    if (!list.length) { box.innerHTML = '<div class="text-sm text-gray-400">No sources yet — add some in Sources.</div>'; return; }
+    box.innerHTML = '';
+    list.forEach((s, i) => box.appendChild(renderSourceAnalyticsRow(s, i)));
+  } catch { box.innerHTML = '<div class="text-sm text-gray-400">Couldn\'t load analytics.</div>'; }
+}
+
+function renderSourceAnalyticsRow(s, i) {
+  const row = document.createElement('div');
+  row.className = 'ce-card p-3';
+  let host = s.url || '';
+  try { const u = new URL(s.url); host = u.hostname + u.pathname; } catch { /* keep raw */ }
+  const worthyPct = Math.min(100, Math.round((s.worthy_rate || 0) * 100));
+  const approvePct = Math.min(100, Math.round((s.approve_rate || 0) * 100));
+  const last = s.last_lead_at ? new Date(s.last_lead_at).toLocaleDateString() : '—';
+  const cell = (v, l) => `<div><div class="text-sm font-semibold">${esc(String(v || 0))}</div><div class="text-[10px] text-gray-400">${l}</div></div>`;
+  const bar = (label, pct, color) => `<div class="mt-1 flex items-center gap-2 text-xs text-gray-400">
+      <span class="w-20">${label} ${pct}%</span>
+      <div class="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden"><div class="h-full ${color}" style="width:${pct}%"></div></div>
+    </div>`;
+  row.innerHTML = `
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs text-gray-500">#${i + 1}</span>
+      <a href="${safeUrl(s.url)}" target="_blank" rel="noopener noreferrer" class="text-sm underline truncate max-w-[60%]" style="color:var(--accent)">${esc(host)}</a>
+      <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-300">${esc(s.kind || '')}</span>
+      <span class="text-xs text-gray-500 ml-auto">last lead ${esc(last)}</span>
+    </div>
+    <div class="mt-2 grid grid-cols-5 gap-2 text-center">
+      ${cell(s.leads_total, 'leads')}${cell(s.worthy, 'worthy')}${cell(s.drafts, 'drafts')}${cell(s.approved, 'approved')}${cell(s.published, 'published')}
+    </div>
+    ${bar('worthy', worthyPct, 'bg-purple-600')}
+    ${bar('approved', approvePct, 'bg-green-600')}
   `;
   return row;
 }
@@ -3774,11 +3840,11 @@ function setSection(sec) {
   const map = { create:'view-create', calendar:'view-calendar', feed:'view-grid',
                 analytics:'view-analytics', keys:'view-admin', account:'view-admin',
                 'biz-sources':'view-biz-sources', 'biz-leads':'view-biz-leads',
-                'biz-drafts':'view-biz-drafts', 'biz-journal':'view-biz-journal',
-                'biz-rules':'view-biz-rules' };
+                'biz-drafts':'view-biz-drafts', 'biz-analytics':'view-biz-analytics',
+                'biz-journal':'view-biz-journal', 'biz-rules':'view-biz-rules' };
   for (const v of ['view-create','view-calendar','view-grid','view-admin','view-analytics',
-                   'view-biz-sources','view-biz-leads','view-biz-drafts','view-biz-journal',
-                   'view-biz-rules']) {
+                   'view-biz-sources','view-biz-leads','view-biz-drafts','view-biz-analytics',
+                   'view-biz-journal','view-biz-rules']) {
     const el = document.getElementById(v); if (el) el.classList.toggle('hidden', map[sec] !== v);
   }
   document.querySelectorAll('#section-nav .sec-btn').forEach(b => b.classList.toggle('sec-active', b.dataset.section === sec));
@@ -3789,6 +3855,7 @@ function setSection(sec) {
   else if (sec === 'biz-sources') loadSources();
   else if (sec === 'biz-leads') loadLeads();
   else if (sec === 'biz-drafts') loadDrafts();
+  else if (sec === 'biz-analytics') loadSourceAnalytics();
   else if (sec === 'biz-journal') loadJournal();
   else if (sec === 'biz-rules') loadBrandRules();
 }

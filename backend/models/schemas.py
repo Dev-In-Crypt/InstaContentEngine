@@ -606,6 +606,34 @@ class LimitsOut(BaseModel):
     max_per_week: Optional[int] = None
 
 
+class SourceAnalyticsOut(BaseModel):
+    """One source's pipeline funnel (Phase 8). No engagement yet — Business posts
+    aren't published to a network, so PostInsight is empty; we rank on what exists:
+    leads → worthy → drafts → approved/published, plus conversions."""
+    source_id: str
+    url: str
+    kind: str
+    status: str
+    last_checked_at: Optional[datetime] = None
+    last_lead_at: Optional[datetime] = None
+    leads_total: int = 0
+    worthy: int = 0
+    weak: int = 0
+    dismissed: int = 0
+    drafts: int = 0
+    in_review: int = 0
+    approved: int = 0
+    published: int = 0
+    worthy_rate: float = 0.0     # worthy / leads_total
+    approve_rate: float = 0.0    # approved / drafts
+
+
+class SourceAnalyticsResponse(BaseModel):
+    sources: list[SourceAnalyticsOut] = []
+    totals: dict = {}
+    digests: int = 0             # digest posts (span multiple leads → no single source)
+
+
 # ===== Managed accounts (Phase 7: agency multi-account) =====
 
 class AccountCreate(BaseModel):

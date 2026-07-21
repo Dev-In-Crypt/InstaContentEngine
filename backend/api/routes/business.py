@@ -19,7 +19,7 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_content_engine, get_current_user, get_db, get_settings, require_business
@@ -33,7 +33,8 @@ from models.database import Source as SourceModel
 from models.database import User as UserModel
 from models.schemas import (
     BrandRulesOut, BrandRulesUpdate, DigestRequest, DraftEditRequest, LeadOut, LimitsOut,
-    LimitsUpdate, PostFormat, Platform, SourceCreate, SourceOut,
+    LimitsUpdate, PostFormat, Platform, SourceAnalyticsOut, SourceAnalyticsResponse,
+    SourceCreate, SourceOut,
 )
 from services.claim_check import apply_brand_rules, verify_claims
 from services.content_engine import ContentEngine
@@ -135,6 +136,101 @@ async def refresh_source(
         await db.commit()
         raise HTTPException(status_code=502, detail="Couldn't reach that source.") from e
     return {"leads_found": leads_found}
+
+
+# ── Source analytics (Phase 8) ───────────────────────────────────────────────
+
+@router.get("/source-analytics", response_model=SourceAnalyticsResponse)
+async def source_analytics(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> SourceAnalyticsResponse:
+    """Per-source pipeline funnel — which sources yield the best posts. Business
+    posts aren't published to a network yet (PostInsight is empty), so we rank on
+    what exists: leads → worthy → drafts → approved/published, never engagement.
+    Attribution is Post.lead_id → Lead.source_id; digest posts (lead_id NULL) span
+    many leads and are reported separately. All scoped to the caller's workspace."""
+    ws = await get_or_create_workspace(db, user)
+
+    strength_rows = (await db.execute(
+        select(LeadModel.source_id, LeadModel.strength, func.count())
+        .where(LeadModel.workspace_id == ws.id)
+        .group_by(LeadModel.source_id, LeadModel.strength)
+    )).all()
+    lstatus_rows = (await db.execute(
+        select(LeadModel.source_id, LeadModel.status, func.count())
+        .where(LeadModel.workspace_id == ws.id)
+        .group_by(LeadModel.source_id, LeadModel.status)
+    )).all()
+    last_lead_rows = (await db.execute(
+        select(LeadModel.source_id, func.max(LeadModel.created_at))
+        .where(LeadModel.workspace_id == ws.id).group_by(LeadModel.source_id)
+    )).all()
+    # posts traced back to their source through the lead
+    post_rows = (await db.execute(
+        select(LeadModel.source_id, PostModel.status, func.count())
+        .select_from(PostModel).join(LeadModel, PostModel.lead_id == LeadModel.id)
+        .where(PostModel.workspace_id == ws.id)
+        .group_by(LeadModel.source_id, PostModel.status)
+    )).all()
+    digests = (await db.execute(
+        select(func.count()).select_from(PostModel).where(
+            PostModel.workspace_id == ws.id, PostModel.lead_id.is_(None),
+            PostModel.source_kind == "digest",
+        )
+    )).scalar() or 0
+
+    sources = (await db.execute(
+        select(SourceModel).where(SourceModel.workspace_id == ws.id)
+        .order_by(SourceModel.created_at.desc())
+    )).scalars().all()
+
+    acc: dict[str, dict] = {}
+
+    def _a(sid: str) -> dict:
+        return acc.setdefault(sid, {"strength": {}, "lstatus": {}, "pstatus": {}, "last": None})
+
+    for sid, strength, n in strength_rows:
+        _a(sid)["strength"][strength or ""] = n
+    for sid, st, n in lstatus_rows:
+        _a(sid)["lstatus"][st or ""] = n
+    for sid, dt in last_lead_rows:
+        _a(sid)["last"] = dt
+    for sid, st, n in post_rows:
+        _a(sid)["pstatus"][st or ""] = n
+
+    out: list[SourceAnalyticsOut] = []
+    tot = {"sources": 0, "leads": 0, "worthy": 0, "drafts": 0, "approved": 0, "published": 0}
+    for s in sources:
+        a = acc.get(s.id) or {"strength": {}, "lstatus": {}, "pstatus": {}, "last": None}
+        strength, ps = a["strength"], a["pstatus"]
+        leads_total = sum(strength.values())
+        worthy = strength.get("worthy", 0)
+        draft = ps.get("draft", 0)
+        in_review = ps.get("in_review", 0)
+        published = ps.get("published", 0)
+        total_posts = (draft + in_review + ps.get("approved", 0)
+                       + published + ps.get("rejected", 0))
+        approved = ps.get("approved", 0) + published   # reached the approval milestone
+        out.append(SourceAnalyticsOut(
+            source_id=s.id, url=s.url, kind=s.kind, status=s.status,
+            last_checked_at=s.last_checked_at, last_lead_at=a["last"],
+            leads_total=leads_total, worthy=worthy, weak=strength.get("weak", 0),
+            dismissed=a["lstatus"].get("dismissed", 0),
+            drafts=total_posts, in_review=in_review, approved=approved, published=published,
+            worthy_rate=round(worthy / leads_total, 3) if leads_total else 0.0,
+            approve_rate=round(approved / total_posts, 3) if total_posts else 0.0,
+        ))
+        tot["sources"] += 1
+        tot["leads"] += leads_total
+        tot["worthy"] += worthy
+        tot["drafts"] += total_posts
+        tot["approved"] += approved
+        tot["published"] += published
+
+    # best first: most published, then most approved, then most worthy leads
+    out.sort(key=lambda r: (r.published, r.approved, r.worthy, r.leads_total), reverse=True)
+    return SourceAnalyticsResponse(sources=out, totals=tot, digests=int(digests))
 
 
 # ── Leads feed ───────────────────────────────────────────────────────────────
