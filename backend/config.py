@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     default_text_model: str = "anthropic/claude-sonnet-5"
     default_image_model: str = "google/gemini-3.1-flash-image"
 
+    # Public no-auth demo (Business landing). Runs on the app's OWN OpenRouter key
+    # (openrouter_api_key), not a user's — anonymous visitors have none. A hard
+    # per-IP rate limit protects the spend; an empty openrouter_api_key makes the
+    # demo 503 rather than fail mid-run. Empty demo_text_model → default_text_model.
+    demo_text_model: str = ""
+
     # Stock Photos
     unsplash_access_key: str = ""
     pexels_api_key: str = ""

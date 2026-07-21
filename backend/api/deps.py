@@ -270,6 +270,14 @@ def get_image_provider(
     return _ai_provider_or_none(provider, api_key, settings)
 
 
+def get_demo_text_provider(settings: Annotated[Settings, Depends(get_settings)]):
+    """Text provider for the public no-auth demo — built from the app's OWN
+    OpenRouter key (anonymous visitors have none). None when the key is unset, so
+    the route can 503 cleanly instead of failing partway. Deliberately uses base
+    get_settings (app-level), never a per-user resolver."""
+    return _ai_provider_or_none("openrouter", settings.openrouter_api_key, settings)
+
+
 def get_content_engine(
     text_provider: Annotated[object, Depends(get_text_provider)],
     image_provider: Annotated[object, Depends(get_image_provider)],
