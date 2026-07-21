@@ -61,6 +61,12 @@ class User(Base):
     # approval workflow). One engine underneath; this only splits the experience
     # (landing, onboarding, which sections show). Business screens gate on this.
     account_type = Column(String(20), default="creator")
+    # Agency multi-account (Phase 7): which managed brand is active in the composer.
+    # NULL = "Personal" (this user's own settings above). Never a security boundary —
+    # posts are always owned by user_id; this only scopes the view + brand identity.
+    # Plain column (no FK) to avoid a users<->managed_accounts create_all cycle; the
+    # app clears it when the account is deleted.
+    active_account_id = Column(String(36))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     credentials = relationship("UserCredentials", back_populates="user",
@@ -142,6 +148,10 @@ class Post(Base):
     # Business approval workflow (Phase 5): snapshot of the AI's first caption, kept so
     # the audit journal can show AI draft vs the human's edits. Creator posts NULL.
     ai_caption = Column(Text)
+    # Agency multi-account (Phase 7): which managed brand this post belongs to. NULL =
+    # the owner's Personal account. Additive to user_id (which stays the security gate).
+    managed_account_id = Column(String(36), ForeignKey("managed_accounts.id", ondelete="SET NULL"),
+                                index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -362,3 +372,24 @@ class AuditEntry(Base):
     __table_args__ = (
         Index("ix_audit_ws_created", "workspace_id", "created_at"),
     )
+
+
+class ManagedAccount(Base):
+    """A managed client brand (Phase 7, Creators-side agency MVP). One owner can have
+    many. Holds only brand IDENTITY — deliberately the SAME column names as User so the
+    existing resolvers (resolve_user_profile / resolve_user_brand_voice /
+    apply_user_slide_style) work on it via duck typing. Keys stay on the owning User."""
+    __tablename__ = "managed_accounts"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    owner_user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name = Column(String(120))
+    brand_voice_preset = Column(String(30))
+    brand_voice_custom = Column(Text)
+    niche = Column(String(120))
+    target_audience = Column(String(120))
+    brand_name = Column(String(120))
+    slide_accent_color = Column(String(7))
+    slide_text_box_color = Column(String(7))
+    logo_path = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

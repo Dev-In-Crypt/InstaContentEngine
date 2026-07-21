@@ -23,6 +23,7 @@ from api.deps import (
 from api.ratelimit import limiter
 from services.brand_engine import PillowBrandEngine
 from services.brand_voice import resolve_brand_voice
+from services.managed_account import resolve_active_account
 from services.user_settings import (
     apply_user_slide_style, resolve_ai_choice, resolve_user_brand_voice, resolve_user_profile,
 )
@@ -138,7 +139,7 @@ def _to_preview(post: PostModel) -> PostPreview:
 
 async def _persist(
     generated: GeneratedPost, db: AsyncSession, template_style: str = "branded_card",
-    user_id: Optional[str] = None,
+    user_id: Optional[str] = None, managed_account_id: Optional[str] = None,
 ) -> PostModel:
     post_dir = UPLOADS_DIR / generated.id
     post_dir.mkdir(parents=True, exist_ok=True)
@@ -146,6 +147,7 @@ async def _persist(
     db_post = PostModel(
         id=generated.id,
         user_id=user_id,
+        managed_account_id=managed_account_id,
         topic=generated.topic,
         format=generated.format.value,
         status="preview",
@@ -269,19 +271,24 @@ async def generate_post(
 
         async def run() -> None:
             try:
+                # Agency multi-account (Phase 7): brand identity comes from the active
+                # managed account when one is selected, else the user's own settings.
+                # Keys / x_premium stay on `user` (the agency's own).
+                acct = await resolve_active_account(db, user)
+                bsrc = acct or user
                 brand_cfg = apply_user_slide_style(
-                    await load_brand_config(db, body.brand_config_id), user)
+                    await load_brand_config(db, body.brand_config_id), bsrc)
                 engine.brand_engine = PillowBrandEngine(brand_cfg)
-                # Brand voice: the user's saved preset, optionally overridden for this
-                # one post by body.brand_voice_preset (custom uses their saved text).
+                # Brand voice: the active brand's saved preset, optionally overridden for
+                # this one post by body.brand_voice_preset (custom uses its saved text).
                 if body.brand_voice_preset:
-                    _custom = user.brand_voice_custom if body.brand_voice_preset == "custom" else None
+                    _custom = bsrc.brand_voice_custom if body.brand_voice_preset == "custom" else None
                     brand_voice = resolve_brand_voice(body.brand_voice_preset, _custom)
                 else:
-                    brand_voice = resolve_user_brand_voice(user)
-                # Fall back to the user's saved brand profile when the composer leaves
+                    brand_voice = resolve_user_brand_voice(bsrc)
+                # Fall back to the active brand's saved profile when the composer leaves
                 # niche/audience blank; an explicit value in the request still wins.
-                profile = resolve_user_profile(user)
+                profile = resolve_user_profile(bsrc)
                 niche = body.niche or profile["niche"]
                 target_audience = body.target_audience or profile["target_audience"]
                 generated = await engine.generate_post(
@@ -313,6 +320,7 @@ async def generate_post(
                 db_post = await _persist(
                     generated, db, body.template_style.value,
                     user_id=user.id,
+                    managed_account_id=(acct.id if acct else None),
                 )
                 if body.plan_date is not None:
                     # A batch draft: pin it to its calendar date but leave it a
@@ -361,6 +369,11 @@ async def list_posts(
             .options(selectinload(PostModel.slides)).limit(limit).offset(offset))
     if not user.is_local:
         stmt = stmt.where(PostModel.user_id == user.id)
+        # Agency multi-account (Phase 7): scope the view to the active brand. NULL =
+        # Personal → only posts with no managed account. user_id stays the security gate.
+        active = user.active_account_id
+        stmt = stmt.where(PostModel.managed_account_id == active if active
+                          else PostModel.managed_account_id.is_(None))
     result = await db.execute(stmt)
     posts = result.scalars().all()
     out = []
@@ -1057,6 +1070,9 @@ async def pillars_mix(
     stmt = select(PostModel.pillar, PostModel.topic, PostModel.caption)
     if not user.is_local:
         stmt = stmt.where(PostModel.user_id == user.id)
+        active = user.active_account_id                       # Phase 7: scope to active brand
+        stmt = stmt.where(PostModel.managed_account_id == active if active
+                          else PostModel.managed_account_id.is_(None))
     result = await db.execute(stmt)
     rows = result.all()
     pillars = [

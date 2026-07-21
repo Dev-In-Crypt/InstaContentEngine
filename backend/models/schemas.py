@@ -604,3 +604,52 @@ class LimitsUpdate(BaseModel):
 class LimitsOut(BaseModel):
     max_per_day: Optional[int] = None
     max_per_week: Optional[int] = None
+
+
+# ===== Managed accounts (Phase 7: agency multi-account) =====
+
+class AccountCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=120)
+
+
+class AccountUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=120)
+    brand_voice_preset: Optional[str] = Field(None, max_length=30)
+    brand_voice_custom: Optional[str] = None
+    niche: Optional[str] = Field(None, max_length=120)
+    target_audience: Optional[str] = Field(None, max_length=120)
+    brand_name: Optional[str] = Field(None, max_length=120)
+    slide_accent_color: Optional[str] = None
+    slide_text_box_color: Optional[str] = None
+
+    @field_validator("slide_accent_color", "slide_text_box_color")
+    @classmethod
+    def _validate_hex(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return v
+        v = v.strip().lower()
+        if not re.fullmatch(HEX_COLOR_RE, v):
+            raise ValueError("colour must be a hex value like #ff751f")
+        return v
+
+
+class AccountOut(BaseModel):
+    id: str
+    name: Optional[str] = None
+    brand_voice_preset: Optional[str] = None
+    brand_voice_custom: Optional[str] = None
+    niche: Optional[str] = None
+    target_audience: Optional[str] = None
+    brand_name: Optional[str] = None
+    slide_accent_color: Optional[str] = None
+    slide_text_box_color: Optional[str] = None
+    has_logo: bool = False
+
+
+class AccountListResponse(BaseModel):
+    accounts: list[dict] = []            # [{id, name}]
+    active_account_id: Optional[str] = None
+
+
+class AccountSwitch(BaseModel):
+    account_id: Optional[str] = None     # None → Personal

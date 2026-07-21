@@ -104,6 +104,8 @@
       <span class="font-bold tracking-tight">Content Engine</span>
     </div>
     <div class="ml-auto flex items-center gap-2 flex-wrap justify-end">
+      <select id="acct-switcher" onchange="onAcctSwitch()" class="hidden ce-input px-2 py-1 text-xs" title="Active brand"></select>
+      <button id="acct-manage" onclick="openBrandsModal()" class="hidden ce-btn-ghost px-2.5 py-1 text-xs" title="Manage brands">Brands</button>
       <button onclick="toggleTheme()" id="theme-toggle" class="ce-card px-2.5 py-1 text-xs" title="Toggle light / dark" aria-label="Toggle light or dark theme">☾</button>
       <button id="cost-badge" onclick="showCostPopover()" class="hidden ce-card px-3 py-1 text-xs" title="LLM spend today (click for details)">💰 $0.00</button>
       <span id="user-chip" class="hidden text-xs text-gray-300 ce-card px-3 py-1" title="Signed in"></span>
@@ -1079,6 +1081,44 @@
     </div>
   </div>
 
+  <!-- ===== Brands (managed accounts) Modal ===== -->
+  <div id="brands-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4">
+    <div class="ce-card p-6 max-w-lg w-full space-y-4 shadow-2xl" style="max-height:90vh;overflow-y:auto">
+      <div class="flex items-center gap-2">
+        <h3 class="text-lg font-semibold" style="color:var(--accent)">🎨 Brands</h3>
+        <span class="text-xs text-gray-400">Manage client brands. Each has its own voice, profile and logo. Posts publish to your own connected account for now.</span>
+        <button onclick="closeBrandsModal()" class="ml-auto text-gray-400 hover:text-gray-200">✕</button>
+      </div>
+      <div class="flex gap-2">
+        <input id="brand-new-name" type="text" placeholder="New brand name" class="ce-input flex-1 px-3 py-2 text-sm" />
+        <button onclick="createBrand()" class="ce-btn px-4 py-2 text-sm">Add</button>
+      </div>
+      <div id="brands-list" class="space-y-1"></div>
+      <div id="brand-editor" class="hidden border-t pt-4 space-y-3" style="border-color:var(--border)">
+        <div class="text-sm font-semibold">Edit <span id="brand-editor-name"></span></div>
+        <div class="grid sm:grid-cols-2 gap-3 text-sm">
+          <label class="text-gray-400">Name<input id="brand-f-name" class="ce-input w-full px-3 py-2 mt-1"></label>
+          <label class="text-gray-400">Brand name<input id="brand-f-brandname" class="ce-input w-full px-3 py-2 mt-1"></label>
+          <label class="text-gray-400">Niche<input id="brand-f-niche" class="ce-input w-full px-3 py-2 mt-1"></label>
+          <label class="text-gray-400">Audience<input id="brand-f-audience" class="ce-input w-full px-3 py-2 mt-1"></label>
+          <label class="text-gray-400">Brand voice<input id="brand-f-voice" placeholder="balanced / bold / friendly…" class="ce-input w-full px-3 py-2 mt-1"></label>
+          <label class="text-gray-400">Accent colour<input id="brand-f-accent" type="text" placeholder="#ff751f" class="ce-input w-full px-3 py-2 mt-1"></label>
+        </div>
+        <div class="flex items-center gap-2 text-sm">
+          <span class="text-gray-400">Logo:</span>
+          <input id="brand-f-logo" type="file" accept="image/png,image/webp,image/jpeg" class="text-xs" />
+          <button onclick="uploadBrandLogo()" class="ce-btn-ghost px-3 py-1.5 text-xs">Upload</button>
+          <span id="brand-logo-state" class="text-xs text-gray-500"></span>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="saveBrand()" class="ce-btn px-4 py-2 text-sm">Save brand</button>
+          <button onclick="deleteBrand()" class="ce-btn-ghost px-4 py-2 text-sm">Delete</button>
+        </div>
+        <p id="brand-editor-status" class="hidden text-xs text-gray-400"></p>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== Edit Slide Modal ===== -->
   <div id="edit-slide-modal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4">
     <div class="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-md w-full space-y-4 shadow-2xl">
@@ -1713,11 +1753,169 @@ async function startApp() {
   // Cloud accounts: load the brand profile (pre-fills the composer) and, on first
   // login with no profile yet, offer the skippable onboarding step.
   if (S.user && !S.user.is_local) {
+    await loadAccounts();    // agency multi-account switcher (Phase 7)
     await loadProfile();
     await loadXSettings();   // the composer gates "Long post" on this
     await loadPresets();     // saved composer settings, shown in step 2
     maybeShowOnboarding();
   }
+}
+
+// ===== MANAGED ACCOUNTS (Phase 7: agency multi-brand switcher) =====
+S.accounts = [];
+S.editingBrandId = null;
+
+async function loadAccounts() {
+  try {
+    const res = await apiFetch(`${API}/api/accounts`);
+    const d = res.ok ? await res.json() : { accounts: [], active_account_id: null };
+    S.accounts = d.accounts || [];
+    if (S.user) S.user.active_account_id = d.active_account_id || null;
+  } catch { S.accounts = []; }
+  renderAcctSwitcher();
+}
+
+function renderAcctSwitcher() {
+  const sel = document.getElementById('acct-switcher');
+  const manage = document.getElementById('acct-manage');
+  if (!sel) return;
+  const show = S.user && !S.user.is_local && S.user.account_type !== 'business';
+  sel.classList.toggle('hidden', !show);
+  if (manage) manage.classList.toggle('hidden', !show);
+  if (!show) return;
+  const active = (S.user && S.user.active_account_id) || '';
+  sel.innerHTML = `<option value="">Personal</option>` +
+    S.accounts.map(a => `<option value="${esc(a.id)}"${a.id === active ? ' selected' : ''}>${esc(a.name || 'Brand')}</option>`).join('');
+}
+
+async function onAcctSwitch() {
+  const sel = document.getElementById('acct-switcher');
+  const id = sel.value || null;
+  try {
+    const res = await apiFetch(`${API}/api/accounts/switch`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_id: id }),
+    });
+    if (!res.ok) { toast('Couldn\'t switch brand', 'error'); return; }
+    S.user.active_account_id = (await res.json()).active_account_id || null;
+    toast(id ? 'Switched brand' : 'Personal account', 'success');
+    // refresh the current view + composer prefill for the new brand
+    if (S.section) setSection(S.section);
+    await prefillFromActiveBrand();
+  } catch { toast('Switch failed', 'error'); }
+}
+
+async function prefillFromActiveBrand() {
+  const id = S.user && S.user.active_account_id;
+  if (!id) { await loadProfile(); return; }   // Personal → the user's own profile
+  try {
+    const res = await apiFetch(`${API}/api/accounts/${encodeURIComponent(id)}`);
+    if (!res.ok) return;
+    const a = await res.json();
+    S.profile = { niche: a.niche || '', target_audience: a.target_audience || '', brand_name: a.brand_name || '' };
+    if (a.slide_accent_color) S.nicheBoxColor = a.slide_accent_color;
+    if (typeof prefillComposerFromProfile === 'function') prefillComposerFromProfile();
+  } catch { /* non-fatal */ }
+}
+
+function openBrandsModal() {
+  document.getElementById('brands-modal').classList.remove('hidden');
+  document.getElementById('brand-editor').classList.add('hidden');
+  S.editingBrandId = null;
+  renderBrandsList();
+}
+function closeBrandsModal() {
+  document.getElementById('brands-modal').classList.add('hidden');
+}
+
+async function renderBrandsList() {
+  await loadAccounts();
+  const box = document.getElementById('brands-list');
+  if (!S.accounts.length) { box.innerHTML = '<div class="text-sm text-gray-400">No brands yet. Add one above.</div>'; return; }
+  box.innerHTML = '';
+  S.accounts.forEach(a => {
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-2 ce-card px-3 py-2';
+    row.innerHTML = `<span class="text-sm flex-1">${esc(a.name || 'Brand')}</span><button class="ce-btn-ghost px-2 py-1 text-xs">Edit</button>`;
+    row.querySelector('button').onclick = () => editBrand(a.id);
+    box.appendChild(row);
+  });
+}
+
+async function createBrand() {
+  const input = document.getElementById('brand-new-name');
+  const name = (input.value || '').trim();
+  if (!name) return;
+  try {
+    const res = await apiFetch(`${API}/api/accounts`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) { toast('Couldn\'t create brand', 'error'); return; }
+    input.value = '';
+    await renderBrandsList();
+    editBrand((await res.json()).id);
+  } catch { toast('Create failed', 'error'); }
+}
+
+async function editBrand(id) {
+  S.editingBrandId = id;
+  try {
+    const res = await apiFetch(`${API}/api/accounts/${encodeURIComponent(id)}`);
+    if (!res.ok) return;
+    const a = await res.json();
+    document.getElementById('brand-editor').classList.remove('hidden');
+    document.getElementById('brand-editor-name').textContent = a.name || '';
+    document.getElementById('brand-f-name').value = a.name || '';
+    document.getElementById('brand-f-brandname').value = a.brand_name || '';
+    document.getElementById('brand-f-niche').value = a.niche || '';
+    document.getElementById('brand-f-audience').value = a.target_audience || '';
+    document.getElementById('brand-f-voice').value = a.brand_voice_preset || '';
+    document.getElementById('brand-f-accent').value = a.slide_accent_color || '';
+    document.getElementById('brand-logo-state').textContent = a.has_logo ? 'logo set' : 'no logo';
+  } catch { /* non-fatal */ }
+}
+
+async function saveBrand() {
+  if (!S.editingBrandId) return;
+  const status = document.getElementById('brand-editor-status');
+  const val = (id) => document.getElementById(id).value.trim();
+  try {
+    const res = await apiFetch(`${API}/api/accounts/${encodeURIComponent(S.editingBrandId)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: val('brand-f-name'), brand_name: val('brand-f-brandname'),
+        niche: val('brand-f-niche'), target_audience: val('brand-f-audience'),
+        brand_voice_preset: val('brand-f-voice'), slide_accent_color: val('brand-f-accent'),
+      }),
+    });
+    status.textContent = res.ok ? 'Saved.' : 'Couldn\'t save (check the colour is a hex like #ff751f).';
+    status.classList.remove('hidden');
+    if (res.ok) { await loadAccounts(); if (S.user.active_account_id === S.editingBrandId) prefillFromActiveBrand(); }
+  } catch { status.textContent = 'Something went wrong.'; status.classList.remove('hidden'); }
+}
+
+async function uploadBrandLogo() {
+  if (!S.editingBrandId) return;
+  const file = document.getElementById('brand-f-logo').files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res = await apiFetch(`${API}/api/accounts/${encodeURIComponent(S.editingBrandId)}/logo`, { method: 'POST', body: fd });
+    document.getElementById('brand-logo-state').textContent = res.ok ? 'logo set' : 'upload failed';
+  } catch { toast('Upload failed', 'error'); }
+}
+
+async function deleteBrand() {
+  if (!S.editingBrandId || !confirm('Delete this brand? Its posts stay but lose the brand tag.')) return;
+  try {
+    await apiFetch(`${API}/api/accounts/${encodeURIComponent(S.editingBrandId)}`, { method: 'DELETE' });
+    S.editingBrandId = null;
+    document.getElementById('brand-editor').classList.add('hidden');
+    await loadAccounts();
+    await renderBrandsList();
+  } catch { toast('Delete failed', 'error'); }
 }
 
 // ===== POST PRESETS =====
@@ -1839,6 +2037,7 @@ function renderUserChrome() {
     // doesn't cover the logo / Log out while shown.
     document.body.style.paddingTop = showBanner ? (banner.offsetHeight + 'px') : '';
   }
+  renderAcctSwitcher();   // agency brand switcher: shown for creator + cloud only
 }
 
 function showAuthScreen(tab, accountType) {

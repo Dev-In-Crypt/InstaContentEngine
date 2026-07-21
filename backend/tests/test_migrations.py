@@ -35,6 +35,9 @@ def test_migrations_build_full_schema_on_fresh_db(tmp_path):
     assert {"max_per_day", "max_per_week"} <= ws_cols               # Business Phase 6
     lead_cols = {r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(leads)")}
     assert "sensitive" in lead_cols                                 # Business Phase 6
+    assert "managed_accounts" in tables                             # Phase 7
+    assert "managed_account_id" in post_cols                        # Phase 7
+    assert "active_account_id" in cols                              # Phase 7 (users)
 
 
 def test_migrations_autostamp_preexisting_db(tmp_path):

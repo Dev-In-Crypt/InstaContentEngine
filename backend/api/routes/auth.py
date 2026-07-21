@@ -4,7 +4,7 @@ Local (desktop) mode never uses these — get_current_user returns the implicit
 local owner. Cloud mode: register/login → JWT; verify/reset via emailed tokens.
 """
 from datetime import timedelta
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -61,6 +61,7 @@ class MeResponse(BaseModel):
     is_admin: bool = False
     email_verified: bool = False
     account_type: str = "creator"
+    active_account_id: Optional[str] = None
 
 
 class ForgotRequest(BaseModel):
@@ -190,4 +191,5 @@ async def me(
         is_local=bool(user.is_local), is_admin=bool(user.is_admin),
         email_verified=bool(user.email_verified),
         account_type=user.account_type or "creator",
+        active_account_id=getattr(user, "active_account_id", None),
     )

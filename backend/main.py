@@ -22,7 +22,7 @@ from models.schemas import NICHE_BOX_PALETTE
 from services.http_utils import setup_logging, setup_tls
 from api.deps import LOCAL_USER_EMAIL
 from api.ratelimit import limiter
-from api.routes import business, demo, posts, models, stock, admin, auth, settings as settings_routes
+from api.routes import accounts, business, demo, posts, models, stock, admin, auth, settings as settings_routes
 
 STATIC_DIR = Path(__file__).parent / "static"
 UPLOADS_DIR = Path(__file__).parent / "uploads"
@@ -223,6 +223,7 @@ app.include_router(stock.router)
 app.include_router(admin.router)
 app.include_router(demo.router)
 app.include_router(business.router)
+app.include_router(accounts.router)
 
 # Serve built frontend assets (images, fonts, etc.) at /static/*
 if STATIC_DIR.exists():
