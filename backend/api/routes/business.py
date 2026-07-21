@@ -32,8 +32,8 @@ from models.database import Post as PostModel
 from models.database import Source as SourceModel
 from models.database import User as UserModel
 from models.schemas import (
-    BrandRulesOut, BrandRulesUpdate, DigestRequest, DraftEditRequest, LeadOut, PostFormat,
-    Platform, SourceCreate, SourceOut,
+    BrandRulesOut, BrandRulesUpdate, DigestRequest, DraftEditRequest, LeadOut, LimitsOut,
+    LimitsUpdate, PostFormat, Platform, SourceCreate, SourceOut,
 )
 from services.claim_check import apply_brand_rules, verify_claims
 from services.content_engine import ContentEngine
@@ -61,7 +61,7 @@ def _lead_out(lead: LeadModel) -> LeadOut:
         id=lead.id, what_happened=lead.what_happened, source_url=lead.source_url,
         quote=lead.quote, published_at=lead.published_at, why_interesting=lead.why_interesting,
         strength=lead.strength, reason=lead.reason, missing=missing,
-        status=lead.status, created_at=lead.created_at)
+        sensitive=bool(lead.sensitive), status=lead.status, created_at=lead.created_at)
 
 
 # ── Sources ──────────────────────────────────────────────────────────────────
@@ -214,15 +214,20 @@ async def _get_brand_rules(db: AsyncSession, ws) -> dict:
     return {"forbidden": row.forbidden or [], "required_disclaimers": row.required_disclaimers or []}
 
 
+def _parse_platform(value: str) -> Platform:
+    return Platform.X if (value or "").strip().lower() == "x" else Platform.INSTAGRAM
+
+
 async def _generate_business_post(
     engine: ContentEngine, db: AsyncSession, user: UserModel, ws, *,
     topic: str, instructions: str, source_text: str, source_kind: str,
-    source_url: Optional[str], lead_id: Optional[str], text_model: str, progress,
+    source_url: Optional[str], lead_id: Optional[str], text_model: str,
+    platform: Platform, progress,
 ) -> PostModel:
     """Generate a post via the shared engine, verify its claims, persist + tag it."""
     generated = await engine.generate_post(
         topic=topic, format=PostFormat.SINGLE, text_model=text_model,
-        additional_instructions=instructions, platform=Platform.INSTAGRAM,
+        additional_instructions=instructions, platform=platform,
         progress=progress,
     )
     await progress("Checking claims…")
@@ -252,7 +257,8 @@ async def _generate_business_post(
 
 
 def _draft_stream(db, user, ws, engine, text_model, *, topic, instructions,
-                  source_text, source_kind, source_url, lead, digest_leads=None):
+                  source_text, source_kind, source_url, lead, platform=Platform.INSTAGRAM,
+                  digest_leads=None):
     async def event_stream() -> AsyncGenerator[str, None]:
         queue: asyncio.Queue = asyncio.Queue()
 
@@ -265,7 +271,7 @@ def _draft_stream(db, user, ws, engine, text_model, *, topic, instructions,
                     engine, db, user, ws, topic=topic, instructions=instructions,
                     source_text=source_text, source_kind=source_kind, source_url=source_url,
                     lead_id=(lead.id if lead else None), text_model=text_model,
-                    progress=progress)
+                    platform=platform, progress=progress)
                 if lead is not None:
                     lead.status = "drafted"
                 for dl in (digest_leads or []):
@@ -299,6 +305,7 @@ async def draft_lead(
     user: Annotated[UserModel, Depends(get_current_user)],
     settings: Annotated[Settings, Depends(get_settings)],
     engine: Annotated[ContentEngine, Depends(get_content_engine)],
+    platform: str = Query("instagram"),
 ) -> StreamingResponse:
     ws = await get_or_create_workspace(db, user)
     lead = await owned_lead(db, lead_id, ws)
@@ -312,7 +319,8 @@ async def draft_lead(
                     f"SOURCE:\n{source_text}")
     return _draft_stream(db, user, ws, engine, text_model, topic=topic,
                          instructions=instructions, source_text=source_text,
-                         source_kind="lead", source_url=lead.source_url, lead=lead)
+                         source_kind="lead", source_url=lead.source_url, lead=lead,
+                         platform=_parse_platform(platform))
 
 
 @router.post("/digest")
@@ -323,6 +331,7 @@ async def draft_digest(
     user: Annotated[UserModel, Depends(get_current_user)],
     settings: Annotated[Settings, Depends(get_settings)],
     engine: Annotated[ContentEngine, Depends(get_content_engine)],
+    platform: str = Query("instagram"),
 ) -> StreamingResponse:
     ws = await get_or_create_workspace(db, user)
     leads = [await owned_lead(db, lid, ws) for lid in body.lead_ids]
@@ -335,7 +344,8 @@ async def draft_digest(
                     f"SOURCE UPDATES:\n{bullets}")
     return _draft_stream(db, user, ws, engine, text_model, topic="What's new this week",
                          instructions=instructions, source_text=bullets,
-                         source_kind="digest", source_url=None, lead=None, digest_leads=leads)
+                         source_kind="digest", source_url=None, lead=None,
+                         platform=_parse_platform(platform), digest_leads=leads)
 
 
 @router.get("/drafts", response_model=list[dict])
@@ -395,6 +405,30 @@ async def put_brand_rules(
     await db.commit()
     return BrandRulesOut(forbidden=body.forbidden,
                          required_disclaimers=body.required_disclaimers)
+
+
+# ── Publishing limits (Phase 6) ──────────────────────────────────────────────
+
+@router.get("/limits", response_model=LimitsOut)
+async def get_limits(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> LimitsOut:
+    ws = await get_or_create_workspace(db, user)
+    return LimitsOut(max_per_day=ws.max_per_day, max_per_week=ws.max_per_week)
+
+
+@router.put("/limits", response_model=LimitsOut)
+async def put_limits(
+    body: LimitsUpdate,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> LimitsOut:
+    ws = await get_or_create_workspace(db, user)
+    ws.max_per_day = body.max_per_day
+    ws.max_per_week = body.max_per_week
+    await db.commit()
+    return LimitsOut(max_per_day=body.max_per_day, max_per_week=body.max_per_week)
 
 
 # ── Approval workflow + audit journal (Phase 5) ──────────────────────────────

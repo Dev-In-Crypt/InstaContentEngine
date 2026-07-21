@@ -45,6 +45,28 @@ _TRIVIAL = re.compile(
     r"bump|dependenc\w*|internal|whitespace|formatting|comment[s]?)\b",
     re.IGNORECASE)
 
+# Bad news — a rough keyword detector for events you would NOT want to celebrate
+# (incident, breach, recall, layoffs, price hike). Deliberately over-eager: a false
+# flag ("we fixed a security bug" reads as security) is far cheaper than posting a
+# cheerful graphic during an outage. Not truth, not severity — just "check the mood".
+_BAD_NEWS = re.compile(
+    r"\b(?:incident|outage|down(?:time)?|offline|disrupt\w*|degrad\w*|"
+    r"breach\w*|hack\w*|exploit\w*|vulnerab\w*|\bcve\b|leak\w*|exposed|"
+    r"recall\w*|lawsuit|sued|settlement|fine[ds]?|penalt\w*|investigat\w*|"
+    r"layoffs?|lay off|laid off|redundan\w*|shut ?down|shutting down|"
+    r"bankrupt\w*|delay\w*|postpon\w*|discontinu\w*|deprecat\w*|sunset\w*|"
+    r"price (?:increase|hike|rise)|raising prices|more expensive|"
+    r"apolog\w*|sorry|regret|scam|fraud\w*|phishing|malware|ransom\w*|"
+    r"complaint\w*|backlash|controvers\w*|scandal|fail\w*|broke\w*|crash\w*)\b",
+    re.IGNORECASE)
+
+
+def detect_bad_news(item: FetchedItem) -> bool:
+    """True when an item reads as negative/sensitive — worth a warning before posting.
+    Rough by design; false positives are accepted (doc §9)."""
+    text = f"{item.title or ''}\n{item.body or ''}"
+    return bool(_BAD_NEWS.search(text))
+
 
 def _normalise(title: str) -> str:
     return " ".join((title or "").lower().split())

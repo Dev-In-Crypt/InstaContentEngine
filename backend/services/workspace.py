@@ -7,8 +7,11 @@ it. Ownership gates mirror api.deps.owned_post: filter by workspace_id, 404 (not
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+from typing import Optional
+
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.database import Lead as LeadModel
@@ -62,3 +65,27 @@ async def owned_business_post(db: AsyncSession, post_id: str, workspace: Workspa
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
     return post
+
+
+async def _published_count(db: AsyncSession, workspace_id: str, since: datetime) -> int:
+    return (await db.execute(
+        select(func.count()).select_from(PostModel).where(
+            PostModel.workspace_id == workspace_id,
+            PostModel.status == "published",
+            PostModel.published_at >= since,
+        )
+    )).scalar() or 0
+
+
+async def within_frequency_cap(db: AsyncSession, workspace: WorkspaceModel,
+                               now: datetime) -> Optional[str]:
+    """Publishing-frequency guard (Phase 6). Returns a reason string if publishing
+    now would exceed the workspace's daily/weekly cap, else None. NULL caps =
+    unlimited. Counts already-published posts in the trailing window."""
+    if workspace.max_per_day:
+        if await _published_count(db, workspace.id, now - timedelta(days=1)) >= workspace.max_per_day:
+            return f"Daily publishing limit reached ({workspace.max_per_day}/day)."
+    if workspace.max_per_week:
+        if await _published_count(db, workspace.id, now - timedelta(days=7)) >= workspace.max_per_week:
+            return f"Weekly publishing limit reached ({workspace.max_per_week}/week)."
+    return None

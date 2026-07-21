@@ -568,6 +568,7 @@ class LeadOut(BaseModel):
     strength: Optional[str] = None
     reason: Optional[str] = None
     missing: Optional[list[str]] = None
+    sensitive: bool = False
     status: str
     created_at: Optional[datetime] = None
 
@@ -593,3 +594,13 @@ class BrandRulesOut(BaseModel):
 
 class DraftEditRequest(BaseModel):
     caption: str = Field(..., max_length=8000)
+
+
+class LimitsUpdate(BaseModel):
+    max_per_day: Optional[int] = Field(None, ge=1, le=100)
+    max_per_week: Optional[int] = Field(None, ge=1, le=100)
+
+
+class LimitsOut(BaseModel):
+    max_per_day: Optional[int] = None
+    max_per_week: Optional[int] = None

@@ -1066,6 +1066,17 @@
       <button onclick="saveBrandRules()" class="ce-btn px-5 py-2 text-sm mt-4">Save rules</button>
       <p id="rules-status" class="hidden text-sm text-gray-400 mt-2"></p>
     </div>
+
+    <div class="ce-card p-5">
+      <h2 class="text-lg font-semibold" style="color:var(--accent)">⏱ Publishing limits</h2>
+      <p class="text-xs text-gray-400 mt-1">Cap how often posts go out so a channel isn't flooded. Leave blank for no limit. (Publishing itself is coming soon — the cap is enforced once it's on.)</p>
+      <div class="mt-4 flex gap-4 flex-wrap text-sm items-end">
+        <label class="text-gray-400">Max per day<br><input id="limit-day" type="number" min="1" max="100" class="ce-input px-3 py-2 mt-1 w-28"></label>
+        <label class="text-gray-400">Max per week<br><input id="limit-week" type="number" min="1" max="100" class="ce-input px-3 py-2 mt-1 w-28"></label>
+        <button onclick="saveLimits()" class="ce-btn px-5 py-2 text-sm">Save limits</button>
+      </div>
+      <p id="limits-status" class="hidden text-sm text-gray-400 mt-2"></p>
+    </div>
   </div>
 
   <!-- ===== Edit Slide Modal ===== -->
@@ -1399,12 +1410,17 @@ function renderLeadRow(lead) {
       <input type="checkbox" class="mt-1 biz-lead-check" />
       <div class="min-w-0 flex-1">
         <div class="text-xs mb-1" style="color:${b.color}">${b.label} · ${esc(lead.reason || '')}</div>
+        ${lead.sensitive ? '<div class="text-xs mb-1" style="color:#e0a52e">⚠ Sensitive — check the mood before posting</div>' : ''}
         <div class="font-semibold">${esc(lead.what_happened || '')}</div>
         <a href="${safeUrl(lead.source_url)}" target="_blank" rel="noopener noreferrer" class="text-xs underline break-all" style="color:var(--accent)">${esc(lead.source_url || '')}</a>
         ${lead.quote ? `<div class="text-sm text-gray-400 mt-1 whitespace-pre-line">${esc(lead.quote)}</div>` : ''}
       </div>
     </div>
-    <div class="flex gap-2 mt-3 flex-wrap">
+    <div class="flex gap-2 mt-3 flex-wrap items-center">
+      <select class="ce-input px-2 py-1.5 text-xs" data-role="platform">
+        <option value="instagram">Instagram</option>
+        <option value="x">X</option>
+      </select>
       <button class="ce-btn px-3 py-1.5 text-xs" data-act="post">✎ Make a post</button>
       <button class="ce-btn-ghost px-3 py-1.5 text-xs" data-act="dismiss">Skip</button>
       <button class="ce-btn-ghost px-3 py-1.5 text-xs" data-act="snooze">Don't show this kind</button>
@@ -1414,7 +1430,11 @@ function renderLeadRow(lead) {
     if (e.target.checked) S.bizDigestSel.add(lead.id); else S.bizDigestSel.delete(lead.id);
     updateDigestBtn();
   };
-  row.querySelector('[data-act="post"]').onclick = () => makePost(lead.id, row);
+  row.querySelector('[data-act="post"]').onclick = () => {
+    if (lead.sensitive && !confirm('This looks like sensitive/negative news. Draft a post anyway?')) return;
+    const platform = row.querySelector('[data-role="platform"]').value;
+    makePost(lead.id, row, platform);
+  };
   row.querySelector('[data-act="dismiss"]').onclick = () => leadAction(lead.id, 'dismiss', row);
   row.querySelector('[data-act="snooze"]').onclick = () => leadAction(lead.id, 'snooze-kind', row);
   return row;
@@ -1493,9 +1513,11 @@ function renderDraftRow(p) {
     `<button class="ce-btn px-3 py-1.5 text-xs" data-act="approve"${blocked ? ' disabled title="Fix brand-rule issues first"' : ''}>Approve</button>` +
     `<button class="ce-btn-ghost px-3 py-1.5 text-xs" data-act="reject">Reject</button>`;
   const editable = status === 'draft' || status === 'in_review';
+  const netLabel = p.platform === 'x' ? '𝕏' : '📸 IG';
   row.innerHTML = `
-    <div class="flex items-center gap-2 mb-1">
+    <div class="flex items-center gap-2 mb-1 flex-wrap">
       <span class="text-xs font-semibold" style="color:${st.color}">● ${st.label}</span>
+      <span class="text-xs px-1.5 py-0.5 rounded" style="background:var(--accent-dim)">${netLabel}</span>
       <span class="text-xs text-gray-500">🔗 ${origin}${p.source_url ? ` · <a href="${safeUrl(p.source_url)}" target="_blank" rel="noopener noreferrer" class="underline" style="color:var(--accent)">source</a>` : ''}</span>
     </div>
     ${p.hook ? `<div class="font-semibold text-sm">${esc(p.hook)}</div>` : ''}
@@ -1543,7 +1565,24 @@ async function loadBrandRules() {
     const d = res.ok ? await res.json() : { forbidden: [], required_disclaimers: [] };
     document.getElementById('rules-forbidden').value = (d.forbidden || []).join('\n');
     document.getElementById('rules-disclaimers').value = (d.required_disclaimers || []).join('\n');
+    const lr = await apiFetch(`${API}/api/business/limits`);
+    const l = lr.ok ? await lr.json() : {};
+    document.getElementById('limit-day').value = l.max_per_day ?? '';
+    document.getElementById('limit-week').value = l.max_per_week ?? '';
   } catch { /* 401 handled */ }
+}
+
+async function saveLimits() {
+  const status = document.getElementById('limits-status');
+  const num = (id) => { const v = parseInt(document.getElementById(id).value, 10); return Number.isFinite(v) ? v : null; };
+  try {
+    const res = await apiFetch(`${API}/api/business/limits`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ max_per_day: num('limit-day'), max_per_week: num('limit-week') }),
+    });
+    status.textContent = res.ok ? 'Saved.' : 'Couldn\'t save (values must be 1–100).';
+    status.classList.remove('hidden');
+  } catch { status.textContent = 'Something went wrong.'; status.classList.remove('hidden'); }
 }
 
 async function saveBrandRules() {
@@ -1638,9 +1677,10 @@ async function _streamBiz(url, body, onDone) {
   } catch { toast('Generation failed. Please try again.', 'error'); }
 }
 
-async function makePost(leadId, row) {
+async function makePost(leadId, row, platform) {
+  const net = platform === 'x' ? 'x' : 'instagram';
   toast('Drafting a post…', 'info');
-  await _streamBiz(`/api/business/leads/${encodeURIComponent(leadId)}/draft`, {}, () => {
+  await _streamBiz(`/api/business/leads/${encodeURIComponent(leadId)}/draft?platform=${net}`, {}, () => {
     toast('Draft created — see the Drafts tab.', 'success');
     if (row) row.remove();
     S.bizDigestSel.delete(leadId); updateDigestBtn();

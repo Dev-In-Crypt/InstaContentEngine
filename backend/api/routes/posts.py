@@ -464,6 +464,15 @@ async def publish_post(
     if post.workspace_id and post.status != "approved":
         raise HTTPException(status_code=409,
                             detail="This post must be approved before it can be published.")
+    # Business publishing-frequency cap (doc §9): don't flood a channel.
+    if post.workspace_id:
+        from datetime import datetime, timezone
+        from models.database import Workspace as WorkspaceModel
+        from services.workspace import within_frequency_cap
+        ws = await db.get(WorkspaceModel, post.workspace_id)
+        reason = await within_frequency_cap(db, ws, datetime.now(timezone.utc)) if ws else None
+        if reason:
+            raise HTTPException(status_code=409, detail=reason)
     # Drop any pending scheduled job so it can't fire and double-publish.
     cancel_publish(post_id)
     sessionmaker = request.app.state.sessionmaker

@@ -31,6 +31,10 @@ def test_migrations_build_full_schema_on_fresh_db(tmp_path):
     post_cols = {r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(posts)")}
     assert {"lead_id", "workspace_id", "source_kind"} <= post_cols  # Business links
     assert {"claim_check", "ai_caption"} <= post_cols               # Business Phase 4-5
+    ws_cols = {r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(workspaces)")}
+    assert {"max_per_day", "max_per_week"} <= ws_cols               # Business Phase 6
+    lead_cols = {r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(leads)")}
+    assert "sensitive" in lead_cols                                 # Business Phase 6
 
 
 def test_migrations_autostamp_preexisting_db(tmp_path):

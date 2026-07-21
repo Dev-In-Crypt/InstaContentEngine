@@ -21,7 +21,7 @@ from sqlalchemy import select
 from models.database import Lead as LeadModel
 from models.database import Source as SourceModel
 from models.database import SourceSnapshot as SnapshotModel
-from services.event_selector import score_item
+from services.event_selector import detect_bad_news, score_item
 from services.sources import SourceFetchError, get_source_fetcher
 
 log = logging.getLogger(__name__)
@@ -77,6 +77,7 @@ async def poll_source(db, source: SourceModel, ssl_verify: bool = True) -> int:
             what_happened=item.title, source_url=item.url,
             quote=(item.body or "")[:_QUOTE_LEN], published_at=item.published_at,
             strength=strength, reason=reason, status="new",
+            sensitive=detect_bad_news(item),
             raw=item.raw if isinstance(item.raw, dict) else {},
         ))
         created += 1

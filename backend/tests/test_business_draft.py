@@ -26,7 +26,7 @@ class _FakeEngine:
             id=str(uuid.uuid4()), topic=kw["topic"], format=PostFormat.SINGLE,
             caption="Draft caption", hashtags=["#x"], cta="Go", hook="Hook",
             alt_text="", slides=[], text_model_used="model-x", image_model_used=None,
-            platform=Platform.INSTAGRAM)
+            platform=kw.get("platform", Platform.INSTAGRAM))
 
 
 async def _fake_poll_source(db, source, ssl_verify=True):
@@ -104,7 +104,22 @@ def test_lead_to_draft_creates_linked_post(client):
     assert post.lead_id == lead_id          # mutation guard: binding must be set
     assert post.workspace_id is not None
     assert post.source_kind == "lead"
+    assert post.status == "draft"           # enters the approval workflow
     assert lead.status == "drafted"
+
+
+def test_draft_platform_x(client):
+    c, SM = client
+    h = _register(c, "px@ex.com")
+    c.post("/api/business/sources", headers=h, json={"url": "https://github.com/o/r"})
+    lead_id = _lead_ids(c, h)[0]
+    resp = c.post(f"/api/business/leads/{lead_id}/draft?platform=x", headers=h)
+    assert resp.status_code == 200
+
+    async def _platform():
+        async with SM() as db:
+            return (await db.execute(select(Post).where(Post.lead_id == lead_id))).scalar_one().platform
+    assert asyncio.run(_platform()) == "x"      # per-network split
 
     drafts = c.get("/api/business/drafts", headers=h).json()
     assert len(drafts) == 1 and drafts[0]["source_kind"] == "lead"

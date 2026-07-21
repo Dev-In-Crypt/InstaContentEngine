@@ -138,3 +138,19 @@ def test_brand_rules_round_trip_and_isolation(client):
     # user B's rules are separate
     assert client.get("/api/business/brand-rules", headers=hb).json() == {
         "forbidden": [], "required_disclaimers": []}
+
+
+def test_limits_round_trip_and_isolation(client):
+    ha = _register(client, "lim-a@ex.com")
+    hb = _register(client, "lim-b@ex.com")
+    assert client.get("/api/business/limits", headers=ha).json() == {
+        "max_per_day": None, "max_per_week": None}
+    client.put("/api/business/limits", headers=ha,
+               json={"max_per_day": 3, "max_per_week": 10})
+    assert client.get("/api/business/limits", headers=ha).json() == {
+        "max_per_day": 3, "max_per_week": 10}
+    assert client.get("/api/business/limits", headers=hb).json() == {
+        "max_per_day": None, "max_per_week": None}
+    # out-of-range → 422
+    assert client.put("/api/business/limits", headers=ha,
+                      json={"max_per_day": 999}).status_code == 422

@@ -262,6 +262,9 @@ class Workspace(Base):
     owner_user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"),
                            unique=True, index=True)
     name = Column(String(120))
+    # Publishing frequency caps (Phase 6). NULL = no limit. Enforced at publish time.
+    max_per_day = Column(Integer)
+    max_per_week = Column(Integer)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -313,6 +316,7 @@ class Lead(Base):
     why_interesting = Column(Text)        # LLM, NULL until the user drafts this lead
     strength = Column(String(20))         # worthy | weak | duplicate
     reason = Column(Text)                 # one-line explanation from the rules
+    sensitive = Column(Boolean, default=False)  # bad-news flag (Phase 6): warn before posting
     missing = Column(JSON)                # LLM, NULL until drafted: questions the source doesn't answer
     status = Column(String(20), nullable=False, default="new")  # new|dismissed|snoozed_kind|drafted|digested
     raw = Column(JSON)
