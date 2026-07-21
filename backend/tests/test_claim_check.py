@@ -6,7 +6,11 @@ The evidence-grounding guard is the mutation target: even when the model returns
 """
 import pytest
 
-from services.claim_check import apply_brand_rules, verify_claims
+from services.claim_check import (
+    VERIFY_SYSTEM_PROMPT,
+    apply_brand_rules,
+    verify_claims,
+)
 
 
 class StubProvider:
@@ -49,6 +53,17 @@ async def test_model_unconfirmed_stays_unconfirmed():
     out = await verify_claims(StubProvider(reply), draft_text="Best tool ever.",
                               source_text=_SOURCE)
     assert out[0]["status"] == "unconfirmed"
+
+
+def test_verify_prompt_demands_full_claim_grounding():
+    # Regression guard for hypothesis test 3: a live run confirmed a claim naming
+    # "GitHub Copilot" whose evidence only listed other tools — because the prompt
+    # let a claim ride evidence that supported just PART of it. The prompt must now
+    # require splitting bundled facts and grounding EVERY named specific.
+    low = VERIFY_SYSTEM_PROMPT.lower()
+    assert "split" in low
+    assert "every" in low and ("named product" in low or "named tool" in low)
+    assert "part of it" in low or "only part" in low
 
 
 @pytest.mark.asyncio

@@ -24,16 +24,23 @@ log = logging.getLogger(__name__)
 
 VERIFY_SYSTEM_PROMPT = """\
 You are a STRICT fact-checker for a social post drafted from a company's own public
-source. List each distinct factual claim the DRAFT makes (a statistic, a specific
-result, a named fact, a date, a capability).
+source. Break the DRAFT into SEPARATE, atomic factual claims — one fact each (a
+statistic, a specific result, a named product/tool, a date, a capability). If a
+sentence bundles several facts (e.g. "A and B both do X"), SPLIT it into one claim
+per fact so each can be checked on its own.
 
 For each claim decide status:
-- "confirmed" ONLY if the exact fact is stated in the SOURCE. Put the supporting
-  sentence from the SOURCE (copied verbatim) in "evidence".
+- "confirmed" ONLY if the WHOLE claim is stated in the SOURCE. Copy the single
+  supporting sentence from the SOURCE (verbatim) into "evidence". EVERY specific in
+  the claim — every named product/tool, number, date, and metric — MUST appear in
+  that one evidence sentence. If a named tool or figure in the claim is not in the
+  evidence sentence, the claim is "unconfirmed", even if it appears elsewhere in the
+  source in a different context.
 - "unconfirmed" if the SOURCE does not clearly state it. Leave "evidence" empty.
 
-NEVER mark a claim confirmed without verbatim support in the SOURCE. When unsure,
-use "unconfirmed". Opinions/CTAs/generic phrasing are not claims — skip them.
+NEVER mark a claim confirmed without verbatim support in the SOURCE. NEVER confirm a
+claim using evidence that supports only PART of it. When unsure, use "unconfirmed".
+Opinions/CTAs/generic phrasing are not claims — skip them.
 
 Return ONLY a JSON array, no markdown:
 [{"claim": "...", "status": "confirmed|unconfirmed", "evidence": "..."}]
