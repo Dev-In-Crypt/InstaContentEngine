@@ -133,3 +133,37 @@ def test_short_password_rejected(cloud_client):
     r = cloud_client.post("/api/auth/register",
                           json={"email": "d@example.com", "password": "short"})
     assert r.status_code == 422      # min_length=8
+
+
+# ── account_type (Business Phase 0: two doors, one engine) ───────────────────
+
+def test_register_defaults_to_creator(cloud_client):
+    cloud_client.post("/api/auth/register",
+                      json={"email": "def@example.com", "password": "password123"})
+    me = _login_me(cloud_client, "def@example.com")
+    assert me["account_type"] == "creator"
+
+
+def test_register_business_account_type_persists(cloud_client):
+    cloud_client.post("/api/auth/register",
+                      json={"email": "biz@example.com", "password": "password123",
+                            "account_type": "business"})
+    me = _login_me(cloud_client, "biz@example.com")
+    assert me["account_type"] == "business"
+
+
+def test_register_garbage_account_type_falls_back_to_creator(cloud_client):
+    """A stray/garbage account_type must not 422 the registration — it degrades
+    to 'creator' so a bad query-param never blocks sign-up."""
+    reg = cloud_client.post("/api/auth/register",
+                            json={"email": "junk@example.com", "password": "password123",
+                                  "account_type": "hacker"})
+    assert reg.status_code == 200
+    me = _login_me(cloud_client, "junk@example.com")
+    assert me["account_type"] == "creator"
+
+
+def _login_me(client, email):
+    tok = client.post("/api/auth/login",
+                      json={"email": email, "password": "password123"}).json()["access_token"]
+    return client.get("/api/auth/me", headers={"Authorization": f"Bearer {tok}"}).json()

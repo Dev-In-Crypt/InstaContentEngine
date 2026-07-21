@@ -53,6 +53,11 @@ class User(Base):
     # our own flag, not a check against X — publishing a long post without real
     # Premium will still be rejected by X itself.
     x_premium = Column(Boolean, default=False)
+    # Which product this account signed up for: "creator" (individuals, SMM,
+    # influencers — today's app) or "business" (companies — sources → leads →
+    # approval workflow). One engine underneath; this only splits the experience
+    # (landing, onboarding, which sections show). Business screens gate on this.
+    account_type = Column(String(20), default="creator")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     credentials = relationship("UserCredentials", back_populates="user",

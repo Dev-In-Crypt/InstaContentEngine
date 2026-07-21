@@ -7,7 +7,7 @@ from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,9 +26,22 @@ _VERIFY_TTL = timedelta(hours=24)
 _RESET_TTL = timedelta(hours=1)
 
 
+_ACCOUNT_TYPES = {"creator", "business"}
+
+
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8, max_length=200)
+    # Which product the sign-up came from (the landing tab). Unknown/garbage
+    # values fall back to "creator" rather than 422 — a stray query-param must
+    # never block registration.
+    account_type: str = "creator"
+
+    @field_validator("account_type", mode="before")
+    @classmethod
+    def _normalise_account_type(cls, v: object) -> str:
+        s = str(v or "").strip().lower()
+        return s if s in _ACCOUNT_TYPES else "creator"
 
 
 class LoginRequest(BaseModel):
@@ -47,6 +60,7 @@ class MeResponse(BaseModel):
     is_local: bool = False
     is_admin: bool = False
     email_verified: bool = False
+    account_type: str = "creator"
 
 
 class ForgotRequest(BaseModel):
@@ -71,7 +85,8 @@ async def register(
     )).scalars().first()
     if existing:
         raise HTTPException(status_code=409, detail="Email already registered")
-    user = UserModel(email=email, password_hash=hash_password(body.password))
+    user = UserModel(email=email, password_hash=hash_password(body.password),
+                     account_type=body.account_type)
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -174,4 +189,5 @@ async def me(
         id=user.id, email=user.email,
         is_local=bool(user.is_local), is_admin=bool(user.is_admin),
         email_verified=bool(user.email_verified),
+        account_type=user.account_type or "creator",
     )

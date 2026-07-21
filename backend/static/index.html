@@ -119,6 +119,15 @@
     </div>
   </header>
 
+  <!-- Two doors, one engine: Creators vs Business -->
+  <div class="max-w-3xl mx-auto px-6 pt-4">
+    <div class="flex gap-2 justify-center text-sm">
+      <button id="ltab-creator" onclick="setLandingTab('creator')" class="px-5 py-2 rounded-lg font-semibold border-2 border-purple-500 bg-purple-900 text-white">For Creators</button>
+      <button id="ltab-business" onclick="setLandingTab('business')" class="px-5 py-2 rounded-lg font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300">For Business</button>
+    </div>
+  </div>
+
+  <div id="landing-creator">
   <!-- Hero -->
   <section class="max-w-3xl mx-auto px-6 pt-14 pb-12 text-center">
     <h1 class="text-4xl sm:text-5xl font-bold tracking-tight leading-tight">AI social content, on autopilot</h1>
@@ -173,6 +182,49 @@
     <p class="mt-3 text-gray-400">Free to start. Bring your own keys. Publish everywhere.</p>
     <button onclick="showAuthScreen('register')" class="ce-btn px-7 py-3 text-sm mt-7">Start free →</button>
   </section>
+  </div><!-- /landing-creator -->
+
+  <div id="landing-business" class="hidden">
+    <!-- Business hero -->
+    <section class="max-w-3xl mx-auto px-6 pt-14 pb-12 text-center">
+      <h1 class="text-4xl sm:text-5xl font-bold tracking-tight leading-tight">Turn company updates into content</h1>
+      <p class="mt-5 text-lg" style="color:var(--accent)">Sources → newsworthy events → human-approved drafts.</p>
+      <p class="mt-4 text-gray-400 leading-relaxed max-w-2xl mx-auto">Point Content Engine at your public sources — release notes, changelogs, blogs. It spots what's worth posting, drafts it in your brand voice, and keeps a person in the loop before anything goes out.</p>
+      <div class="mt-8 flex flex-wrap justify-center gap-3">
+        <button onclick="showAuthScreen('register','business')" class="ce-btn px-6 py-3 text-sm">Start free →</button>
+        <button onclick="showAuthScreen('login')" class="ce-btn-ghost px-6 py-3 text-sm">Log in</button>
+      </div>
+      <div class="mt-7 flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs text-gray-400">
+        <span>◆ Public links only</span><span>◆ Human approval</span><span>◆ Full audit journal</span>
+      </div>
+    </section>
+
+    <!-- Business flow -->
+    <section class="max-w-5xl mx-auto px-6 py-10">
+      <div class="text-xs font-semibold tracking-[0.2em] text-gray-500 text-center">HOW IT WORKS</div>
+      <div class="mt-8 grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="ce-card p-5"><div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mb-3" style="background:var(--accent-dim);color:var(--accent)">1</div><div class="font-semibold mb-1">Connect sources</div><div class="text-sm text-gray-400">Paste public links — release notes, changelogs, a blog feed. No logins to your internal systems.</div></div>
+        <div class="ce-card p-5"><div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mb-3" style="background:var(--accent-dim);color:var(--accent)">2</div><div class="font-semibold mb-1">Spot the news</div><div class="text-sm text-gray-400">Explainable rules surface what actually matters to customers — price, limits, results.</div></div>
+        <div class="ce-card p-5"><div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mb-3" style="background:var(--accent-dim);color:var(--accent)">3</div><div class="font-semibold mb-1">Draft in your voice</div><div class="text-sm text-gray-400">Ready-to-edit drafts grounded only in the source — nothing invented.</div></div>
+        <div class="ce-card p-5"><div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm mb-3" style="background:var(--accent-dim);color:var(--accent)">4</div><div class="font-semibold mb-1">Approve &amp; publish</div><div class="text-sm text-gray-400">A person signs off before anything goes out. Every post is logged in an audit journal.</div></div>
+      </div>
+    </section>
+
+    <!-- Live demo (wired in Phase 1) -->
+    <section class="max-w-2xl mx-auto px-6 py-10">
+      <div id="demo-block" class="ce-card p-6 text-center">
+        <div class="font-semibold mb-1">See it on your own updates</div>
+        <div class="text-sm text-gray-400">Live demo coming here — paste a public link and get draft posts from your latest news.</div>
+      </div>
+    </section>
+
+    <!-- Business CTA -->
+    <section class="max-w-3xl mx-auto px-6 py-14 text-center">
+      <h2 class="text-2xl sm:text-3xl font-bold">Never miss a moment worth posting.</h2>
+      <p class="mt-3 text-gray-400">Free to start. Public sources only. A person approves everything.</p>
+      <button onclick="showAuthScreen('register','business')" class="ce-btn px-7 py-3 text-sm mt-7">Start free →</button>
+    </section>
+  </div><!-- /landing-business -->
 
   <!-- Footer -->
   <footer class="border-t" style="border-color:var(--border)">
@@ -201,6 +253,13 @@
     <div class="flex gap-2 text-sm">
       <button id="auth-tab-login" onclick="switchAuthTab('login')" class="flex-1 rounded-lg py-2 font-semibold border-2 border-purple-500 bg-purple-900 text-white">Log in</button>
       <button id="auth-tab-register" onclick="switchAuthTab('register')" class="flex-1 rounded-lg py-2 font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300">Sign up</button>
+    </div>
+    <div id="auth-accounttype-row" class="hidden space-y-1">
+      <div class="text-xs text-gray-400">I'm signing up as</div>
+      <div class="flex gap-2 text-sm">
+        <button id="atype-creator" onclick="setSignupAccountType('creator')" class="flex-1 rounded-lg py-2 font-semibold border-2 border-purple-500 bg-purple-900 text-white">Creator</button>
+        <button id="atype-business" onclick="setSignupAccountType('business')" class="flex-1 rounded-lg py-2 font-semibold border-2 border-gray-700 bg-gray-800 text-gray-300">Business</button>
+      </div>
     </div>
     <input id="auth-email" type="email" placeholder="you@brand.com" autocomplete="username"
       class="ce-input w-full px-4 py-3" />
@@ -970,6 +1029,8 @@ const S = {
   user: null,              // {email, is_local, is_admin} from /api/auth/me
   appStarted: false,       // guard so startApp() registers intervals once
   authTab: 'login',        // 'login' | 'register'
+  landingTab: 'creator',   // 'creator' | 'business' — which product door
+  signupAccountType: 'creator', // account_type sent on register (from the door)
   format: 'single',
   source: 'stock',
   ownPhotos: [],           // File objects picked in step 2 for source='upload'
@@ -1039,6 +1100,28 @@ function showLanding() {
 }
 function hideLanding() {
   document.getElementById('landing-screen').classList.add('hidden');
+}
+
+// Two doors on the landing: Creators (today's app) vs Business (sources → leads).
+// One engine underneath — this only swaps the marketing hero + which door a
+// Sign-up click carries into registration.
+function setLandingTab(tab) {
+  S.landingTab = tab === 'business' ? 'business' : 'creator';
+  const biz = S.landingTab === 'business';
+  const creatorEl = document.getElementById('landing-creator');
+  const businessEl = document.getElementById('landing-business');
+  if (creatorEl) creatorEl.classList.toggle('hidden', biz);
+  if (businessEl) businessEl.classList.toggle('hidden', !biz);
+  for (const [id, on] of [['ltab-creator', !biz], ['ltab-business', biz]]) {
+    const b = document.getElementById(id);
+    if (!b) continue;
+    b.classList.toggle('border-purple-500', on);
+    b.classList.toggle('bg-purple-900', on);
+    b.classList.toggle('text-white', on);
+    b.classList.toggle('border-gray-700', !on);
+    b.classList.toggle('bg-gray-800', !on);
+    b.classList.toggle('text-gray-300', !on);
+  }
 }
 function backToHome() {
   hideAuthScreen();
@@ -1159,6 +1242,11 @@ function renderUserChrome() {
   const chip = document.getElementById('user-chip');
   const logout = document.getElementById('logout-btn');
   const cloud = S.user && !S.user.is_local;
+  // Business is a cloud-only product (source polling has no meaning offline). Its
+  // screens don't exist yet (Phase 2); expose the flag on <body> so future
+  // Business-only sections can gate on it without re-reading S everywhere.
+  const business = cloud && S.user.account_type === 'business';
+  document.body.dataset.accountType = business ? 'business' : 'creator';
   chip.textContent = cloud ? ('👤 ' + (S.user.email || '')) : '';
   chip.classList.toggle('hidden', !cloud);
   logout.classList.toggle('hidden', !cloud);
@@ -1178,13 +1266,30 @@ function renderUserChrome() {
   }
 }
 
-function showAuthScreen(tab) {
+function showAuthScreen(tab, accountType) {
   hideLanding();
   document.getElementById('forgot-screen').classList.add('hidden');
   document.getElementById('reset-screen').classList.add('hidden');
   document.getElementById('auth-screen').classList.remove('hidden');
+  // The door carries its type into the sign-up form; default follows the landing tab.
+  setSignupAccountType(accountType || S.landingTab || 'creator');
   switchAuthTab(tab || 'login');
   document.getElementById('auth-email').focus();
+}
+
+function setSignupAccountType(t) {
+  S.signupAccountType = t === 'business' ? 'business' : 'creator';
+  const biz = S.signupAccountType === 'business';
+  for (const [id, on] of [['atype-creator', !biz], ['atype-business', biz]]) {
+    const b = document.getElementById(id);
+    if (!b) continue;
+    b.classList.toggle('border-purple-500', on);
+    b.classList.toggle('bg-purple-900', on);
+    b.classList.toggle('text-white', on);
+    b.classList.toggle('border-gray-700', !on);
+    b.classList.toggle('bg-gray-800', !on);
+    b.classList.toggle('text-gray-300', !on);
+  }
 }
 function hideAuthScreen() {
   document.getElementById('auth-screen').classList.add('hidden');
@@ -1208,6 +1313,9 @@ function switchAuthTab(tab) {
     'autocomplete', login ? 'current-password' : 'new-password');
   document.getElementById('auth-submit').textContent = login ? 'Log in' : 'Create account';
   document.getElementById('auth-forgot-link').classList.toggle('hidden', !login);
+  // Creator/Business chooser only matters when creating an account.
+  const atype = document.getElementById('auth-accounttype-row');
+  if (atype) atype.classList.toggle('hidden', login);
   document.getElementById('auth-error').classList.add('hidden');
 }
 
@@ -1218,10 +1326,12 @@ async function submitAuth() {
   const show = (m) => { errEl.textContent = m; errEl.classList.remove('hidden'); };
   if (!email || !password) return show('Email and password are required.');
   const path = S.authTab === 'register' ? 'register' : 'login';
+  const payload = { email, password };
+  if (path === 'register') payload.account_type = S.signupAccountType || 'creator';
   try {
     const res = await fetch(`${API}/api/auth/${path}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify(payload),
     });
     const d = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(d.detail ? (typeof d.detail === 'string' ? d.detail : 'Check your input') : 'Failed');

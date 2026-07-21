@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import api.routes.auth as auth_routes
 import services.auth as auth
-from api.deps import get_db, get_settings, require_verified
+from api.deps import get_db, get_settings, require_business, require_verified
 from config import Settings
 from main import app
 from models.database import Base, User
@@ -69,6 +69,29 @@ def test_require_verified_noop_when_flag_off():
 def test_require_verified_exempts_local_user():
     s = Settings(app_mode="cloud", require_verified_email=True)
     assert require_verified(s, _user(email_verified=False, is_local=True)) is None
+
+
+# ── require_business gate (Business Phase 0) ─────────────────────────────────
+
+def test_require_business_allows_business_account():
+    assert require_business(_user(account_type="business", is_local=False)) is None
+
+
+def test_require_business_blocks_creator_account():
+    with pytest.raises(HTTPException) as exc:
+        require_business(_user(account_type="creator", is_local=False))
+    assert exc.value.status_code == 403
+
+
+def test_require_business_blocks_unset_account_type():
+    """A NULL account_type (legacy row) is treated as creator → blocked."""
+    with pytest.raises(HTTPException) as exc:
+        require_business(_user(account_type=None, is_local=False))
+    assert exc.value.status_code == 403
+
+
+def test_require_business_exempts_local_user():
+    assert require_business(_user(account_type="creator", is_local=True)) is None
 
 
 # ── endpoints (cloud mode) ───────────────────────────────────────────────────

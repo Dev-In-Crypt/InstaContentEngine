@@ -190,6 +190,15 @@ def require_verified(
     return None
 
 
+def require_business(user: Annotated[UserModel, Depends(get_current_user)]) -> None:
+    """Gate Business-only endpoints (sources → leads → approval, added in later
+    phases) on account_type == 'business'. The local desktop owner is exempt like
+    the other gates; a cloud 'creator' account gets 403 — it never sees these."""
+    if not user.is_local and (user.account_type or "creator") != "business":
+        raise HTTPException(status_code=403, detail="Business account required")
+    return None
+
+
 async def owned_post(db: AsyncSession, post_id: str, user: UserModel, *, options=()) -> PostModel:
     """Fetch a post the user is allowed to touch, else 404 (not 403 — don't reveal
     that another tenant's post exists). The local desktop user owns everything, so
