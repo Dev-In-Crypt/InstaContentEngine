@@ -115,3 +115,11 @@ def test_stable_minor_with_features_stays_worthy():
     # Regression: a stable minor (patch == 0) with features is untouched.
     strength, _ = score_item(_item("sdk v1.3.0", "Add support for webhooks and audit logs"), [])
     assert strength == "worthy"
+
+
+def test_zero_padded_date_is_not_a_patch():
+    # A zero-padded date "2026.07.21" must NOT be read as a semver patch — the
+    # customer-impact signal wins. Mutation guard: with the old \d+ minor it would
+    # match as a patch and be demoted to weak.
+    strength, _ = score_item(_item("Pricing update 2026.07.21"), [])
+    assert strength == "worthy"

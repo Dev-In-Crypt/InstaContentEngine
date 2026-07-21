@@ -43,8 +43,10 @@ _DEV_PRERELEASE = re.compile(
 
 # A semantic-version PATCH tag (x.y.Z with Z > 0) — the churn tier. On its own a
 # patch is rarely post-worthy; it needs a strong signal (a number, a before→after
-# change, a launch, or security) to clear the bar.
-_SEMVER_PATCH = re.compile(r"\bv?\d+\.\d+\.([1-9]\d*)\b")
+# change, a launch, or security) to clear the bar. The minor component forbids a
+# leading zero (semver rule) so a zero-padded date like "2026.07.21" isn't mistaken
+# for a patch and wrongly demoted.
+_SEMVER_PATCH = re.compile(r"\bv?\d+\.(?:0|[1-9]\d*)\.([1-9]\d*)\b")
 # Security is the one thing that keeps a patch worthy on its own.
 _SECURITY = re.compile(r"\b(?:security|vulnerab\w*|\bcve\b)\b", re.IGNORECASE)
 # A before→after change with a concrete result.
