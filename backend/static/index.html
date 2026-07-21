@@ -104,6 +104,10 @@
       <span class="font-bold tracking-tight">Content Engine</span>
     </div>
     <div class="ml-auto flex items-center gap-2 flex-wrap justify-end">
+      <select id="product-switcher" onchange="onProductSwitch()" class="hidden ce-input px-2 py-1 text-xs" title="Switch product: Creators / Business">
+        <option value="creator">🎨 Creators</option>
+        <option value="business">🏢 Business</option>
+      </select>
       <select id="acct-switcher" onchange="onAcctSwitch()" class="hidden ce-input px-2 py-1 text-xs" title="Active brand"></select>
       <button id="acct-manage" onclick="openBrandsModal()" class="hidden ce-btn-ghost px-2.5 py-1 text-xs" title="Manage brands">Brands</button>
       <button onclick="toggleTheme()" id="theme-toggle" class="ce-card px-2.5 py-1 text-xs" title="Toggle light / dark" aria-label="Toggle light or dark theme">☾</button>
@@ -1805,6 +1809,25 @@ async function onAcctSwitch() {
   } catch { toast('Switch failed', 'error'); }
 }
 
+async function onProductSwitch() {
+  const sel = document.getElementById('product-switcher');
+  const want = sel.value;
+  const current = (S.user && S.user.account_type) || 'creator';
+  if (!S.user || want === current) return;
+  try {
+    const res = await apiFetch(`${API}/api/auth/account-type`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account_type: want }),
+    });
+    if (!res.ok) { toast('Couldn\'t switch product', 'error'); sel.value = current; return; }
+    S.user.account_type = (await res.json()).account_type || 'creator';
+    // Reboot into the new product's shell — the cleanest way to re-route the
+    // whole app (Business vs Creators bootstrap differ). account_type persists
+    // in the DB, so /me returns the right mode on reload.
+    location.reload();
+  } catch { toast('Switch failed', 'error'); sel.value = current; }
+}
+
 async function prefillFromActiveBrand() {
   const id = S.user && S.user.active_account_id;
   if (!id) { await loadProfile(); return; }   // Personal → the user's own profile
@@ -2020,6 +2043,14 @@ function renderUserChrome() {
   // Business-only sections can gate on it without re-reading S everywhere.
   const business = cloud && S.user.account_type === 'business';
   document.body.dataset.accountType = business ? 'business' : 'creator';
+  // Product switcher (Creators ↔ Business): one email = one login, so this
+  // in-app toggle is the only way to move between the two products. Cloud only
+  // (local desktop is creator-only and exempt from the business gate).
+  const prod = document.getElementById('product-switcher');
+  if (prod) {
+    prod.classList.toggle('hidden', !cloud);
+    prod.value = business ? 'business' : 'creator';
+  }
   chip.textContent = cloud ? ('👤 ' + (S.user.email || '')) : '';
   chip.classList.toggle('hidden', !cloud);
   logout.classList.toggle('hidden', !cloud);

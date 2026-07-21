@@ -182,10 +182,7 @@ async def logout_all(
     return {"status": "ok"}
 
 
-@router.get("/me", response_model=MeResponse)
-async def me(
-    user: Annotated[UserModel, Depends(get_current_user)],
-) -> MeResponse:
+def _me_payload(user: UserModel) -> MeResponse:
     return MeResponse(
         id=user.id, email=user.email,
         is_local=bool(user.is_local), is_admin=bool(user.is_admin),
@@ -193,3 +190,35 @@ async def me(
         account_type=user.account_type or "creator",
         active_account_id=getattr(user, "active_account_id", None),
     )
+
+
+@router.get("/me", response_model=MeResponse)
+async def me(
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> MeResponse:
+    return _me_payload(user)
+
+
+class AccountTypeRequest(BaseModel):
+    account_type: str
+
+
+@router.put("/account-type", response_model=MeResponse)
+async def set_account_type(
+    body: AccountTypeRequest,
+    user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> MeResponse:
+    """Switch the signed-in account between the Creators and Business products.
+    Both run on one engine; account_type only decides which experience shows.
+    One email = one login, so an in-app toggle is the only way to move between
+    products (you can't register the same email twice). Unlike the sign-up
+    normaliser, an unknown value here is a 422 — an explicit switch shouldn't
+    silently land somewhere the caller didn't ask for."""
+    t = str(body.account_type or "").strip().lower()
+    if t not in _ACCOUNT_TYPES:
+        raise HTTPException(status_code=422, detail="Unknown account_type")
+    user.account_type = t
+    await db.commit()
+    await db.refresh(user)
+    return _me_payload(user)
