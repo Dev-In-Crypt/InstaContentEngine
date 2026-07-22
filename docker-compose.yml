@@ -1,6 +1,13 @@
 # Self-hosted deploy on a cheap VPS (~$5/mo): app + Postgres + Caddy (auto-HTTPS).
 # One command:  docker compose up -d
 # First copy compose.env.example → .env (same folder) and fill it in. See SELFHOST.md.
+
+# Pinned project name: compose otherwise derives it from the FOLDER name, and the
+# named volumes below (incl. the production DB) are prefixed with it. The repo was
+# renamed InstaContentEngine → ContentEngine; existing deploys keep their volumes
+# because this name never changes with the folder.
+name: instacontentengine
+
 services:
   db:
     image: postgres:16-alpine
