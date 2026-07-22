@@ -146,6 +146,31 @@ class OpenRouterClient:
                     citations.append({"title": uc.get("title") or url, "url": url})
         return content, citations
 
+    async def generate_vision_json(
+        self, model: str, prompt: str, image_urls: list[str], max_tokens: int = 600,
+    ) -> dict:
+        """Ask a vision model to look at images and answer in JSON — used by the
+        b-roll frame judge (Reels R2). One user message with content parts
+        (text + image_url×N), temperature 0 for determinism. Returns {} when the
+        reply isn't usable JSON — callers are fail-open by design."""
+        content: list[dict] = [{"type": "text", "text": prompt}]
+        for url in image_urls:
+            content.append({"type": "image_url", "image_url": {"url": url}})
+        response = await self._post_with_retry({
+            "model": model,
+            "messages": [{"role": "user", "content": content}],
+            "max_tokens": max_tokens,
+            "temperature": 0.0,
+            "response_format": {"type": "json_object"},
+            "usage": {"include": True},
+        })
+        payload = response.json()
+        record_usage(model, payload.get("usage"))
+        raw = payload["choices"][0]["message"].get("content", "")
+        from services.lead_builder import _loads   # json-repair tolerant parse
+        data = _loads(raw)
+        return data if isinstance(data, dict) else {}
+
     async def generate_image(self, model: str, prompt: str, size: str = "1024x1024") -> bytes:
         """Generate image via chat/completions (Gemini-style). Returns raw image bytes."""
         response = await self._post_with_retry({

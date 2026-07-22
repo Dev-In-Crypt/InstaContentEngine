@@ -1127,6 +1127,10 @@ async def make_reel(
     opts = body or ReelRequest()
     provider = get_video_provider(settings.video_provider)
 
+    if opts.visuals == "broll" and not opts.voiceover:
+        raise HTTPException(status_code=400,
+                            detail="Stock b-roll needs voiceover — tick 🎙 first.")
+
     if not opts.voiceover:
         try:
             mp4 = await provider.make_reel(images, overlays=overlays, duration_per=3.0)
@@ -1134,11 +1138,15 @@ async def make_reel(
             raise HTTPException(status_code=502, detail=f"Reel render failed: {e}") from e
         extra: dict = {}
     else:
-        mp4, total = await _make_voiceover_reel(
+        mp4, total, credits = await _make_voiceover_reel(
             settings=settings, user=user, text_provider=text_provider, post=post,
             provider=provider, images=images, overlays=overlays,
-            voice_id=(opts.voice_id or "").strip())
+            voice_id=(opts.voice_id or "").strip(), visuals=opts.visuals)
         extra = {"voiceover": True, "duration_sec": round(total, 2)}
+        if credits:
+            # Pexels attribution rides the existing sources panel in the UI.
+            post.sources = (post.sources or []) + credits
+            extra["broll_clips"] = len(credits)
 
     path = _reel_path(post.id)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1151,9 +1159,11 @@ async def make_reel(
 
 
 async def _make_voiceover_reel(*, settings, user, text_provider, post, provider,
-                               images, overlays, voice_id) -> tuple[bytes, float]:
-    """Script → TTS → per-slide-timed render → ASS subtitles → mux. Returns
-    (mp4 bytes, total duration seconds). All temp files cleaned in finally."""
+                               images, overlays, voice_id,
+                               visuals: str = "slides") -> tuple[bytes, float, list[dict]]:
+    """Script → TTS → visuals (slides OR stock b-roll) → ASS subtitles → mux.
+    Returns (mp4 bytes, total duration, b-roll credits). Temp files cleaned in
+    finally. B-roll degrades per segment to the slide render — never crashes."""
     import shutil as _shutil
     import tempfile as _tempfile
 
@@ -1172,6 +1182,10 @@ async def _make_voiceover_reel(*, settings, user, text_provider, post, provider,
         raise HTTPException(
             status_code=400,
             detail="Voiceover needs an ElevenLabs API key — add it in Account → API keys.")
+    if visuals == "broll" and not settings.pexels_api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Stock b-roll needs a Pexels API key — add it in Account → API keys.")
     _tp, text_model, _key = resolve_ai_choice(user, settings, "text")
     voice = voice_id or settings.elevenlabs_voice_id
     gap = 0.35
@@ -1192,7 +1206,7 @@ async def _make_voiceover_reel(*, settings, user, text_provider, post, provider,
             wavs: list[Path] = []
             durations: list[float] = []
             for i, seg in enumerate(segments):
-                mp3 = await tts.synthesize(seg, voice_id=voice)
+                mp3 = await tts.synthesize(seg.text, voice_id=voice)
                 wav = tmpdir / f"seg_{i:02d}.wav"
                 durations.append(await mp3_to_wav(mp3, wav))
                 wavs.append(wav)
@@ -1202,26 +1216,85 @@ async def _make_voiceover_reel(*, settings, user, text_provider, post, provider,
             raise HTTPException(status_code=400, detail=str(e)) from e
 
         slide_durs = [d + gap for d in durations]
-        try:
-            silent = await provider.make_reel(images, overlays=overlays,
-                                              duration_per=slide_durs)
-        except VideoError as e:
-            raise HTTPException(status_code=502,
-                                detail=f"Reel render failed: {e}") from e
         video_tmp = tmpdir / "silent.mp4"
-        video_tmp.write_bytes(silent)
+        credits: list[dict] = []
+        if visuals == "broll":
+            credits = await _build_broll_video(
+                settings=settings, text_provider=text_provider, provider=provider,
+                segments=segments, slide_durs=slide_durs, images=images,
+                overlays=overlays, tmpdir=tmpdir, out_path=video_tmp)
+        else:
+            try:
+                silent = await provider.make_reel(images, overlays=overlays,
+                                                  duration_per=slide_durs)
+            except VideoError as e:
+                raise HTTPException(status_code=502,
+                                    detail=f"Reel render failed: {e}") from e
+            video_tmp.write_bytes(silent)
+
         ass_path = tmpdir / "subs.ass"
-        ass_path.write_text(write_ass(chunk_segments(segments, slide_durs)),
-                            encoding="utf-8")
+        ass_path.write_text(
+            write_ass(chunk_segments([s.text for s in segments], slide_durs)),
+            encoding="utf-8")
         out_tmp = tmpdir / "reel.mp4"
         try:
             await mux_reel(video_tmp, track, ass_path, out_tmp)
         except VideoError as e:
             raise HTTPException(status_code=502,
                                 detail=f"Reel assembly failed: {e}") from e
-        return out_tmp.read_bytes(), total
+        return out_tmp.read_bytes(), total, credits
     finally:
         _shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+async def _build_broll_video(*, settings, text_provider, provider, segments,
+                             slide_durs, images, overlays, tmpdir: Path,
+                             out_path: Path) -> list[dict]:
+    """One stock clip per narration segment (search → judge → download →
+    normalize); any per-segment failure falls back to rendering that segment
+    from its slide. Returns Pexels credits for the clips actually used."""
+    from services.broll import PexelsVideoSearch, pick_with_judge
+    from services.video import VideoError
+    from services.video.normalize import concat_clips, normalize_clip
+
+    search = PexelsVideoSearch(settings.pexels_api_key,
+                               ssl_verify=settings.ssl_verify)
+    clip_paths: list[Path] = []
+    credits: list[dict] = []
+    for i, seg in enumerate(segments):
+        dur = slide_durs[i]
+        clip = tmpdir / f"clip_{i:02d}.mp4"
+        used_broll = False
+        try:
+            cands = await search.candidates(seg.query, dur)
+            cand = await pick_with_judge(
+                text_provider, cands, segment_text=seg.text, query=seg.query,
+                judge_model=settings.broll_judge_model)
+            if cand is not None:
+                raw = tmpdir / f"raw_{i:02d}.mp4"
+                await search.download(cand.url, raw)
+                await normalize_clip(raw, clip, target_duration=dur,
+                                     segment_id=i + 1)
+                raw.unlink(missing_ok=True)
+                credits.append({"title": f"Pexels video #{cand.video_id}",
+                                "url": cand.page_url})
+                used_broll = True
+        except Exception as e:  # noqa: BLE001 — b-roll degrades, never crashes
+            log.warning("B-roll segment %d failed (%s); falling back to slide", i, e)
+        if not used_broll:
+            # graceful fallback: this segment shows its slide, Ken Burns style
+            idx = min(i, len(images) - 1)
+            silent = await provider.make_reel(
+                [images[idx]], overlays=[overlays[idx] if idx < len(overlays) else ""],
+                duration_per=[dur])
+            clip.write_bytes(silent)
+        clip_paths.append(clip)
+    try:
+        await concat_clips(clip_paths, out_path)
+    except VideoError as e:
+        raise HTTPException(status_code=502,
+                            detail=f"B-roll assembly failed: {e}") from e
+    return credits
 
 
 @router.get("/{post_id}/reel/video")

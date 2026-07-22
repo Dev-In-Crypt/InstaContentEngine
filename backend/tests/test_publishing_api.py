@@ -219,11 +219,12 @@ def test_publish_reel_needs_public_url(client, seeded):
 
 # ── voiceover reel (R1) ─────────────────────────────────────────────────────
 
-def _override_voiceover_deps(text_provider, elevenlabs_key):
+def _override_voiceover_deps(text_provider, elevenlabs_key, pexels_key=""):
     from api.deps import get_effective_settings, get_text_provider
     from config import Settings
     app.dependency_overrides[get_effective_settings] = (
-        lambda: Settings(elevenlabs_api_key=elevenlabs_key))
+        lambda: Settings(elevenlabs_api_key=elevenlabs_key,
+                         pexels_api_key=pexels_key))
     app.dependency_overrides[get_text_provider] = lambda: text_provider
     return (get_effective_settings, get_text_provider)
 
@@ -291,6 +292,117 @@ def test_voiceover_full_path(client, seeded, monkeypatch, tmp_path):
                                str(_reel_path(seeded))],
                               capture_output=True, text=True, errors="replace").stderr
         assert "Audio:" in info
+    finally:
+        _clear(keys)
+
+
+# ── b-roll reel (R2) ────────────────────────────────────────────────────────
+
+def _fake_tts(monkeypatch, tmp_path):
+    import subprocess
+
+    from services import tts as tts_mod
+    tone = tmp_path / "tone.mp3"
+    subprocess.run([tts_mod.ffmpeg_exe(), "-hide_banner", "-y",
+                    "-f", "lavfi", "-i", "sine=frequency=440:duration=0.4",
+                    "-c:a", "libmp3lame", "-b:a", "64k", str(tone)],
+                   capture_output=True, check=True)
+    tone_bytes = tone.read_bytes()
+
+    async def fake_synth(self, text, *, voice_id, model_id="eleven_multilingual_v2"):
+        return tone_bytes
+    monkeypatch.setattr(tts_mod.ElevenLabsTTS, "synthesize", fake_synth)
+
+
+class _FakeTextOneLine:
+    async def generate_text(self, **kw):
+        import json as _json
+        return (_json.dumps([{"text": "One short line.", "query": "city shot"}]), [])
+
+
+def test_broll_needs_voiceover(client, seeded):
+    res = client.post(f"/api/posts/{seeded}/reel",
+                      json={"voiceover": False, "visuals": "broll"})
+    assert res.status_code == 400
+    assert "voiceover" in res.json()["detail"].lower()
+
+
+def test_broll_needs_pexels_key(client, seeded):
+    keys = _override_voiceover_deps(text_provider=_FakeTextOneLine(),
+                                    elevenlabs_key="k", pexels_key="")
+    try:
+        res = client.post(f"/api/posts/{seeded}/reel",
+                          json={"voiceover": True, "visuals": "broll"})
+        assert res.status_code == 400
+        assert "pexels" in res.json()["detail"].lower()
+    finally:
+        _clear(keys)
+
+
+def test_broll_full_path(client, seeded, monkeypatch, tmp_path):
+    """Search+download mocked (a real tiny testsrc clip); judge fails open (no
+    vision_json on the fake provider); normalize/concat/ass/mux run for REAL.
+    Mutation guard: broll_clips reported and the reel carries an audio track."""
+    import subprocess
+
+    from services import broll as broll_mod
+    from services import tts as tts_mod
+
+    _fake_tts(monkeypatch, tmp_path)
+    src = tmp_path / "stock.mp4"
+    subprocess.run([tts_mod.ffmpeg_exe(), "-hide_banner", "-y", "-f", "lavfi",
+                    "-i", "testsrc=duration=1:size=320x180:rate=30",
+                    "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset",
+                    "ultrafast", str(src)], capture_output=True, check=True)
+
+    cand = broll_mod.Candidate(video_id=42, url="https://dl/42.mp4", duration=10,
+                               thumbnail_url="", picture_urls=[])
+
+    async def fake_candidates(self, query, target_duration, max_results=8):
+        return [cand]
+
+    async def fake_download(self, url, dest):
+        dest.write_bytes(src.read_bytes())
+
+    monkeypatch.setattr(broll_mod.PexelsVideoSearch, "candidates", fake_candidates)
+    monkeypatch.setattr(broll_mod.PexelsVideoSearch, "download", fake_download)
+
+    keys = _override_voiceover_deps(text_provider=_FakeTextOneLine(),
+                                    elevenlabs_key="k", pexels_key="px")
+    try:
+        res = client.post(f"/api/posts/{seeded}/reel",
+                          json={"voiceover": True, "visuals": "broll"})
+        assert res.status_code == 200, res.text
+        body = res.json()
+        assert body.get("voiceover") is True
+        assert body.get("broll_clips") == 1
+        from api.routes.posts import _reel_path
+        info = subprocess.run([tts_mod.ffmpeg_exe(), "-hide_banner", "-i",
+                               str(_reel_path(seeded))],
+                              capture_output=True, text=True, errors="replace").stderr
+        assert "Audio:" in info and "Video:" in info
+    finally:
+        _clear(keys)
+
+
+def test_broll_segment_falls_back_to_slide(client, seeded, monkeypatch, tmp_path):
+    """Empty search results must NOT fail the reel — the segment renders from
+    its slide instead (mutation guard: drop the fallback → 502)."""
+    from services import broll as broll_mod
+
+    _fake_tts(monkeypatch, tmp_path)
+
+    async def no_candidates(self, query, target_duration, max_results=8):
+        return []
+    monkeypatch.setattr(broll_mod.PexelsVideoSearch, "candidates", no_candidates)
+
+    keys = _override_voiceover_deps(text_provider=_FakeTextOneLine(),
+                                    elevenlabs_key="k", pexels_key="px")
+    try:
+        res = client.post(f"/api/posts/{seeded}/reel",
+                          json={"voiceover": True, "visuals": "broll"})
+        assert res.status_code == 200, res.text
+        assert "broll_clips" not in res.json()      # nothing attributed
     finally:
         _clear(keys)
 

@@ -308,9 +308,19 @@ class PublishResult(BaseModel):
 
 class ReelRequest(BaseModel):
     """Options for building a Reel. No body (old clients) = the classic silent
-    Ken Burns slideshow; voiceover adds TTS narration + burned-in subtitles."""
+    Ken Burns slideshow; voiceover adds TTS narration + burned-in subtitles;
+    visuals="broll" swaps slides for stock video clips (needs voiceover)."""
     voiceover: bool = False
     voice_id: Optional[str] = Field(None, max_length=80)   # ElevenLabs voice
+    visuals: str = "slides"
+
+    @field_validator("visuals")
+    @classmethod
+    def _visuals_known(cls, v: str) -> str:
+        v = (v or "slides").strip().lower()
+        if v not in {"slides", "broll"}:
+            raise ValueError("visuals must be 'slides' or 'broll'")
+        return v
 
 
 class ExportResult(BaseModel):

@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     # overridable per request or via .env.
     elevenlabs_api_key: str = ""
     elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
+    # B-roll frame judge (Reels R2) — a cheap vision model on the user's OpenRouter
+    # key; fail-open, so an empty/wrong model just disables the filter.
+    broll_judge_model: str = "google/gemini-2.0-flash-001"
 
     # Canva
     canva_client_id: str = ""

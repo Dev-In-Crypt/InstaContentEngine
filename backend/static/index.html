@@ -745,11 +745,15 @@
       </div>
       <div class="flex items-center gap-2 flex-wrap text-xs">
         <label class="flex items-center gap-1.5 cursor-pointer text-gray-300">
-          <input type="checkbox" id="reel-voiceover" class="accent-purple-600" />
+          <input type="checkbox" id="reel-voiceover" class="accent-purple-600" onchange="document.getElementById('reel-visuals').disabled = !this.checked" />
           🎙 Add voiceover + subtitles
         </label>
         <input id="reel-voice-id" type="text" placeholder="Voice ID (default: Rachel)"
                class="ce-input px-2 py-1 text-xs w-52" />
+        <select id="reel-visuals" disabled class="ce-input px-2 py-1 text-xs" title="B-roll needs a Pexels key (Account → API keys)">
+          <option value="slides">🖼 Slides</option>
+          <option value="broll">🎞 Stock b-roll</option>
+        </select>
         <span class="text-gray-500">needs an ElevenLabs key — Account → API keys</span>
       </div>
       <div id="reel-preview" class="hidden space-y-2">
@@ -3695,11 +3699,12 @@ async function makeReel() {
   const btn = document.getElementById('make-reel-btn');
   const voiceover = !!document.getElementById('reel-voiceover')?.checked;
   const voiceId = (document.getElementById('reel-voice-id')?.value || '').trim();
+  const visuals = voiceover ? (document.getElementById('reel-visuals')?.value || 'slides') : 'slides';
   btn.disabled = true; btn.textContent = voiceover ? '⏳ Narrating…' : '⏳ Rendering…';
   try {
     const res = await apiFetch(`${API}/api/posts/${S.postId}/reel`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ voiceover, voice_id: voiceId || null }),
+      body: JSON.stringify({ voiceover, voice_id: voiceId || null, visuals }),
     });
     if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Render failed'); }
     const data = await res.json();

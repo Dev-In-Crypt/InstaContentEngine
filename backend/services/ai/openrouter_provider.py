@@ -44,5 +44,16 @@ class OpenRouterProvider:
         except OpenRouterError as exc:
             raise AIError(str(exc)) from exc
 
+    async def vision_json(self, model: str, prompt: str, image_urls: list[str],
+                          max_tokens: int = 600) -> dict:
+        """Vision Q&A returning JSON (b-roll frame judge). OpenRouter-only — the
+        judge probes for this method with hasattr and fails open elsewhere."""
+        try:
+            return await self._client.generate_vision_json(
+                model=model, prompt=prompt, image_urls=image_urls,
+                max_tokens=max_tokens)
+        except OpenRouterError as exc:
+            raise AIError(str(exc)) from exc
+
     async def close(self) -> None:
         await self._client.close()
