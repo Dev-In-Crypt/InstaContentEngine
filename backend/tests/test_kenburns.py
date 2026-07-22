@@ -35,6 +35,25 @@ async def test_kenburns_produces_vertical_mp4():
 
 
 @pytest.mark.asyncio
+async def test_kenburns_per_slide_durations():
+    """A durations LIST gives each slide its own length (voiceover sync).
+    Mutation guard: ignore the list → frame count reverts to uniform and fails."""
+    import imageio.v2 as imageio
+    import tempfile
+    from pathlib import Path
+
+    mp4 = await KenBurnsVideoProvider().make_reel(
+        [_slide("red"), _slide("blue")], duration_per=[0.2, 0.4])
+    tmp = Path(tempfile.mkdtemp()) / "reel.mp4"
+    tmp.write_bytes(mp4)
+    reader = imageio.get_reader(str(tmp))
+    n_frames = sum(1 for _ in reader)
+    reader.close()
+    # 0.2s*30fps + 0.4s*30fps = 6 + 12 = 18
+    assert n_frames == 18
+
+
+@pytest.mark.asyncio
 async def test_kenburns_empty_raises():
     with pytest.raises(VideoError):
         await KenBurnsVideoProvider().make_reel([])

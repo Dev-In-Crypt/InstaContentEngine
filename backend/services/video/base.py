@@ -19,10 +19,11 @@ class VideoProvider(Protocol):
         self,
         slides: list[bytes],
         overlays: Optional[list[str]] = None,
-        duration_per: float = 3.0,
+        duration_per: float | list[float] = 3.0,
         audio_path: Optional[str] = None,
     ) -> bytes:
-        """Return H.264 MP4 bytes sized 1080x1920 (9:16 Reels)."""
+        """Return H.264 MP4 bytes sized 1080x1920 (9:16 Reels). A list for
+        duration_per gives each slide its own length (voiceover sync)."""
         ...
 
 

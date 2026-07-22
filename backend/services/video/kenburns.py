@@ -86,7 +86,7 @@ class KenBurnsVideoProvider:
         self,
         slides: list[bytes],
         overlays: Optional[list[str]] = None,
-        duration_per: float = 3.0,
+        duration_per: float | list[float] = 3.0,
         audio_path: Optional[str] = None,
     ) -> bytes:
         if not slides:
@@ -100,7 +100,12 @@ class KenBurnsVideoProvider:
         import imageio.v2 as imageio
         import numpy as np
 
-        n_per = max(1, int(duration_per * FPS))
+        # A list gives each slide its own length (voiceover: slide i stays up for
+        # exactly its narration segment); a scalar keeps the old uniform pacing.
+        if isinstance(duration_per, (list, tuple)):
+            durations = list(duration_per) + [3.0] * (len(slides) - len(duration_per))
+        else:
+            durations = [float(duration_per)] * len(slides)
         tmp = Path(tempfile.mkdtemp()) / "reel.mp4"
         try:
             writer = imageio.get_writer(
@@ -112,6 +117,7 @@ class KenBurnsVideoProvider:
         try:
             for i, sb in enumerate(slides):
                 ov = overlays[i] if i < len(overlays) else None
+                n_per = max(1, int(float(durations[i]) * FPS))
                 for frame in _render_slide_frames(sb, ov, n_per):
                     writer.append_data(np.asarray(frame))
         finally:

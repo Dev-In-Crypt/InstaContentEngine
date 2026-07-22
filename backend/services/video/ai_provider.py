@@ -17,7 +17,7 @@ class AIVideoProvider:
         self,
         slides: list[bytes],
         overlays: Optional[list[str]] = None,
-        duration_per: float = 3.0,
+        duration_per: float | list[float] = 3.0,
         audio_path: Optional[str] = None,
     ) -> bytes:
         raise VideoError(

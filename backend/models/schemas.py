@@ -306,6 +306,13 @@ class PublishResult(BaseModel):
     error: Optional[str] = None
 
 
+class ReelRequest(BaseModel):
+    """Options for building a Reel. No body (old clients) = the classic silent
+    Ken Burns slideshow; voiceover adds TTS narration + burned-in subtitles."""
+    voiceover: bool = False
+    voice_id: Optional[str] = Field(None, max_length=80)   # ElevenLabs voice
+
+
 class ExportResult(BaseModel):
     download_url: str
     filename: str

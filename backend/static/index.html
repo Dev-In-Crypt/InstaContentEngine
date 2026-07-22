@@ -743,6 +743,15 @@
         <label class="text-sm font-semibold text-purple-300">🎬 Reel (video from slides)</label>
         <button onclick="makeReel()" id="make-reel-btn" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-1.5 text-sm font-semibold">Make Reel</button>
       </div>
+      <div class="flex items-center gap-2 flex-wrap text-xs">
+        <label class="flex items-center gap-1.5 cursor-pointer text-gray-300">
+          <input type="checkbox" id="reel-voiceover" class="accent-purple-600" />
+          🎙 Add voiceover + subtitles
+        </label>
+        <input id="reel-voice-id" type="text" placeholder="Voice ID (default: Rachel)"
+               class="ce-input px-2 py-1 text-xs w-52" />
+        <span class="text-gray-500">needs an ElevenLabs key — Account → API keys</span>
+      </div>
       <div id="reel-preview" class="hidden space-y-2">
         <video id="reel-video" controls class="w-48 rounded-lg mx-auto bg-black"></video>
         <div class="flex gap-2 justify-center">
@@ -3684,9 +3693,14 @@ async function renderPillars() {
 async function makeReel() {
   if (!S.postId) return;
   const btn = document.getElementById('make-reel-btn');
-  btn.disabled = true; btn.textContent = '⏳ Rendering…';
+  const voiceover = !!document.getElementById('reel-voiceover')?.checked;
+  const voiceId = (document.getElementById('reel-voice-id')?.value || '').trim();
+  btn.disabled = true; btn.textContent = voiceover ? '⏳ Narrating…' : '⏳ Rendering…';
   try {
-    const res = await apiFetch(`${API}/api/posts/${S.postId}/reel`, { method: 'POST' });
+    const res = await apiFetch(`${API}/api/posts/${S.postId}/reel`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voiceover, voice_id: voiceId || null }),
+    });
     if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Render failed'); }
     const data = await res.json();
     const url = API + data.video_url;
@@ -4058,6 +4072,7 @@ const CRED_FIELDS = [
   // belong to — listing them here too would be two places to set one thing.
   { key: 'unsplash_access_key',     label: 'Unsplash access key',     scope: 'account',   group: 'Stock photos (optional)' },
   { key: 'pexels_api_key',          label: 'Pexels API key',          scope: 'account',   group: 'Stock photos (optional)' },
+  { key: 'elevenlabs_api_key',      label: 'ElevenLabs API key',      scope: 'account',   group: 'Voiceover Reels (optional)' },
   { key: 'instagram_access_token',  label: 'Instagram access token',  scope: 'instagram', group: 'Instagram publishing' },
   { key: 'instagram_user_id',       label: 'Instagram user id',       scope: 'instagram', group: 'Instagram publishing' },
   { key: 'imgbb_api_key',           label: 'imgbb API key',           scope: 'instagram', group: 'imgbb — public image hosting for IG' },

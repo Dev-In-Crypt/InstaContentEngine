@@ -96,6 +96,7 @@ class UserCredentials(Base):
     x_access_token_secret_enc = Column(Text)
     unsplash_access_key_enc = Column(Text)
     pexels_api_key_enc = Column(Text)
+    elevenlabs_api_key_enc = Column(Text)   # TTS for voiceover Reels (R1)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(),
                         onupdate=func.now())
 

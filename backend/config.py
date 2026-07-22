@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     unsplash_access_key: str = ""
     pexels_api_key: str = ""
 
+    # ElevenLabs TTS — voiceover Reels (R1). The key is per-user in cloud (overlaid
+    # by build_settings_for_user); the voice id is a non-secret default (Rachel),
+    # overridable per request or via .env.
+    elevenlabs_api_key: str = ""
+    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
+
     # Canva
     canva_client_id: str = ""
     canva_client_secret: str = ""

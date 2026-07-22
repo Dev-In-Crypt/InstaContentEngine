@@ -6,8 +6,11 @@ FROM python:3.11-slim
 # Pillow / fonts runtime deps + postgresql-client (pg_dump/psql for backup/restore).
 # gosu lets the entrypoint start as root just long enough to chown the mounted
 # uploads volume, then drop to a non-root user for the app process.
+# ffmpeg + fonts-dejavu-core: voiceover Reels burn ASS subtitles (libass needs a
+# real font); the pip-bundled imageio-ffmpeg build has no libass guarantee, so we
+# install the distro ffmpeg and services/tts.ffmpeg_exe() prefers it.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libjpeg62-turbo zlib1g postgresql-client gosu \
+    libjpeg62-turbo zlib1g postgresql-client gosu ffmpeg fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

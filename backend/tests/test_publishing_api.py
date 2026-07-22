@@ -217,6 +217,84 @@ def test_publish_reel_needs_public_url(client, seeded):
     assert "public" in res.json()["detail"].lower()
 
 
+# ── voiceover reel (R1) ─────────────────────────────────────────────────────
+
+def _override_voiceover_deps(text_provider, elevenlabs_key):
+    from api.deps import get_effective_settings, get_text_provider
+    from config import Settings
+    app.dependency_overrides[get_effective_settings] = (
+        lambda: Settings(elevenlabs_api_key=elevenlabs_key))
+    app.dependency_overrides[get_text_provider] = lambda: text_provider
+    return (get_effective_settings, get_text_provider)
+
+
+def _clear(keys):
+    for k in keys:
+        app.dependency_overrides.pop(k, None)
+
+
+def test_voiceover_needs_text_model(client, seeded):
+    keys = _override_voiceover_deps(text_provider=None, elevenlabs_key="k")
+    try:
+        res = client.post(f"/api/posts/{seeded}/reel", json={"voiceover": True})
+        assert res.status_code == 400
+        assert "text model" in res.json()["detail"].lower()
+    finally:
+        _clear(keys)
+
+
+def test_voiceover_needs_elevenlabs_key(client, seeded):
+    keys = _override_voiceover_deps(text_provider=object(), elevenlabs_key="")
+    try:
+        res = client.post(f"/api/posts/{seeded}/reel", json={"voiceover": True})
+        assert res.status_code == 400
+        assert "elevenlabs" in res.json()["detail"].lower()
+    finally:
+        _clear(keys)
+
+
+def test_voiceover_full_path(client, seeded, monkeypatch, tmp_path):
+    """End-to-end with a fake LLM + fake TTS bytes; the wav/concat/render/ass/mux
+    stages run for REAL (bundled ffmpeg). Mutation guard: the response reports
+    voiceover=true and the mp4 on disk has an audio stream."""
+    import json as _json
+    import subprocess
+
+    from services import tts as tts_mod
+
+    class FakeText:
+        async def generate_text(self, **kw):
+            return (_json.dumps(["One short narration line."]), [])
+
+    tone = tmp_path / "tone.mp3"
+    subprocess.run([tts_mod.ffmpeg_exe(), "-hide_banner", "-y",
+                    "-f", "lavfi", "-i", "sine=frequency=440:duration=0.4",
+                    "-c:a", "libmp3lame", "-b:a", "64k", str(tone)],
+                   capture_output=True, check=True)
+    tone_bytes = tone.read_bytes()
+
+    async def fake_synth(self, text, *, voice_id, model_id="eleven_multilingual_v2"):
+        assert voice_id  # a voice id is always resolved (default Rachel)
+        return tone_bytes
+    monkeypatch.setattr(tts_mod.ElevenLabsTTS, "synthesize", fake_synth)
+
+    keys = _override_voiceover_deps(text_provider=FakeText(), elevenlabs_key="k")
+    try:
+        res = client.post(f"/api/posts/{seeded}/reel", json={"voiceover": True})
+        assert res.status_code == 200, res.text
+        body = res.json()
+        assert body.get("voiceover") is True
+        assert body["duration_sec"] > 0
+        # the served reel really carries an audio track
+        from api.routes.posts import _reel_path
+        info = subprocess.run([tts_mod.ffmpeg_exe(), "-hide_banner", "-i",
+                               str(_reel_path(seeded))],
+                              capture_output=True, text=True, errors="replace").stderr
+        assert "Audio:" in info
+    finally:
+        _clear(keys)
+
+
 # ── usage + backup ──────────────────────────────────────────────────────────
 
 def test_usage_aggregate(client, seeded):

@@ -17,8 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from api.deps import (
-    get_content_engine, get_current_user, get_db, get_settings, get_text_provider,
-    load_brand_config, owned_post, require_local, require_token, require_verified,
+    get_content_engine, get_current_user, get_db, get_effective_settings, get_settings,
+    get_text_provider, load_brand_config, owned_post, require_local, require_token,
+    require_verified,
 )
 from api.ratelimit import limiter
 from services.brand_engine import PillowBrandEngine
@@ -35,7 +36,7 @@ from models.database import (
 from models.schemas import (
     CaptionUpdate, GenerateRequest, ImageSource, OverlayUpdateRequest, Platform,
     PostInsightSchema, PostPreview, PostStatus, PostSummary, RegenFieldRequest,
-    RegenFieldResponse, ReplaceSlideRequest, ScheduleRequest, SlidePreview,
+    RegenFieldResponse, ReelRequest, ReplaceSlideRequest, ScheduleRequest, SlidePreview,
     PlanItem, PlanRequest, PlanResponse, PublishResult, StagedUpload, XPostMode,
 )
 from services import staging
@@ -1097,11 +1098,15 @@ def _reel_path(post_id: str) -> Path:
 async def make_reel(
     post_id: str,
     request: Request,
-    settings: Annotated[Settings, Depends(get_settings)],
+    settings: Annotated[Settings, Depends(get_effective_settings)],
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[UserModel, Depends(get_current_user)],
+    text_provider: Annotated[object, Depends(get_text_provider)],
+    body: Optional[ReelRequest] = None,
 ) -> dict:
-    """Render a Reel MP4 from the post's slides and store it on disk."""
+    """Render a Reel MP4 from the post's slides and store it on disk. With
+    `voiceover` the reel gets TTS narration (ElevenLabs, the user's key), each
+    slide lasts exactly its narration segment, and subtitles are burned in."""
     from services.video import get_video_provider, VideoError
 
     post = await owned_post(db, post_id, user, options=(selectinload(PostModel.slides),))
@@ -1119,11 +1124,21 @@ async def make_reel(
     if not images:
         raise HTTPException(status_code=400, detail="No slides to build a reel from")
 
+    opts = body or ReelRequest()
     provider = get_video_provider(settings.video_provider)
-    try:
-        mp4 = await provider.make_reel(images, overlays=overlays, duration_per=3.0)
-    except VideoError as e:
-        raise HTTPException(status_code=502, detail=f"Reel render failed: {e}") from e
+
+    if not opts.voiceover:
+        try:
+            mp4 = await provider.make_reel(images, overlays=overlays, duration_per=3.0)
+        except VideoError as e:
+            raise HTTPException(status_code=502, detail=f"Reel render failed: {e}") from e
+        extra: dict = {}
+    else:
+        mp4, total = await _make_voiceover_reel(
+            settings=settings, user=user, text_provider=text_provider, post=post,
+            provider=provider, images=images, overlays=overlays,
+            voice_id=(opts.voice_id or "").strip())
+        extra = {"voiceover": True, "duration_sec": round(total, 2)}
 
     path = _reel_path(post.id)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1131,7 +1146,82 @@ async def make_reel(
     post.video_path = str(path)
     await db.commit()
     ts = int(datetime.now(timezone.utc).timestamp())
-    return {"video_url": f"/api/posts/{post.id}/reel/video?t={ts}", "size_bytes": len(mp4)}
+    return {"video_url": f"/api/posts/{post.id}/reel/video?t={ts}",
+            "size_bytes": len(mp4), **extra}
+
+
+async def _make_voiceover_reel(*, settings, user, text_provider, post, provider,
+                               images, overlays, voice_id) -> tuple[bytes, float]:
+    """Script → TTS → per-slide-timed render → ASS subtitles → mux. Returns
+    (mp4 bytes, total duration seconds). All temp files cleaned in finally."""
+    import shutil as _shutil
+    import tempfile as _tempfile
+
+    from services.caption_generator import CaptionParseError
+    from services.reel_script import build_voiceover_script
+    from services.subtitles import chunk_segments, write_ass
+    from services.tts import ElevenLabsTTS, TTSError, concat_wavs, mp3_to_wav
+    from services.video import VideoError
+    from services.video.assemble import mux_reel
+
+    if text_provider is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Voiceover needs a text model — choose one in Account → AI models.")
+    if not settings.elevenlabs_api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Voiceover needs an ElevenLabs API key — add it in Account → API keys.")
+    _tp, text_model, _key = resolve_ai_choice(user, settings, "text")
+    voice = voice_id or settings.elevenlabs_voice_id
+    gap = 0.35
+
+    tmpdir = Path(_tempfile.mkdtemp(prefix="reelvo_"))
+    try:
+        try:
+            segments = await build_voiceover_script(
+                text_provider, topic=post.topic or "", caption=post.caption or "",
+                slide_texts=overlays, text_model=text_model or "")
+        except CaptionParseError as e:
+            raise HTTPException(status_code=502,
+                                detail=f"Voiceover script failed: {e}") from e
+
+        try:
+            tts = ElevenLabsTTS(settings.elevenlabs_api_key,
+                                ssl_verify=settings.ssl_verify)
+            wavs: list[Path] = []
+            durations: list[float] = []
+            for i, seg in enumerate(segments):
+                mp3 = await tts.synthesize(seg, voice_id=voice)
+                wav = tmpdir / f"seg_{i:02d}.wav"
+                durations.append(await mp3_to_wav(mp3, wav))
+                wavs.append(wav)
+            track = tmpdir / "voice.m4a"
+            total = await concat_wavs(wavs, track, gap_sec=gap)
+        except TTSError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+        slide_durs = [d + gap for d in durations]
+        try:
+            silent = await provider.make_reel(images, overlays=overlays,
+                                              duration_per=slide_durs)
+        except VideoError as e:
+            raise HTTPException(status_code=502,
+                                detail=f"Reel render failed: {e}") from e
+        video_tmp = tmpdir / "silent.mp4"
+        video_tmp.write_bytes(silent)
+        ass_path = tmpdir / "subs.ass"
+        ass_path.write_text(write_ass(chunk_segments(segments, slide_durs)),
+                            encoding="utf-8")
+        out_tmp = tmpdir / "reel.mp4"
+        try:
+            await mux_reel(video_tmp, track, ass_path, out_tmp)
+        except VideoError as e:
+            raise HTTPException(status_code=502,
+                                detail=f"Reel assembly failed: {e}") from e
+        return out_tmp.read_bytes(), total
+    finally:
+        _shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 @router.get("/{post_id}/reel/video")
