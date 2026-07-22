@@ -1,330 +1,302 @@
-# InstaContentEngine
+<div align="center">
 
-AI-powered Instagram & LinkedIn content engine for the **My Life My Game** brand
-(running, fitness, healthy habits, productivity). It runs the whole content
-loop — **generate → schedule → publish → measure → repeat** — from a single
-desktop application, and can also run 24/7 in the cloud for scheduled posting.
+# ✦ Content Engine
 
-<p align="center">
-  <img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+">
-  <img src="https://img.shields.io/badge/FastAPI-0.115-009688.svg" alt="FastAPI">
+**AI social-content platform — two products, one engine.**
+
+*Creators* turn a topic into a branded, publish-ready post.
+*Businesses* turn their own release notes & changelogs into fact-checked social content — with a human always in the loop.
+
+<p>
+  <img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?logo=python&logoColor=white" alt="Python 3.11+">
+  <img src="https://img.shields.io/badge/FastAPI-async-009688.svg?logo=fastapi&logoColor=white" alt="FastAPI">
   <img src="https://img.shields.io/badge/SQLAlchemy-async-d71f00.svg" alt="SQLAlchemy async">
-  <img src="https://img.shields.io/badge/UI-pywebview-7c3aed.svg" alt="pywebview">
+  <img src="https://img.shields.io/badge/tests-758%20passing-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/lint-ruff%20clean-9C27B0.svg" alt="Ruff">
   <a href="https://github.com/Dev-In-Crypt/InstaContentEngine/actions/workflows/ci.yml">
     <img src="https://github.com/Dev-In-Crypt/InstaContentEngine/actions/workflows/ci.yml/badge.svg" alt="CI">
   </a>
+  <img src="https://img.shields.io/badge/license-proprietary-lightgrey.svg" alt="License">
 </p>
 
----
+<p>
+  <a href="#-the-idea">Idea</a> ·
+  <a href="#-for-creators">Creators</a> ·
+  <a href="#-for-business">Business</a> ·
+  <a href="#-reels-studio">Reels</a> ·
+  <a href="#-accuracy-measured">Accuracy</a> ·
+  <a href="#-quick-start">Quick start</a> ·
+  <a href="#%EF%B8%8F-architecture">Architecture</a> ·
+  <a href="#-api-overview">API</a> ·
+  <a href="#-status--roadmap">Status & Roadmap</a>
+</p>
 
-## ✨ Features
-
-### 📝 Create
-- 4-step wizard: topic → settings → SSE-progress generation → preview & edit.
-- Platform toggle (Instagram | LinkedIn) with platform-specific SEO prompts.
-- Length tier (Hook Zone ~125 chars · Sweet Spot 125–150+ · Deep Dive 300–900+).
-- Branded portrait template **1080×1350** (orange niche box + white translucent
-  description box + optional logo + manual carousel page number) or square legacy.
-- Per-slide overlay text is **editable in place** (Apply / Reset) without a full
-  regenerate; slides 2..N of a carousel each get their own unique overlay.
-- Separate **SEO keywords** output (never mixed into hashtags).
-- **Web-grounded text** (OpenRouter `:online`) — captions can cite real sources,
-  shown in a **References** panel alongside stock-photo credits.
-- **↻ Variations** on caption / hook / hashtags / SEO (cheap targeted regen).
-- **Emoji picker** (sport / fitness / lifestyle pools) that inserts into any field.
-- **Per-slide Replace / Upload** — swap one image (stock or AI) or upload your own
-  without touching the rest of the post.
-- **↶ Undo** (last 5 edits) and **autosave drafts** (localStorage), plus
-  **Save ZIP to Downloads** with an Open-folder button.
-
-### 🔥 Trend Finder
-- Competitor accounts CRUD, then **Refresh trends** pulls recent Reels of every
-  active competitor via the Instagram Business Discovery API (SSE progress).
-- Per-media metrics + extracted hook / hashtags / CTA / engagement score.
-- **Adapt to MLMG** → one LLM call produces an on-brand idea
-  (hook / short script / shot list / caption / CTA / hashtags / SEO keywords).
-- **Use idea** pre-fills the wizard; the generated post is linked back to its
-  source trend (badge + FK), closing the loop.
-- **Hashtag intelligence** — 📊 Analyze ranks tags (🔥 hot / ✅ good / 🆕 niche /
-  ⚠️ saturated + trend arrows) from collected competitor media and the IG
-  Hashtag Search API.
-
-### 📅 Calendar & Scheduling
-- Month grid places posts by scheduled/published date with status dots.
-- **Content pillars** — a fixed 5-pillar MLMG mix (Educational / Inspirational /
-  Behind-the-scenes / Community / Product) with actual-vs-target bars and a
-  “what to post today” suggestion.
-- **Schedule** a post (10 min – 75 days). Publishing at the scheduled time uses
-  APScheduler; in the cloud it fires even when your PC is off (see below).
-
-### ▦ Grid
-- 3-column feed-style preview (first slide of each post) with status rings,
-  plus a 📱 Mobile / 🖥 Desktop width toggle.
-
-### 📊 Insights & 💰 Cost
-- **Performance** panel on published posts: on-demand refresh of reach / likes /
-  comments / saves / shares from the Graph API, stored as snapshots.
-- **Cost badge** in the header — live OpenRouter spend today (with a soft limit
-  warning) and a month + by-model breakdown; full dashboard in ⚙️ Admin.
-
-### 🎬 Reels
-- **Make Reel** renders a vertical 1080×1920 video from the post's slides
-  (Ken Burns zoom/pan + text overlays, local ffmpeg via `imageio-ffmpeg`).
-  Inline preview + Download MP4 + Publish Reel (cloud). An AI text-to-video
-  provider is stubbed behind the same interface for later.
-
-### ⚙️ Admin
-- **Backup / Restore** — download a ZIP of the database + generated media, and
-  restore it later (local sqlite swap or cloud `pg_dump`/`psql`).
-
-### Platform
-- **Desktop app** — double-click `InstaContentEngine.pyw`: self-installs deps,
-  bootstraps `.env`, prompts for the API key, starts FastAPI, opens a native
-  pywebview window. No browser, no CMD, no second launcher.
-- **Cloud mode** — the same code deploys to Render/Railway (Postgres) so
-  scheduled posts publish 24/7. See **[DEPLOY.md](DEPLOY.md)**.
-- **Multi-brand ready** — `BrandConfig` lives in the DB (palette, alpha, fonts,
-  logo, template); `My Life My Game` ships seeded as the default.
-- **Telegram bot** (optional) — conversational flow on the same engine.
+</div>
 
 ---
 
-## 🚀 Quick start (end user)
+## 💡 The idea
 
-> **No Python?** Ship the standalone build instead — a folder with an `.exe` that
-> needs no Python installed. See [BUILD.md](BUILD.md) for how to build it and how
-> the client runs it.
+Most AI content tools generate *plausible* posts. Content Engine is built around two harder promises:
 
-> The source archive below (double-click `.pyw`) requires Python 3.11+ and
-> Windows 10/11 (Edge WebView2 is pre-installed there).
+1. **On-brand, not generic** — every tenant has a brand identity (voice, niche, palette, logo, per-slide style) that flows through text *and* visuals. Agencies manage **multiple brands under one login**.
+2. **True, not just fluent** — the Business product starts from a company's **own public sources** (GitHub releases, RSS, changelog pages), selects what's genuinely newsworthy with **explainable rules (no ML, no background LLM spend)**, drafts *grounded* posts, and **fact-checks every claim against the source** before a human approves it. Nothing auto-publishes.
 
-1. **Unzip** `InstaContentEngine.zip` to any folder, e.g. `C:\InstaContentEngine\`.
-2. **Configure keys**: open `backend\.env` and set at minimum:
-   ```ini
-   OPENROUTER_API_KEY=sk-or-v1-...
-   ```
-   Add `IMGBB_API_KEY` + `INSTAGRAM_*` if you want to publish (see below).
-3. **Double-click `InstaContentEngine.pyw`**.
-   - First run: installs Python packages (~1–2 min, small progress window).
-   - Then: opens a native desktop window with the full UI.
+One codebase, one engine underneath. A single login switches between the two experiences (**🎨 Creators ↔ 🏢 Business** in the header). Bring-your-own-keys: tenants store their own provider keys (encrypted at rest) and pay their providers directly.
 
-If `.env` is missing or the API key is blank, the launcher opens `.env` in
-Notepad with instructions and exits so you can paste your key.
+**Try it without signing up** — the landing page demo takes any public repo/changelog URL and returns a lead card + a grounded draft in seconds.
 
 ---
 
-## ⚙️ Configuration
+## 🎨 For Creators
 
-Copy `backend/.env.example` → `backend/.env`. Only `OPENROUTER_API_KEY` is
-required for the Create wizard.
+| | Feature |
+|---|---|
+| 📝 | **4-step wizard** — topic → settings → SSE-streamed generation → preview & edit. Platform toggle **Instagram / X**, length tiers, per-post presets, additional instructions |
+| 🖼 | **Branded 1080×1350 cards** — niche box, translucent description box, logo, editable per-slide overlays (Apply / Reset), per-slide **Replace / Upload**, own-photo posts with drag-reorder |
+| 🗣 | **Brand voice & profile** — presets or custom voice, niche/audience/brand name; prefills every generation |
+| 🐦 | **X modes** — single post, **thread** (auto reply-chain), long post (X Premium); hashtags exactly once, markdown stripped |
+| 🔍 | **Web-grounded text** (OpenRouter `:online`) with a **References** panel; SEO keywords separate from hashtags |
+| 📅 | **Plan-a-week** — one click drafts a week of topics; calendar with content-pillar mix & "what to post today" |
+| ⏰ | **Scheduling** — APScheduler publishes on time, 24/7 in cloud even with your PC off |
+| 📊 | **Insights** — reach / likes / comments / saves snapshots from the Graph API; live LLM **cost badge** per tenant |
+| 🏷 | **Agency multi-brand** — create client brands, switch in the header; posts, calendar and feed are scoped per brand |
 
-| Variable | Purpose | Required for |
-|----------|---------|--------------|
-| `OPENROUTER_API_KEY` | LLM calls (caption, adapt, variations) | Everything text-related |
-| `DEFAULT_TEXT_MODEL` | OpenRouter model id | Caption generation |
-| `DEFAULT_IMAGE_MODEL` | OpenRouter image-capable model id | AI-generated slide images |
-| `UNSPLASH_ACCESS_KEY` / `PEXELS_API_KEY` | Stock photo APIs | Stock photo slides |
-| `IMGBB_API_KEY` | Public image hosting (imgbb) | **Publishing / scheduling** (IG can't fetch localhost) |
-| `INSTAGRAM_ACCESS_TOKEN` / `INSTAGRAM_USER_ID` | Meta Graph creds | Publishing, Trend Finder, Insights, Hashtag API |
-| `TREND_PROVIDER` | `business_discovery` \| `scraper` (stub) | Trend Finder |
-| `VIDEO_PROVIDER` | `kenburns` \| `ai` (stub) | Reels |
-| `APP_MODE` | `local` \| `cloud` | 24/7 scheduling |
-| `PUBLIC_BASE_URL` | Public URL of the backend | Reel publishing (cloud) |
-| `DATABASE_URL` | sqlite (local) or Postgres (cloud) | Cloud deploy |
-| `API_TOKEN` | Bearer token for the API | Optional auth (required in cloud) |
-| `TELEGRAM_BOT_TOKEN` | Bot API token | Telegram bot (optional) |
+## 🏢 For Business
 
-See **`API_KEYS_GUIDE.md`** for where to obtain each key.
+The pipeline: **sources → leads → drafts → approval → journal → analytics.**
 
----
+| | Feature |
+|---|---|
+| 🔗 | **Sources** — connect public links (GitHub releases, RSS, changelog pages). Hourly polling is **rules-only**: zero background LLM spend |
+| 📰 | **Leads feed** — every item scored *worthy / weak* with a **one-line human-readable reason**; duplicates dropped; dev-channel pre-releases & fixes-only patches demoted; ⚠️ **bad-news detector** pauses celebration posts |
+| ✍️ | **Grounded drafts** — one click turns a lead into a post written *only from the source*; digest mode bundles several leads; per-network IG / X text |
+| ✅ | **Claim check** — every factual claim is verified against the source; *"confirmed" survives only if the evidence is literally in the source text*. Brand rules (forbidden phrases, required disclaimers) enforced deterministically |
+| 👤 | **Human-in-the-loop** — draft → in review → approved → published; **approve is blocked** while brand rules are violated; a `workspace` post can only publish from *approved* |
+| 📋 | **Audit journal** — every approval records the AI draft vs the human's edits, who и when; **CSV / JSON export** |
+| 🛡 | **Publishing guards** — frequency caps (max per day/week), sensitive-lead confirmation |
+| 📈 | **Source analytics** — per-source funnel *(leads → worthy → drafts → approved / published + conversions)*, ranked "which source posts best" |
+| 🚪 | **No-signup demo** — `POST /api/demo/from-url`, hard rate-limited, runs on the app's own key |
 
-## ☁️ Local vs Cloud
+## 🎬 Reels studio
 
-Instagram's API has **no native scheduled publish** — something must call the
-publish endpoint at the scheduled time. Locally that only happens while the app
-is open. For posting when your PC is off, run the same backend in the cloud.
+From silent slideshow to a produced vertical video — all local ffmpeg, **no GPU, no heavy models**:
 
-| | Local (`.pyw`) | Cloud (Render) |
+| Stage | What you get |
+|---|---|
+| 🎞 Base | Ken Burns 1080×1920 slideshow from the post's slides, overlays burned in |
+| 🎙 **Voiceover** | LLM writes one narration segment per slide → **ElevenLabs** speaks it (your key) → each slide lasts exactly its segment → ALL-CAPS **subtitles** timed to the voice, burned via libass |
+| 🎥 **Stock b-roll** | Each segment swaps to a real **Pexels video** (same key as stock photos), auto-cropped to 9:16 with rotating pan; a **vision judge** (cheap model on your OpenRouter key) checks the frames actually match the narration — fail-open, per-segment fallback to slides |
+| 🎵 **Music** | Upload **your own** track — it loops quietly and **auto-ducks under the voice** (sidechain compression) |
+| 🪧 **Cover** | Slide 1 shows for the first 0.5 s (branding flash) — voice & subs stay perfectly aligned |
+| ✨ **Transitions** | Crossfades between b-roll clips, **sync-preserving** (timeline matches the voice second-for-second) |
+| 📤 Publish | Preview, download MP4, or publish the Reel to Instagram (cloud) |
+
+## 🔬 Accuracy, measured
+
+The Business pipeline was validated on **real data**, not vibes:
+
+| Gate | Method | Result |
 |---|---|---|
-| Generate / edit / export / Reel render | ✅ | ✅ |
-| Publish now | ✅ (needs `IMGBB_API_KEY`) | ✅ |
-| Scheduled publish, PC on | ✅ | ✅ |
-| Scheduled publish, **PC off** | ❌ | ✅ |
-| Reel auto-publish | ❌ (export MP4 only) | ✅ |
+| **Factual accuracy** *(blocking)* | 50 real drafts, every "confirmed" claim hand-checked against its source | ✅ **0 / 262** invented facts marked confirmed |
+| **Selection precision** | 110 real source items through the selector, hand-labeled | ✅ junk **7.7 %**, missed **9.4 %** (target < 20 % each) |
+| Blind quality | topic-post vs lead-post, blind judge panel | ✅ lead-based post preferred **10/10** (proxy run) |
 
-Full walkthrough in **[DEPLOY.md](DEPLOY.md)** (`Dockerfile` + `render.yaml`
-one-click blueprint, Postgres, imgbb, IG token).
+The key guard is deterministic: a claim can only be *confirmed* if its quoted evidence literally appears in the source — a hallucinated confirmation cannot survive, no matter what the model says.
 
 ---
 
-## 🎨 The branded card template
+## 🚀 Quick start
 
-```
-┌──────────────────────────────────────┐  1080 × 1350 portrait
-│         <background photo>           │  ← Unsplash / Pexels / AI gen / upload
-│                                      │
-│  ┌──────────┐                        │  ← orange niche-box (palette swatch)
-│  │ Running  │                        │     bold, ~40px, font Klein (fallback ok)
-│  └──────────┘                        │
-│  ┌────────────────────────────────┐  │  ← white, alpha ~0.79, aligned across slides
-│  │ Run From Asia to Europe.       │  │     description-box = editable overlay (≤2 lines)
-│  └────────────────────────────────┘  │
-│  1/3                          [logo] │  ← optional manual page number + top-right logo
-└──────────────────────────────────────┘
+### ☁️ Cloud (multi-tenant SaaS)
+
+```bash
+git clone https://github.com/Dev-In-Crypt/InstaContentEngine && cd InstaContentEngine
+cp backend/.env.example backend/.env   # set SECRET_KEY, DATABASE_URL, PUBLIC_BASE_URL, ...
+docker compose up -d --build
 ```
 
-Niche-box palette: `#ffbf00` · `#0076cb` · `#5e17eb` · `#00bf63` · `#000000` · `#ff751f`
+Users sign up on the landing page (Creators or Business door), verify email, and add **their own keys** in *Account* — AI provider (OpenRouter / OpenAI / Anthropic / Google), Instagram, X, stock photos, ElevenLabs. Keys are **Fernet-encrypted at rest** and never returned in plaintext. Full walkthrough: **[DEPLOY.md](DEPLOY.md)** · **[SELFHOST.md](SELFHOST.md)** · **[WORKS_WHERE.md](WORKS_WHERE.md)**.
+
+### 🖥 Desktop (single user)
+
+Double-click **`InstaContentEngine.pyw`** (Python 3.11+, Windows): self-installs deps, bootstraps `.env`, opens a native window. No Python at all? Build the standalone `.exe` — see **[BUILD.md](BUILD.md)**.
+
+### 🧑‍💻 Development
+
+```bash
+cd backend
+python -m venv .venv && .venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000    # http://localhost:8000
+python -m pytest -q                      # 758 passing
+ruff check .                             # clean
+```
+
+Where to get every key: **[API_KEYS_GUIDE.md](API_KEYS_GUIDE.md)**.
+
+### ⚙️ Server configuration (`backend/.env`)
+
+> In cloud mode, provider keys are **per-tenant, set in the UI** — the server env only needs platform-level settings.
+
+| Variable | Purpose |
+|---|---|
+| `APP_MODE` | `local` (desktop) \| `cloud` (multi-tenant) |
+| `SECRET_KEY` / `ENCRYPTION_KEY` | JWT signing · Fernet key encryption |
+| `DATABASE_URL` | sqlite (local) or Postgres (cloud) — Alembic migrates on startup |
+| `PUBLIC_BASE_URL` | public URL (email links, Reel publishing) |
+| `OPENROUTER_API_KEY` | **app-level** key: powers the no-signup demo (and local desktop) |
+| `ELEVENLABS_VOICE_ID` / `BROLL_JUDGE_MODEL` | Reels defaults (Rachel voice · Gemini judge) |
+| `RESEND_API_KEY` / `EMAIL_FROM` | verification / reset emails (empty → no-op in dev) |
 
 ---
 
 ## 🏗️ Architecture
 
-```
-InstaContentEngine.pyw  ── deps + .env + key prompt → uvicorn (daemon thread) → pywebview window
-        │  (cloud: Docker → uvicorn 24/7 + Postgres + APScheduler)
-        ▼
-FastAPI (backend/main.py)  — lifespan migrations, brand seed, APScheduler
-  /api/posts    generate · list · edit · slides(replace/upload/overlay) ·
-                export · export-to-disk · schedule · publish · publish-reel ·
-                reel · insights · regenerate-field · pillars/mix
-  /api/trends   competitors · refresh · media · adapt · ideas · generate ·
-                hashtags/rank
-  /api/usage    LLM cost aggregates       /api/admin/backup|restore
-  /api/models   /api/stock                /static/*  (single-page UI)
-        │
-        ▼
-Services
-  ContentEngine · CaptionGenerator · ImageRouter · PillowBrandEngine
-  ImgbbUploader · InstagramPublisher · TemplateExporter
-  TrendProvider · TrendExtractor · TrendAdapter · HashtagIntel
-  scheduler (APScheduler) · publisher_flow · video/ (KenBurns + AI stub)
-  pillars · openrouter (usage capture)
-        │
-        ▼
-DB (sqlite local / Postgres cloud) — SQLAlchemy async
-  Post · Slide · BrandConfig · CompetitorAccount · TrendingMedia · TrendIdea
-  PostInsight · HashtagStat · LLMUsage · Canva/Instagram tokens
+```mermaid
+flowchart LR
+    subgraph Clients
+        L[Landing + Demo]
+        SPA[Single-page app<br/>Creators / Business shells]
+        D[Desktop .pyw]
+        TG[Telegram bot]
+    end
+
+    subgraph API [FastAPI · JWT auth · per-tenant keys]
+        P["/api/posts — generate · slides · reel · schedule · publish · insights"]
+        B["/api/business — sources · leads · drafts · workflow · journal · analytics"]
+        A["/api/accounts — agency brands · switch"]
+        S["/api/settings — profile · brand voice · AI models · keys · logo · music"]
+        DM["/api/demo — no-auth lead demo"]
+    end
+
+    subgraph Services
+        CE[ContentEngine<br/>captions · slides · polish]
+        SRC[sources + event_selector<br/>rules-only poller]
+        CC[claim_check<br/>evidence-grounded]
+        RV[Reels: tts · subtitles · broll<br/>normalize · assemble]
+        PUB[publisher_flow<br/>IG Graph · X OAuth1.0a]
+        AI[ai/ providers<br/>OpenRouter · OpenAI · Anthropic · Google]
+    end
+
+    DB[(Postgres / sqlite<br/>SQLAlchemy async + Alembic)]
+    SCHED[APScheduler<br/>publish jobs · hourly source poll · cleanup]
+
+    Clients --> API --> Services --> DB
+    SCHED --> Services
 ```
 
-### Data flow: generate-from-trend
-
-```
-Refresh trends → TrendingMedia → [Adapt] → LLM → TrendIdea
-      → [Use] → ContentEngine → Post (trend_idea_id) → Slides (1080×1350)
-      → [Schedule/Publish] → imgbb → Instagram → [Refresh insights] → PostInsight
-```
-
----
+**Money rules (firm):** the background poller never calls an LLM; all LLM/TTS spend is user-initiated on the user's own key. **Security boundary:** `user_id` everywhere; agency brands and business workspaces are additive scopes on top; per-tenant credentials are encrypted (Fernet) and only ever reported masked.
 
 ## 📂 Project structure
 
 ```
 .
-├── InstaContentEngine.pyw      ← desktop entry-point (double-click)
-├── Dockerfile · render.yaml · DEPLOY.md   ← cloud deploy
-├── README.md · API_KEYS_GUIDE.md · instagram-content-engine-spec.md
+├── InstaContentEngine.pyw        ← desktop entry-point
+├── Dockerfile · docker-compose · DEPLOY.md · SELFHOST.md · BUILD.md
 └── backend/
-    ├── main.py                 ← FastAPI app + lifespan migrations + APScheduler
-    ├── config.py · requirements.txt · pytest.ini · .env.example
-    ├── api/
-    │   ├── deps.py             ← DI factories, auth, brand-config loader
-    │   └── routes/             ← posts · trends · admin · models · stock
+    ├── main.py                   ← FastAPI app · Alembic-on-startup · APScheduler
+    ├── alembic/versions/         ← incremental migrations
+    ├── api/routes/               ← posts · business · accounts · auth · settings · demo · admin
     ├── services/
-    │   ├── content_engine.py · caption_generator.py · brand_engine.py
-    │   ├── image_router.py · openrouter.py · stock.py · exporter.py
-    │   ├── instagram.py · image_host.py · publisher_flow.py · scheduler.py
-    │   ├── trend_provider.py · trend_extractor.py · trend_adapter.py
-    │   ├── hashtag_intel.py · pillars.py
-    │   └── video/             ← base (Protocol) · kenburns · ai_provider (stub)
-    ├── models/                ← database.py (tables) · schemas.py (Pydantic + enums)
-    ├── bot/                   ← Telegram bot (optional)
-    ├── static/index.html      ← single-page UI (Tailwind CDN, vanilla JS)
-    └── tests/                 ← pytest suite (244 passing)
+    │   ├── content_engine · caption_generator · brand_engine · text_polish
+    │   ├── sources/ (github · rss · page) · event_selector · lead_builder · source_poller
+    │   ├── claim_check · claims · workspace · managed_account
+    │   ├── tts · subtitles · reel_script · broll · video/ (kenburns · normalize · assemble)
+    │   ├── ai/ (openrouter · openai · anthropic · google) · secrets · user_settings
+    │   └── instagram · x_publisher · publisher_flow · scheduler · logo_store · music_store
+    ├── models/                   ← database.py · schemas.py
+    ├── static/index.html         ← the whole UI (landing + both product shells)
+    └── tests/                    ← 758 passing, mutation-guard style
 ```
-
----
-
-## 🧪 Development
-
-```bash
-cd backend
-python -m venv .venv && .venv\Scripts\activate      # PowerShell
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000               # open http://localhost:8000
-python -m pytest -q                                 # run tests
-del insta.db                                        # reset DB (re-seeds brand preset)
-```
-
-**Tests:** **244 passing**, 0 failing. **Lint:** `ruff check backend
-InstaContentEngine.pyw` from the repo root (ruff is CI-only — install it with
-`pip install ruff`, it is not in `requirements.txt`).
-
-Both run on every push and pull request via [GitHub
-Actions](.github/workflows/ci.yml).
-
-### Extending
-
-- **New brand preset** — insert a `brand_configs` row (or extend
-  `main.py:_seed_brand_preset`); set `is_default=True`.
-- **New trend provider** — implement the `TrendProvider` Protocol in
-  `services/trend_provider.py`, register in `api/deps.py:make_trend_provider_for`,
-  select via `TREND_PROVIDER`.
-- **New DB column** — add it in `models/database.py` and to `_MIGRATIONS` in
-  `main.py` (dialect-safe: sqlite PRAGMA / Postgres `ADD COLUMN IF NOT EXISTS`).
-- **AI video** — implement `services/video/ai_provider.py:AIVideoProvider`
-  (Runway/Kling/Luma) and select via `VIDEO_PROVIDER=ai`.
 
 ---
 
 ## 🔌 API overview
 
-JSON everywhere; gated by `Bearer <API_TOKEN>` when `API_TOKEN` is set.
+JSON everywhere; cloud endpoints are JWT-gated (`Authorization: Bearer`). Highlights:
+
+<details>
+<summary><b>Creators</b> — posts, reels, publishing</summary>
 
 | Method | Path | Notes |
-|--------|------|-------|
-| `GET`  | `/health` | liveness |
+|---|---|---|
 | `POST` | `/api/posts/generate` | SSE — generate a post |
-| `GET`  | `/api/posts` · `/api/posts/{id}` | list (thumb/status) · full preview |
-| `PUT`  | `/api/posts/{id}/caption` | edit caption / hashtags / SEO |
-| `POST` | `/api/posts/{id}/regenerate-field` | N variants for one field |
-| `POST` | `/api/posts/{id}/slides/{n}/regenerate` · `/upload` | replace / upload one slide |
-| `PUT`  | `/api/posts/{id}/slides/{n}/overlay` | edit overlay text in place |
-| `POST` | `/api/posts/{id}/export` · `/export-to-disk` | ZIP download / save to Downloads |
-| `POST` | `/api/posts/{id}/schedule` · `DELETE` same | schedule / cancel |
-| `POST` | `/api/posts/{id}/publish` · `/publish-reel` | publish now / publish Reel |
-| `POST` | `/api/posts/{id}/reel` · `GET` `/reel/video` | render / serve Reel MP4 |
-| `POST` | `/api/posts/{id}/insights/refresh` · `GET` `/insights` | metrics snapshot / history |
-| `GET`  | `/api/posts/pillars/mix` | content-pillar mix + suggestion |
-| `POST` | `/api/trends/refresh` | SSE — fetch competitor Reels |
-| `GET`/`POST`/`PUT`/`DELETE` | `/api/trends/competitors...` | competitor CRUD |
-| `GET`  | `/api/trends/media` · `POST` `/media/{id}/adapt` | browse · adapt to idea |
-| `GET`/`PUT`/`DELETE` | `/api/trends/ideas...` · `POST` `/ideas/{id}/generate` | idea CRUD · make post |
-| `POST` | `/api/trends/hashtags/rank` | hashtag intelligence |
-| `GET`  | `/api/usage` | LLM cost aggregates |
-| `GET`  | `/api/admin/backup` · `POST` `/api/admin/restore` | backup / restore |
-| `GET`  | `/api/models/*` · `POST` `/api/stock/search` | LLM list · stock search |
+| `POST` | `/api/posts/plan` | plan a week of topics |
+| `POST` | `/api/posts/{id}/reel` | render Reel — body `{voiceover, voice_id, visuals: slides\|broll, music, cover}` |
+| `POST` | `/api/posts/{id}/publish` · `/publish-reel` | Instagram / X publish |
+| `POST` | `/api/posts/{id}/schedule` | timed publish (24/7 in cloud) |
+| `POST` | `/api/posts/{id}/insights/refresh` | metrics snapshot |
+| `GET/POST` | `/api/accounts` · `/switch` | agency brands |
+
+</details>
+
+<details>
+<summary><b>Business</b> — sources → leads → approval → analytics</summary>
+
+| Method | Path | Notes |
+|---|---|---|
+| `POST/GET` | `/api/business/sources` | connect / list sources (add = instant 90-day poll) |
+| `GET` | `/api/business/leads` | scored feed (`strength`, reason, ⚠ sensitive) |
+| `POST` | `/api/business/leads/{id}/draft` · `/digest` | SSE — grounded draft (claim-checked) |
+| `PUT/POST` | `/api/business/posts/{id}` · `/submit` · `/approve` · `/reject` | workflow (approve blocked by brand-rule violations) |
+| `GET` | `/api/business/journal` · `/journal/export?format=csv\|json` | audit trail |
+| `GET/PUT` | `/api/business/brand-rules` · `/limits` | forbidden/disclaimers · frequency caps |
+| `GET` | `/api/business/source-analytics` | per-source funnel, best first |
+| `POST` | `/api/demo/from-url` | no-auth demo (rate-limited) |
+
+</details>
+
+<details>
+<summary><b>Account & platform</b></summary>
+
+| Method | Path | Notes |
+|---|---|---|
+| `PUT` | `/api/auth/account-type` | switch Creators ↔ Business (one login) |
+| `GET/PUT` | `/api/settings/ai` · `/credentials` | provider + models · encrypted keys (masked) |
+| `GET/POST/DELETE` | `/api/settings/logo` · `/music` | brand logo · Reel music track |
+| `GET` | `/api/usage` | per-tenant LLM spend |
+| `GET/POST` | `/api/admin/backup` · `/restore` | full backup / restore |
+
+</details>
 
 ---
 
-## 🛣️ Roadmap
+## 🗺 Status & Roadmap
 
-- **AI text-to-video** — real Runway/Kling/Luma integration behind the existing
-  `AIVideoProvider` stub (async polling, cost).
-- **3rd-party trend provider** — Apify Actor for hashtag/explore discovery
-  (`ScraperTrendProvider` stub in place).
-- **Video understanding** — multimodal LLM to extract the visual hook/shot list
-  from a competitor Reel automatically.
-- **Multi-platform crossposting** — LinkedIn / Threads / TikTok publish.
-- **Klein font** — drop `Klein-*.ttf` into `backend/static/fonts/` and point the
-  `BrandConfig` preset at it.
+### ✅ Shipped
+
+| Area | Status |
+|---|---|
+| Multi-tenant cloud: JWT auth, email verify, encrypted per-tenant keys, landing + ToS/Privacy | ✅ |
+| Creators: wizard, branded cards, brand voice/profile, presets, own photos, variations, week planner, calendar/pillars, grid | ✅ |
+| Publishing: Instagram (posts + Reels), X (single / thread / long), scheduling 24/7, insights, cost tracking | ✅ |
+| Business: sources · rules-only poller · leads · grounded drafts · **claim check** · approval workflow · audit journal · guards · source analytics | ✅ |
+| Agencies: multi-brand under one login + product switcher | ✅ |
+| Reels v2: 🎙 voiceover + subs → 🎞 b-roll + vision judge → 🎵 music ducking + 🪧 cover + crossfades | ✅ |
+| Accuracy gates on real data (selection + factual) | ✅ passed |
+| Desktop app + standalone build, Docker deploy, backups, CI | ✅ |
+
+### 🛣 Roadmap
+
+- **Go-to-market gates** — blind quality test with real raters; willingness-to-pay outreach through the demo.
+- **Billing** — plans/limits per tenant (marketing tiers exist; payments do not yet).
+- **Agency depth** — per-brand social/AI keys, author/approver roles, multiple Business workspaces per account.
+- **Engagement-based source analytics** — light up once Business posts publish to real networks.
+- **AI text-to-video** — Runway/Kling/Luma behind the existing `AIVideoProvider` interface.
+- **More b-roll sources** (Pixabay, NASA) and a clip library cache; word-level karaoke subs via an API aligner.
+- **More platforms** — Threads / TikTok / LinkedIn publishing.
 
 ---
+
+## 🧪 Testing philosophy
+
+Every feature lands with **mutation-guard tests** — each test names the specific regression it exists to catch (drop the isolation filter → the cross-tenant leak test fails; skip the evidence check → the hallucination test fails). Heavy paths (ffmpeg render, mux, ducking) run **for real** in CI, not mocked. `758 passed · ruff clean` on every push via [GitHub Actions](.github/workflows/ci.yml).
 
 ## 📜 License
 
-Proprietary — for the My Life My Game brand. Not for redistribution.
+Proprietary. Not for redistribution.
 
-## 🤝 Contributing
-
-Internal, single-brand engine. Follow the conventional-commits style used in the
-git history (`feat:`, `fix:`, `chore:`, `test:`, `feat(trends):`, …).
+<div align="center">
+<sub>Built with FastAPI · SQLAlchemy · Alembic · APScheduler · Pillow · ffmpeg · Tailwind — and a strict "no invented facts" policy.</sub>
+</div>
