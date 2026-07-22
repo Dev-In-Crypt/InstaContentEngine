@@ -13,8 +13,8 @@
   <img src="https://img.shields.io/badge/SQLAlchemy-async-d71f00.svg" alt="SQLAlchemy async">
   <img src="https://img.shields.io/badge/tests-758%20passing-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/lint-ruff%20clean-9C27B0.svg" alt="Ruff">
-  <a href="https://github.com/Dev-In-Crypt/InstaContentEngine/actions/workflows/ci.yml">
-    <img src="https://github.com/Dev-In-Crypt/InstaContentEngine/actions/workflows/ci.yml/badge.svg" alt="CI">
+  <a href="https://github.com/Dev-In-Crypt/ContentEngine/actions/workflows/ci.yml">
+    <img src="https://github.com/Dev-In-Crypt/ContentEngine/actions/workflows/ci.yml/badge.svg" alt="CI">
   </a>
   <img src="https://img.shields.io/badge/license-proprietary-lightgrey.svg" alt="License">
 </p>
@@ -73,7 +73,7 @@ The pipeline: **sources → leads → drafts → approval → journal → analyt
 | ✍️ | **Grounded drafts** — one click turns a lead into a post written *only from the source*; digest mode bundles several leads; per-network IG / X text |
 | ✅ | **Claim check** — every factual claim is verified against the source; *"confirmed" survives only if the evidence is literally in the source text*. Brand rules (forbidden phrases, required disclaimers) enforced deterministically |
 | 👤 | **Human-in-the-loop** — draft → in review → approved → published; **approve is blocked** while brand rules are violated; a `workspace` post can only publish from *approved* |
-| 📋 | **Audit journal** — every approval records the AI draft vs the human's edits, who и when; **CSV / JSON export** |
+| 📋 | **Audit journal** — every approval records the AI draft vs the human's edits, who and when; **CSV / JSON export** |
 | 🛡 | **Publishing guards** — frequency caps (max per day/week), sensitive-lead confirmation |
 | 📈 | **Source analytics** — per-source funnel *(leads → worthy → drafts → approved / published + conversions)*, ranked "which source posts best" |
 | 🚪 | **No-signup demo** — `POST /api/demo/from-url`, hard rate-limited, runs on the app's own key |
@@ -111,7 +111,7 @@ The key guard is deterministic: a claim can only be *confirmed* if its quoted ev
 ### ☁️ Cloud (multi-tenant SaaS)
 
 ```bash
-git clone https://github.com/Dev-In-Crypt/InstaContentEngine && cd InstaContentEngine
+git clone https://github.com/Dev-In-Crypt/ContentEngine && cd ContentEngine
 cp backend/.env.example backend/.env   # set SECRET_KEY, DATABASE_URL, PUBLIC_BASE_URL, ...
 docker compose up -d --build
 ```

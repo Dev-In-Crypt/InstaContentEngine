@@ -22,8 +22,8 @@ curl -fsSL https://get.docker.com | sh
 ## 3. Get the code + configure
 
 ```bash
-git clone https://github.com/Dev-In-Crypt/InstaContentEngine.git
-cd InstaContentEngine
+git clone https://github.com/Dev-In-Crypt/ContentEngine.git
+cd ContentEngine
 cp compose.env.example .env
 nano .env        # fill in DOMAIN, SECRET_KEY, DB_PASSWORD, ADMIN_EMAILS, PUBLIC_BASE_URL
 ```
