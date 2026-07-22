@@ -45,3 +45,70 @@ def mux_reel_sync(video_path: Path, audio_path: Path, ass_path: Optional[Path],
 async def mux_reel(video_path: Path, audio_path: Path, ass_path: Optional[Path],
                    out_path: Path) -> None:
     await asyncio.to_thread(mux_reel_sync, video_path, audio_path, ass_path, out_path)
+
+
+# ── Cover intro (R3) — the branded slide 1 REPLACES the reel's first 0.5s ────
+# Replacing (not prepending) keeps the voice and subtitles at t=0 untouched:
+# only the video track shows the cover while the narration already runs.
+
+COVER_DURATION_SEC = 0.5
+
+
+def _run_ffmpeg(args: list[str], what: str) -> None:
+    proc = subprocess.run([ffmpeg_exe(), "-hide_banner", "-y", *args],
+                          capture_output=True, text=True, errors="replace")
+    if proc.returncode != 0:
+        raise VideoError(f"ffmpeg {what} failed: {proc.stderr[-400:]}")
+
+
+def render_cover_sync(image_bytes: bytes, dst: Path,
+                      duration: float = COVER_DURATION_SEC) -> None:
+    """Render a `duration`-second 1080x1920 mp4 from a still (slide 1)."""
+    tmp_jpg = dst.with_suffix(".cover.jpg")
+    tmp_jpg.write_bytes(image_bytes)
+    try:
+        _run_ffmpeg(
+            ["-loop", "1", "-t", f"{duration:.3f}", "-i", str(tmp_jpg),
+             "-r", "30", "-vf",
+             "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920",
+             "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+             "-pix_fmt", "yuv420p", str(dst)],
+            "cover render")
+    finally:
+        tmp_jpg.unlink(missing_ok=True)
+    if not dst.exists() or dst.stat().st_size == 0:
+        raise VideoError("cover render produced an empty file")
+
+
+def prepend_cover_sync(cover: Path, base: Path, dst: Path, total_dur: float) -> None:
+    """Trim the first COVER_DURATION_SEC off `base` and concat `cover` in front —
+    total duration stays == total_dur, so voice/subs timing is untouched."""
+    trimmed = base.with_name(base.stem + "_trimmed.mp4")
+    target_after = max(0.0, total_dur - COVER_DURATION_SEC)
+    _run_ffmpeg(["-ss", f"{COVER_DURATION_SEC:.3f}", "-i", str(base),
+                 "-t", f"{target_after:.3f}",
+                 "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                 "-pix_fmt", "yuv420p", "-r", "30", "-an", str(trimmed)],
+                "cover trim")
+    lst = base.with_name(base.stem + "_cover_list.txt")
+    lst.write_text(f"file '{cover.resolve().as_posix()}'\n"
+                   f"file '{trimmed.resolve().as_posix()}'\n", encoding="utf-8")
+    try:
+        _run_ffmpeg(["-f", "concat", "-safe", "0", "-i", str(lst),
+                     "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                     "-pix_fmt", "yuv420p", "-r", "30", "-an", str(dst)],
+                    "cover concat")
+    finally:
+        lst.unlink(missing_ok=True)
+        trimmed.unlink(missing_ok=True)
+    if not dst.exists() or dst.stat().st_size == 0:
+        raise VideoError("cover concat produced an empty file")
+
+
+async def render_cover(image_bytes: bytes, dst: Path,
+                       duration: float = COVER_DURATION_SEC) -> None:
+    await asyncio.to_thread(render_cover_sync, image_bytes, dst, duration)
+
+
+async def prepend_cover(cover: Path, base: Path, dst: Path, total_dur: float) -> None:
+    await asyncio.to_thread(prepend_cover_sync, cover, base, dst, total_dur)

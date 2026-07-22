@@ -407,6 +407,60 @@ def test_broll_segment_falls_back_to_slide(client, seeded, monkeypatch, tmp_path
         _clear(keys)
 
 
+# ── music + cover (R3) ──────────────────────────────────────────────────────
+
+def test_music_needs_uploaded_track(client, seeded, monkeypatch, tmp_path):
+    from services import music_store
+    monkeypatch.setattr(music_store, "MUSIC_ROOT", tmp_path / "music")  # empty
+
+    keys = _override_voiceover_deps(text_provider=_FakeTextOneLine(),
+                                    elevenlabs_key="k")
+    try:
+        res = client.post(f"/api/posts/{seeded}/reel",
+                          json={"voiceover": True, "music": True})
+        assert res.status_code == 400
+        assert "track" in res.json()["detail"].lower()
+    finally:
+        _clear(keys)
+
+
+def test_voiceover_with_music_and_cover(client, seeded, monkeypatch, tmp_path):
+    """Full slides-path with a real uploaded tone track: ducking mix, cover
+    replace and mux all run for REAL. The reel must still carry audio and stay
+    ≈ the voice length (cover replaces, music is pinned to voice)."""
+    import subprocess
+
+    from services import music_store
+    from services import tts as tts_mod
+
+    _fake_tts(monkeypatch, tmp_path)
+    monkeypatch.setattr(music_store, "MUSIC_ROOT", tmp_path / "music")
+
+    # a real 2s tone as the user's uploaded track
+    track = tmp_path / "track.mp3"
+    subprocess.run([tts_mod.ffmpeg_exe(), "-hide_banner", "-y",
+                    "-f", "lavfi", "-i", "sine=frequency=200:duration=2",
+                    "-c:a", "libmp3lame", "-b:a", "64k", str(track)],
+                   capture_output=True, check=True)
+    me = client.get("/api/auth/me").json()
+    music_store.save(str(me["id"]), track.read_bytes(), "audio/mpeg")
+
+    keys = _override_voiceover_deps(text_provider=_FakeTextOneLine(),
+                                    elevenlabs_key="k")
+    try:
+        res = client.post(f"/api/posts/{seeded}/reel",
+                          json={"voiceover": True, "music": True, "cover": True})
+        assert res.status_code == 200, res.text
+        assert res.json().get("voiceover") is True
+        from api.routes.posts import _reel_path
+        info = subprocess.run([tts_mod.ffmpeg_exe(), "-hide_banner", "-i",
+                               str(_reel_path(seeded))],
+                              capture_output=True, text=True, errors="replace").stderr
+        assert "Audio:" in info and "Video:" in info
+    finally:
+        _clear(keys)
+
+
 # ── usage + backup ──────────────────────────────────────────────────────────
 
 def test_usage_aggregate(client, seeded):

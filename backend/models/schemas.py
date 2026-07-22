@@ -313,6 +313,8 @@ class ReelRequest(BaseModel):
     voiceover: bool = False
     voice_id: Optional[str] = Field(None, max_length=80)   # ElevenLabs voice
     visuals: str = "slides"
+    music: bool = False    # tenant's uploaded track, ducked under the voice (R3)
+    cover: bool = False    # slide 1 replaces the first 0.5s of video (R3)
 
     @field_validator("visuals")
     @classmethod
@@ -488,6 +490,11 @@ class LogoSettingsResponse(BaseModel):
     """The tenant's brand logo — whether one is set, and where to preview it."""
     set: bool = False
     url: Optional[str] = None
+
+
+class MusicSettingsResponse(BaseModel):
+    """The tenant's Reel background-music track — whether one is uploaded."""
+    set: bool = False
 
 
 class XSettingsUpdate(BaseModel):

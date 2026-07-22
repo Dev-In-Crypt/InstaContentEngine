@@ -118,6 +118,69 @@ def concat_clips_sync(paths: list[Path], dst: Path) -> None:
         raise VideoError("concat produced an empty file")
 
 
+XFADE_SEC = 0.3
+
+
+def concat_clips_xfade_sync(paths: list[Path], durations: list[float], dst: Path,
+                            *, fade: float = XFADE_SEC) -> None:
+    """Crossfade-concat, SYNC-PRESERVING: every clip except the last was rendered
+    `fade` seconds LONGER than its narration segment, so each crossfade consumes
+    exactly that surplus — offsets are the ORIGINAL cumulative durations and the
+    output timeline still matches the voice/subtitles second for second."""
+    if not paths:
+        raise VideoError("No clips to concatenate")
+    if len(paths) != len(durations):
+        raise VideoError("clips and durations must match")
+    if len(paths) == 1:
+        import shutil
+        shutil.copyfile(paths[0], dst)
+        return
+    inputs: list[str] = []
+    for p in paths:
+        inputs += ["-i", str(p)]
+    chain: list[str] = []
+    last = "[0:v]"
+    accumulated = 0.0
+    for i in range(1, len(paths)):
+        accumulated += durations[i - 1]
+        out_label = f"[v{i:02d}]"
+        chain.append(f"{last}[{i}:v]xfade=transition=fade:duration={fade}"
+                     f":offset={accumulated:.3f}{out_label}")
+        last = out_label
+    args = [ffmpeg_exe(), "-hide_banner", "-y", *inputs,
+            "-filter_complex", ";".join(chain), "-map", last,
+            "-r", str(TARGET_FPS), "-an", "-c:v", "libx264", "-preset", "fast",
+            "-crf", "20", "-pix_fmt", "yuv420p", str(dst)]
+    proc = subprocess.run(args, capture_output=True, text=True, errors="replace")
+    if proc.returncode != 0:
+        raise VideoError(f"xfade concat failed: {proc.stderr[-400:]}")
+    if not dst.exists() or dst.stat().st_size == 0:
+        raise VideoError("xfade concat produced an empty file")
+
+
+def align_to_duration_sync(src: Path, dst: Path, target: float) -> None:
+    """Belt-and-suspenders after xfade: pad (freeze last frame) or trim so the
+    video is exactly as long as the voice track."""
+    import shutil
+    _w, _h, src_dur = probe_video(src)
+    delta = target - src_dur
+    if abs(delta) < 0.05:
+        shutil.copyfile(src, dst)
+        return
+    if delta > 0:
+        args = ["-i", str(src), "-vf",
+                f"tpad=stop_mode=clone:stop_duration={delta:.3f}"]
+    else:
+        args = ["-i", str(src), "-t", f"{target:.3f}"]
+    proc = subprocess.run(
+        [ffmpeg_exe(), "-hide_banner", "-y", *args, "-r", str(TARGET_FPS), "-an",
+         "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+         "-pix_fmt", "yuv420p", str(dst)],
+        capture_output=True, text=True, errors="replace")
+    if proc.returncode != 0:
+        raise VideoError(f"align failed: {proc.stderr[-400:]}")
+
+
 async def normalize_clip(src: Path, dst: Path, *, target_duration: float,
                          segment_id: int) -> None:
     await asyncio.to_thread(normalize_clip_sync, src, dst,
@@ -126,3 +189,12 @@ async def normalize_clip(src: Path, dst: Path, *, target_duration: float,
 
 async def concat_clips(paths: list[Path], dst: Path) -> None:
     await asyncio.to_thread(concat_clips_sync, paths, dst)
+
+
+async def concat_clips_xfade(paths: list[Path], durations: list[float], dst: Path,
+                             *, fade: float = XFADE_SEC) -> None:
+    await asyncio.to_thread(concat_clips_xfade_sync, paths, durations, dst, fade=fade)
+
+
+async def align_to_duration(src: Path, dst: Path, target: float) -> None:
+    await asyncio.to_thread(align_to_duration_sync, src, dst, target)

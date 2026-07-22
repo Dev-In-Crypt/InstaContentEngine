@@ -99,6 +99,31 @@ def test_concat_empty_raises(tmp_path):
         concat_wavs_sync([], tmp_path / "x.m4a")
 
 
+def test_mix_with_music_pins_length_to_voice(tmp_path):
+    """Music loops forever — the mix MUST end with the voice. Mutation guard:
+    drop `duration=first`/`-shortest` → the output outruns the voice and fails."""
+    from services.tts import mix_with_music_sync
+
+    voice_mp3 = _tone_mp3(tmp_path / "v.mp3", 0.5)
+    voice = tmp_path / "v.wav"
+    vdur = mp3_to_wav_sync(voice_mp3, voice)
+    music_mp3 = _tone_mp3(tmp_path / "m.mp3", 3.0)      # much longer than voice
+    music = tmp_path / "m.wav"
+    mp3_to_wav_sync(music_mp3, music)
+
+    out = tmp_path / "mix.m4a"
+    mix_with_music_sync(voice, music, out)
+    assert out.exists() and out.stat().st_size > 0
+    # probe duration via ffmpeg -i stderr
+    proc = subprocess.run([ffmpeg_exe(), "-hide_banner", "-i", str(out)],
+                          capture_output=True, text=True, errors="replace")
+    import re
+    m = re.search(r"Duration:\s*(\d+):(\d\d):(\d\d(?:\.\d+)?)", proc.stderr)
+    assert m, proc.stderr[-200:]
+    dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+    assert dur <= vdur + 0.3        # pinned to voice, not the 3s music
+
+
 def test_async_wrappers_run(tmp_path):
     mp3 = _tone_mp3(tmp_path / "a.mp3", 0.3)
     from services.tts import concat_wavs, mp3_to_wav

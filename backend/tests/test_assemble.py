@@ -73,3 +73,34 @@ def test_mux_bad_input_raises(tmp_path):
     audio = _tone_wav(tmp_path / "tone.wav", 0.2)
     with pytest.raises(VideoError):
         mux_reel_sync(bad, audio, None, tmp_path / "out.mp4")
+
+
+# ── cover intro (R3) ────────────────────────────────────────────────────────
+
+def test_render_cover_is_vertical_half_second(tmp_path):
+    from services.video.assemble import render_cover_sync
+    from services.video.normalize import probe_video
+
+    dst = tmp_path / "cover.mp4"
+    render_cover_sync(_slide("green"), dst)
+    w, h, dur = probe_video(dst)
+    assert (w, h) == (1080, 1920)
+    assert 0.4 < dur < 0.7
+
+
+def test_prepend_cover_replaces_not_extends(tmp_path):
+    """REPLACE semantics: total duration stays == base duration, so voice and
+    subtitles keep their t=0 alignment. Mutation guard: skip the base trim →
+    the output grows by 0.5s and this fails."""
+    from services.video.assemble import prepend_cover_sync, render_cover_sync
+    from services.video.normalize import probe_video
+
+    base = tmp_path / "base.mp4"
+    base.write_bytes(asyncio.run(
+        KenBurnsVideoProvider().make_reel([_slide("red")], duration_per=1.0)))
+    cover = tmp_path / "cover.mp4"
+    render_cover_sync(_slide("blue"), cover)
+    out = tmp_path / "covered.mp4"
+    prepend_cover_sync(cover, base, out, total_dur=1.0)
+    _w, _h, dur = probe_video(out)
+    assert 0.85 < dur < 1.15        # ≈ 1.0, NOT 1.5

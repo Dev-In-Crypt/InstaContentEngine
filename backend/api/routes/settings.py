@@ -14,11 +14,11 @@ from api.deps import _CRED_FIELDS, get_current_user, get_db
 from models.database import User as UserModel, UserCredentials as UserCredentialsModel
 from models.schemas import (
     NICHE_BOX_PALETTE, AISettingsResponse, AISettingsUpdate, AITestRequest, AITestResponse,
-    BrandVoiceResponse, BrandVoiceUpdate, LogoSettingsResponse, PresetsResponse, PresetsUpdate,
-    ProfileResponse, ProfileUpdate, SlideStyleResponse, SlideStyleUpdate,
-    XSettingsResponse, XSettingsUpdate,
+    BrandVoiceResponse, BrandVoiceUpdate, LogoSettingsResponse, MusicSettingsResponse,
+    PresetsResponse, PresetsUpdate, ProfileResponse, ProfileUpdate, SlideStyleResponse,
+    SlideStyleUpdate, XSettingsResponse, XSettingsUpdate,
 )
-from services import logo_store
+from services import logo_store, music_store
 from services.ai.catalog import IMAGE, PROVIDERS, TEXT, is_valid_provider
 from services.brand_engine import BrandConfig
 from services.brand_voice import DEFAULT_PRESET, is_valid_preset, list_presets
@@ -281,6 +281,48 @@ async def get_logo_image(
     if not path:
         raise HTTPException(status_code=404, detail="No logo set")
     return FileResponse(path)
+
+
+# ── Reel background music (per-tenant, ducked under the voiceover) ───────────
+# The tenant uploads a track THEY have the rights to — we ship no music library
+# (nothing we could legally license for every tenant). No DB column: the file
+# store keyed by user id is the source of truth.
+
+_MUSIC_MAX_BYTES = 20 * 1024 * 1024
+
+
+@router.get("/music", response_model=MusicSettingsResponse)
+async def get_music(
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> MusicSettingsResponse:
+    return MusicSettingsResponse(set=bool(music_store.path_for(str(user.id))))
+
+
+@router.post("/music", response_model=MusicSettingsResponse)
+async def put_music(
+    user: Annotated[UserModel, Depends(get_current_user)],
+    file: UploadFile = File(...),
+) -> MusicSettingsResponse:
+    if file.content_type not in music_store.EXTENSIONS:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported file type {file.content_type!r}. Allowed: mp3, m4a, wav.",
+        )
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(data) > _MUSIC_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 20 MB)")
+    music_store.save(str(user.id), data, file.content_type)
+    return MusicSettingsResponse(set=True)
+
+
+@router.delete("/music", response_model=MusicSettingsResponse)
+async def delete_music(
+    user: Annotated[UserModel, Depends(get_current_user)],
+) -> MusicSettingsResponse:
+    music_store.delete(str(user.id))
+    return MusicSettingsResponse(set=False)
 
 
 # ── AI provider + model (each tenant picks, and pays for, their own) ─────────

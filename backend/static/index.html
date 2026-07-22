@@ -754,6 +754,14 @@
           <option value="slides">🖼 Slides</option>
           <option value="broll">🎞 Stock b-roll</option>
         </select>
+        <label class="flex items-center gap-1.5 cursor-pointer text-gray-300" title="Your uploaded track, ducked under the voice (Account → Reel music)">
+          <input type="checkbox" id="reel-music" class="accent-purple-600" />
+          🎵 Music
+        </label>
+        <label class="flex items-center gap-1.5 cursor-pointer text-gray-300" title="Slide 1 shows for the first 0.5s">
+          <input type="checkbox" id="reel-cover" class="accent-purple-600" />
+          🪧 Cover
+        </label>
         <span class="text-gray-500">needs an ElevenLabs key — Account → API keys</span>
       </div>
       <div id="reel-preview" class="hidden space-y-2">
@@ -968,6 +976,20 @@
           <button id="logo-remove-btn" onclick="removeLogo()" class="hidden ce-btn-ghost px-3 py-1.5 text-sm">Remove</button>
         </div>
         <p class="text-xs text-gray-500">PNG with a transparent background works best. It sits in the corner of every slide when “Show logo on slides” is on.</p>
+      </div>
+
+      <!-- Reel background music (R3) -->
+      <div class="border-t border-gray-800 pt-4 space-y-2">
+        <label class="block text-sm text-gray-300">🎵 Reel background music</label>
+        <div class="flex items-center gap-3">
+          <span id="music-state" class="text-xs text-gray-500">no track uploaded</span>
+          <label class="ce-btn-ghost px-3 py-1.5 text-sm cursor-pointer">
+            📁 Upload track
+            <input id="music-input" type="file" accept="audio/mpeg,audio/mp4,audio/x-m4a,audio/wav" class="hidden" onchange="uploadMusic(event)" />
+          </label>
+          <button id="music-remove-btn" onclick="removeMusic()" class="hidden ce-btn-ghost px-3 py-1.5 text-sm">Remove</button>
+        </div>
+        <p class="text-xs text-gray-500">Your own track (mp3/m4a/wav, you must own the rights). It loops quietly under the voiceover and ducks automatically when the voice speaks.</p>
       </div>
     </section>
 
@@ -3700,11 +3722,13 @@ async function makeReel() {
   const voiceover = !!document.getElementById('reel-voiceover')?.checked;
   const voiceId = (document.getElementById('reel-voice-id')?.value || '').trim();
   const visuals = voiceover ? (document.getElementById('reel-visuals')?.value || 'slides') : 'slides';
+  const music = voiceover && !!document.getElementById('reel-music')?.checked;
+  const cover = voiceover && !!document.getElementById('reel-cover')?.checked;
   btn.disabled = true; btn.textContent = voiceover ? '⏳ Narrating…' : '⏳ Rendering…';
   try {
     const res = await apiFetch(`${API}/api/posts/${S.postId}/reel`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ voiceover, voice_id: voiceId || null, visuals }),
+      body: JSON.stringify({ voiceover, voice_id: voiceId || null, visuals, music, cover }),
     });
     if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail || 'Render failed'); }
     const data = await res.json();
@@ -4420,6 +4444,7 @@ async function loadSlideStyle() {
     });
   }
   await loadLogo();
+  await loadMusic();
 }
 
 // ===== BRAND LOGO =====
@@ -4464,6 +4489,44 @@ async function removeLogo() {
     if (!res.ok) throw new Error('Remove failed');
     _renderLogo(false);
     toast('Logo removed', 'info');
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+// ===== REEL BACKGROUND MUSIC (R3) =====
+function _renderMusic(set) {
+  const state = document.getElementById('music-state');
+  const btn = document.getElementById('music-remove-btn');
+  if (state) state.textContent = set ? '✅ track uploaded' : 'no track uploaded';
+  if (btn) btn.classList.toggle('hidden', !set);
+}
+
+async function loadMusic() {
+  try {
+    const res = await apiFetch(`${API}/api/settings/music`);
+    if (res.ok) _renderMusic((await res.json()).set);
+  } catch { /* 401 handled by apiFetch */ }
+}
+
+async function uploadMusic(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await apiFetch(`${API}/api/settings/music`, { method: 'POST', body: form });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Upload failed'); }
+    _renderMusic(true);
+    toast('✅ Music track saved', 'success');
+  } catch (e) { toast('❌ ' + e.message, 'error'); }
+}
+
+async function removeMusic() {
+  try {
+    const res = await apiFetch(`${API}/api/settings/music`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Remove failed');
+    _renderMusic(false);
+    toast('Music removed', 'info');
   } catch (e) { toast('❌ ' + e.message, 'error'); }
 }
 

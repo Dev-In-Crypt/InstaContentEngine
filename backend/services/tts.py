@@ -107,6 +107,35 @@ def concat_wavs_sync(paths: list[Path], out_m4a: Path, *, gap_sec: float = 0.35)
     return sum(_wav_duration(p) + gap_sec for p in paths)
 
 
+def mix_with_music_sync(voice: Path, music: Path, dst: Path, *,
+                        music_volume: float = 0.4, duck_threshold: float = 0.05,
+                        duck_ratio: float = 8.0) -> None:
+    """Mix the voiceover (input 0) with the tenant's music track (input 1,
+    looped) using sidechain ducking — the proven shorts-pipeline recipe. The mix
+    length is pinned to the voice (`duration=first`; `-shortest` as a belt)."""
+    filter_complex = (
+        f"[1:a]aloop=loop=-1:size=2e9,volume={music_volume}[music_raw];"
+        f"[music_raw][0:a]sidechaincompress="
+        f"threshold={duck_threshold}:ratio={duck_ratio}:"
+        f"attack=20:release=300[music_ducked];"
+        f"[0:a][music_ducked]amix=inputs=2:duration=first:dropout_transition=0[mix]"
+    )
+    _run(["-i", str(voice), "-i", str(music),
+          "-filter_complex", filter_complex, "-map", "[mix]",
+          "-c:a", "aac", "-b:a", "192k", "-shortest", str(dst)],
+         "music mix")
+    if not dst.exists() or dst.stat().st_size == 0:
+        raise TTSError("ffmpeg produced an empty music mix")
+
+
+async def mix_with_music(voice: Path, music: Path, dst: Path, *,
+                         music_volume: float = 0.4, duck_threshold: float = 0.05,
+                         duck_ratio: float = 8.0) -> None:
+    await asyncio.to_thread(mix_with_music_sync, voice, music, dst,
+                            music_volume=music_volume,
+                            duck_threshold=duck_threshold, duck_ratio=duck_ratio)
+
+
 async def mp3_to_wav(mp3: bytes, wav_path: Path) -> float:
     return await asyncio.to_thread(mp3_to_wav_sync, mp3, wav_path)
 

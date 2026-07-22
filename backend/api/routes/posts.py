@@ -1141,7 +1141,8 @@ async def make_reel(
         mp4, total, credits = await _make_voiceover_reel(
             settings=settings, user=user, text_provider=text_provider, post=post,
             provider=provider, images=images, overlays=overlays,
-            voice_id=(opts.voice_id or "").strip(), visuals=opts.visuals)
+            voice_id=(opts.voice_id or "").strip(), visuals=opts.visuals,
+            music=opts.music, cover=opts.cover)
         extra = {"voiceover": True, "duration_sec": round(total, 2)}
         if credits:
             # Pexels attribution rides the existing sources panel in the UI.
@@ -1159,20 +1160,24 @@ async def make_reel(
 
 
 async def _make_voiceover_reel(*, settings, user, text_provider, post, provider,
-                               images, overlays, voice_id,
-                               visuals: str = "slides") -> tuple[bytes, float, list[dict]]:
-    """Script → TTS → visuals (slides OR stock b-roll) → ASS subtitles → mux.
-    Returns (mp4 bytes, total duration, b-roll credits). Temp files cleaned in
-    finally. B-roll degrades per segment to the slide render — never crashes."""
+                               images, overlays, voice_id, visuals: str = "slides",
+                               music: bool = False,
+                               cover: bool = False) -> tuple[bytes, float, list[dict]]:
+    """Script → TTS → visuals (slides OR stock b-roll) → [cover] → ASS → mux with
+    voice or a ducked voice+music mix. Returns (mp4 bytes, total duration, b-roll
+    credits). Temp files cleaned in finally; b-roll degrades per segment."""
     import shutil as _shutil
     import tempfile as _tempfile
 
+    from services import music_store
     from services.caption_generator import CaptionParseError
     from services.reel_script import build_voiceover_script
     from services.subtitles import chunk_segments, write_ass
-    from services.tts import ElevenLabsTTS, TTSError, concat_wavs, mp3_to_wav
+    from services.tts import (
+        ElevenLabsTTS, TTSError, concat_wavs, mix_with_music, mp3_to_wav,
+    )
     from services.video import VideoError
-    from services.video.assemble import mux_reel
+    from services.video.assemble import mux_reel, prepend_cover, render_cover
 
     if text_provider is None:
         raise HTTPException(
@@ -1186,6 +1191,11 @@ async def _make_voiceover_reel(*, settings, user, text_provider, post, provider,
         raise HTTPException(
             status_code=400,
             detail="Stock b-roll needs a Pexels API key — add it in Account → API keys.")
+    music_path = music_store.path_for(str(user.id)) if music else None
+    if music and music_path is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Background music needs an uploaded track — add one in Account.")
     _tp, text_model, _key = resolve_ai_choice(user, settings, "text")
     voice = voice_id or settings.elevenlabs_voice_id
     gap = 0.35
@@ -1232,13 +1242,35 @@ async def _make_voiceover_reel(*, settings, user, text_provider, post, provider,
                                     detail=f"Reel render failed: {e}") from e
             video_tmp.write_bytes(silent)
 
+        if cover:
+            # slide 1 REPLACES the first 0.5s — voice/subs stay at t=0
+            try:
+                cover_mp4 = tmpdir / "cover.mp4"
+                await render_cover(images[0], cover_mp4)
+                covered = tmpdir / "covered.mp4"
+                await prepend_cover(cover_mp4, video_tmp, covered, sum(slide_durs))
+                video_tmp = covered
+            except VideoError as e:
+                raise HTTPException(status_code=502,
+                                    detail=f"Cover render failed: {e}") from e
+
+        audio_in = track
+        if music_path is not None:
+            try:
+                mixed = tmpdir / "mixed.m4a"
+                await mix_with_music(track, music_path, mixed)
+                audio_in = mixed
+            except TTSError as e:
+                raise HTTPException(status_code=502,
+                                    detail=f"Music mix failed: {e}") from e
+
         ass_path = tmpdir / "subs.ass"
         ass_path.write_text(
             write_ass(chunk_segments([s.text for s in segments], slide_durs)),
             encoding="utf-8")
         out_tmp = tmpdir / "reel.mp4"
         try:
-            await mux_reel(video_tmp, track, ass_path, out_tmp)
+            await mux_reel(video_tmp, audio_in, ass_path, out_tmp)
         except VideoError as e:
             raise HTTPException(status_code=502,
                                 detail=f"Reel assembly failed: {e}") from e
@@ -1252,17 +1284,24 @@ async def _build_broll_video(*, settings, text_provider, provider, segments,
                              out_path: Path) -> list[dict]:
     """One stock clip per narration segment (search → judge → download →
     normalize); any per-segment failure falls back to rendering that segment
-    from its slide. Returns Pexels credits for the clips actually used."""
+    from its slide. Segments are joined with SYNC-PRESERVING crossfades: every
+    clip except the last renders `XFADE_SEC` longer, the fade consumes exactly
+    that surplus, so the timeline still matches the voice/subtitles. Returns
+    Pexels credits for the clips actually used."""
     from services.broll import PexelsVideoSearch, pick_with_judge
     from services.video import VideoError
-    from services.video.normalize import concat_clips, normalize_clip
+    from services.video.normalize import (
+        XFADE_SEC, align_to_duration, concat_clips_xfade, normalize_clip,
+    )
 
     search = PexelsVideoSearch(settings.pexels_api_key,
                                ssl_verify=settings.ssl_verify)
     clip_paths: list[Path] = []
     credits: list[dict] = []
+    n = len(segments)
     for i, seg in enumerate(segments):
         dur = slide_durs[i]
+        render_dur = dur + (XFADE_SEC if i < n - 1 else 0.0)   # fade surplus
         clip = tmpdir / f"clip_{i:02d}.mp4"
         used_broll = False
         try:
@@ -1273,7 +1312,7 @@ async def _build_broll_video(*, settings, text_provider, provider, segments,
             if cand is not None:
                 raw = tmpdir / f"raw_{i:02d}.mp4"
                 await search.download(cand.url, raw)
-                await normalize_clip(raw, clip, target_duration=dur,
+                await normalize_clip(raw, clip, target_duration=render_dur,
                                      segment_id=i + 1)
                 raw.unlink(missing_ok=True)
                 credits.append({"title": f"Pexels video #{cand.video_id}",
@@ -1286,11 +1325,13 @@ async def _build_broll_video(*, settings, text_provider, provider, segments,
             idx = min(i, len(images) - 1)
             silent = await provider.make_reel(
                 [images[idx]], overlays=[overlays[idx] if idx < len(overlays) else ""],
-                duration_per=[dur])
+                duration_per=[render_dur])
             clip.write_bytes(silent)
         clip_paths.append(clip)
     try:
-        await concat_clips(clip_paths, out_path)
+        joined = tmpdir / "joined.mp4"
+        await concat_clips_xfade(clip_paths, slide_durs, joined)
+        await align_to_duration(joined, out_path, sum(slide_durs))
     except VideoError as e:
         raise HTTPException(status_code=502,
                             detail=f"B-roll assembly failed: {e}") from e

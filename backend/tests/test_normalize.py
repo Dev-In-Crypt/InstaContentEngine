@@ -75,6 +75,62 @@ def test_concat_empty_raises(tmp_path):
         concat_clips_sync([], tmp_path / "x.mp4")
 
 
+# ── xfade + align (R3) ──────────────────────────────────────────────────────
+
+def test_xfade_concat_is_sync_preserving(tmp_path):
+    """Clips rendered `fade` longer; the crossfade eats exactly the surplus, so
+    the output equals the ORIGINAL duration sum — the voice timeline holds.
+    Mutation guard: use un-padded offsets/clips → duration drifts and fails."""
+    from services.video.normalize import concat_clips_xfade_sync
+
+    fade = 0.3
+    durs = [0.4, 0.4]
+    a = tmp_path / "a.mp4"
+    b = tmp_path / "b.mp4"
+    # first clip: dur + fade surplus; last clip: exact dur
+    normalize_clip_sync(_clip(tmp_path / "s1.mp4", 1.0, "320x180"), a,
+                        target_duration=durs[0] + fade, segment_id=1)
+    normalize_clip_sync(_clip(tmp_path / "s2.mp4", 1.0, "180x320"), b,
+                        target_duration=durs[1], segment_id=2)
+    out = tmp_path / "xf.mp4"
+    concat_clips_xfade_sync([a, b], durs, out, fade=fade)
+    _w, _h, dur = probe_video(out)
+    assert abs(dur - sum(durs)) < 0.15
+
+
+def test_xfade_single_clip_passthrough(tmp_path):
+    from services.video.normalize import concat_clips_xfade_sync
+
+    a = tmp_path / "a.mp4"
+    normalize_clip_sync(_clip(tmp_path / "s.mp4", 0.5, "320x180"), a,
+                        target_duration=0.3, segment_id=1)
+    out = tmp_path / "one.mp4"
+    concat_clips_xfade_sync([a], [0.3], out)
+    assert out.exists() and out.stat().st_size == a.stat().st_size
+
+
+def test_align_pads_short_video(tmp_path):
+    from services.video.normalize import align_to_duration_sync
+
+    src = tmp_path / "short.mp4"
+    normalize_clip_sync(_clip(tmp_path / "s.mp4", 0.5, "320x180"), src,
+                        target_duration=0.3, segment_id=1)
+    out = tmp_path / "padded.mp4"
+    align_to_duration_sync(src, out, 0.7)
+    assert probe_video(out)[2] >= 0.6
+
+
+def test_align_trims_long_video(tmp_path):
+    from services.video.normalize import align_to_duration_sync
+
+    src = tmp_path / "long.mp4"
+    normalize_clip_sync(_clip(tmp_path / "s.mp4", 1.0, "320x180"), src,
+                        target_duration=0.8, segment_id=1)
+    out = tmp_path / "trimmed.mp4"
+    align_to_duration_sync(src, out, 0.4)
+    assert probe_video(out)[2] <= 0.55
+
+
 def test_probe_garbage_raises(tmp_path):
     bad = tmp_path / "bad.mp4"
     bad.write_bytes(b"not a video at all")
