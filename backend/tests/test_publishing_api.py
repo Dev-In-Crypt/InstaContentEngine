@@ -402,7 +402,64 @@ def test_broll_segment_falls_back_to_slide(client, seeded, monkeypatch, tmp_path
         res = client.post(f"/api/posts/{seeded}/reel",
                           json={"voiceover": True, "visuals": "broll"})
         assert res.status_code == 200, res.text
-        assert "broll_clips" not in res.json()      # nothing attributed
+        body = res.json()
+        # nothing attributed, but the fallback is REPORTED so the UI can warn
+        assert body.get("broll_clips") == 0
+        assert body.get("broll_fallbacks") == 1
+    finally:
+        _clear(keys)
+
+
+def test_broll_bad_pexels_key_returns_400(client, seeded, monkeypatch, tmp_path):
+    """A rejected key surfaces as a clear 400, not a silent all-slide reel.
+    Mutation guard: swallow PexelsAuthError → the reel renders 200 and this
+    fails."""
+    from services import broll as broll_mod
+
+    _fake_tts(monkeypatch, tmp_path)
+
+    async def auth_fail(self, query, target_duration, max_results=8):
+        raise broll_mod.PexelsAuthError("Pexels rejected the API key")
+    monkeypatch.setattr(broll_mod.PexelsVideoSearch, "candidates", auth_fail)
+
+    keys = _override_voiceover_deps(text_provider=_FakeTextOneLine(),
+                                    elevenlabs_key="k", pexels_key="bad")
+    try:
+        res = client.post(f"/api/posts/{seeded}/reel",
+                          json={"voiceover": True, "visuals": "broll"})
+        assert res.status_code == 400
+        assert "pexels" in res.json()["detail"].lower()
+    finally:
+        _clear(keys)
+
+
+def test_slides_voiceover_drops_overlays_uses_pad(client, seeded, monkeypatch,
+                                                  tmp_path):
+    """In a voiceover reel the burned subtitles are the only text, so the
+    Ken Burns render must get overlays=None and fit="pad" (no side crop).
+    Mutation guard: pass overlays through / keep fit="cover" → recorded values
+    change and this fails."""
+    from services.video.kenburns import KenBurnsVideoProvider
+
+    _fake_tts(monkeypatch, tmp_path)
+    recorded = {}
+    orig = KenBurnsVideoProvider.make_reel
+
+    async def spy(self, slides, overlays=None, duration_per=3.0,
+                  audio_path=None, fit="cover"):
+        recorded["overlays"] = overlays
+        recorded["fit"] = fit
+        return await orig(self, slides, overlays=overlays,
+                          duration_per=duration_per, audio_path=audio_path, fit=fit)
+    monkeypatch.setattr(KenBurnsVideoProvider, "make_reel", spy)
+
+    keys = _override_voiceover_deps(text_provider=_FakeTextOneLine(),
+                                    elevenlabs_key="k")
+    try:
+        res = client.post(f"/api/posts/{seeded}/reel", json={"voiceover": True})
+        assert res.status_code == 200, res.text
+        assert recorded["overlays"] is None
+        assert recorded["fit"] == "pad"
     finally:
         _clear(keys)
 

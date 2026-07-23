@@ -33,7 +33,12 @@ def mux_reel_sync(video_path: Path, audio_path: Path, ass_path: Optional[Path],
                  "-pix_fmt", "yuv420p"]
     else:
         args += ["-c:v", "copy"]
-    args += ["-map", "0:v:0", "-map", "1:a:0", "-c:a", "aac", "-b:a", "192k",
+    # loudnorm to the Instagram target (~-14 LUFS): without it a voiceover reel
+    # lands near -26..-29 LUFS (barely audible on a phone). One pass is plenty for
+    # a 15-30s clip. Fixes both the voice-only R1 reel and the ducked music mix.
+    args += ["-map", "0:v:0", "-map", "1:a:0",
+             "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
+             "-c:a", "aac", "-b:a", "192k",
              "-movflags", "+faststart", "-shortest", str(out_path)]
     proc = subprocess.run(args, capture_output=True, text=True, errors="replace")
     if proc.returncode != 0:
@@ -67,10 +72,18 @@ def render_cover_sync(image_bytes: bytes, dst: Path,
     tmp_jpg = dst.with_suffix(".cover.jpg")
     tmp_jpg.write_bytes(image_bytes)
     try:
+        # Blur-pad, not crop: a 4:5 slide fitted into 9:16 would lose ~21% off
+        # each side with force_original_aspect_ratio=increase+crop, chopping the
+        # slide's own text. Instead the full slide sits centred over a blurred,
+        # zoomed copy of itself — nothing is cut.
         _run_ffmpeg(
             ["-loop", "1", "-t", f"{duration:.3f}", "-i", str(tmp_jpg),
-             "-r", "30", "-vf",
-             "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920",
+             "-r", "30", "-filter_complex",
+             "split[a][b];"
+             "[a]scale=1080:1920:force_original_aspect_ratio=increase,"
+             "crop=1080:1920,gblur=sigma=30[bg];"
+             "[b]scale=1080:1920:force_original_aspect_ratio=decrease[fg];"
+             "[bg][fg]overlay=(W-w)/2:(H-h)/2",
              "-c:v", "libx264", "-preset", "fast", "-crf", "20",
              "-pix_fmt", "yuv420p", str(dst)],
             "cover render")

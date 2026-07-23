@@ -45,19 +45,27 @@ def _split_caps(text: str, max_chars: int) -> list[str]:
 
 
 def chunk_segments(texts: list[str], durations: list[float], *,
+                   advance_durs: list[float] | None = None,
                    max_chars: int = MAX_CHARS, min_dur: float = MIN_DUR) -> list[Chunk]:
     """Chunk each segment's text and time the chunks proportionally to length
-    within that segment's duration. Segments butt up against each other on the
-    cumulative timeline (durations already include any inter-segment gap)."""
+    within that segment's *speech* duration (`durations[i]`). The segment clock
+    advances by `advance_durs[i]` — pass the slide lengths (speech + inter-segment
+    gap) so the picture stays in lockstep while the subtitles hug the voice and
+    don't linger through the silent gap. `advance_durs=None` advances by
+    `durations`, the original gap-free behaviour."""
     if len(texts) != len(durations):
         raise ValueError("texts and durations must have the same length")
+    advance = advance_durs if advance_durs is not None else durations
+    if len(advance) != len(texts):
+        raise ValueError("advance_durs must match texts length")
     chunks: list[Chunk] = []
     clock = 0.0
-    for text, dur in zip(texts, durations, strict=True):
+    for text, dur, adv in zip(texts, durations, advance, strict=True):
         dur = max(0.0, float(dur))
+        adv = max(0.0, float(adv))
         parts = _split_caps(text, max_chars)
         if not parts or dur <= 0:
-            clock += dur
+            clock += adv
             continue
         total_chars = sum(len(p) for p in parts) or 1
         start = clock
@@ -65,11 +73,11 @@ def chunk_segments(texts: list[str], durations: list[float], *,
             share = dur * len(p) / total_chars
             length = max(min_dur, share) if dur >= min_dur * len(parts) else share
             end = start + length
-            if i == len(parts) - 1:            # last chunk absorbs rounding drift
+            if i == len(parts) - 1:            # last chunk ends with the speech
                 end = clock + dur
             chunks.append(Chunk(text=p, start=round(start, 3), end=round(end, 3)))
             start = end
-        clock += dur
+        clock += adv
     return chunks
 
 

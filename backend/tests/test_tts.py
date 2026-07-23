@@ -13,7 +13,8 @@ import httpx
 import pytest
 
 from services.tts import (
-    ElevenLabsTTS, TTSError, concat_wavs_sync, ffmpeg_exe, mp3_to_wav_sync,
+    ElevenLabsTTS, TTSError, concat_wavs_sync, ffmpeg_exe, mix_with_music_sync,
+    mp3_to_wav_sync,
 )
 
 
@@ -122,6 +123,64 @@ def test_mix_with_music_pins_length_to_voice(tmp_path):
     assert m, proc.stderr[-200:]
     dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
     assert dur <= vdur + 0.3        # pinned to voice, not the 3s music
+
+
+def _mean_volume_db(path: Path, *, ss: float | None = None,
+                    t: float | None = None) -> float:
+    """mean_volume (dB) of a clip (optionally a [ss, ss+t] window) via ffmpeg."""
+    args = [ffmpeg_exe(), "-hide_banner"]
+    if ss is not None:
+        args += ["-ss", f"{ss}"]
+    if t is not None:
+        args += ["-t", f"{t}"]
+    args += ["-i", str(path), "-af", "volumedetect", "-f", "null", "-"]
+    proc = subprocess.run(args, capture_output=True, text=True, errors="replace")
+    import re
+    m = re.search(r"mean_volume:\s*(-?\d+(?:\.\d+)?)\s*dB", proc.stderr)
+    assert m, proc.stderr[-300:]
+    return float(m.group(1))
+
+
+def test_mix_keeps_voice_level_with_normalize_off(tmp_path):
+    """amix default normalize=1 halves every input (voice buried ~6 dB). With
+    normalize=0 the voice keeps its level. Mutation guard: revert to normalize=1
+    → the mixed voice drops well below the raw voice and this fails."""
+    voice_mp3 = _tone_mp3(tmp_path / "v.mp3", 1.0)
+    voice = tmp_path / "v.wav"
+    mp3_to_wav_sync(voice_mp3, voice)
+    music_mp3 = _tone_mp3(tmp_path / "m.mp3", 3.0)
+    music = tmp_path / "m.wav"
+    mp3_to_wav_sync(music_mp3, music)
+
+    out = tmp_path / "mix.m4a"
+    # music_volume=0 isolates the voice contribution — with normalize=0 it should
+    # stay within ~2 dB of the raw voice, not ~6 dB down.
+    mix_with_music_sync(voice, music, out, music_volume=0.0)
+    assert _mean_volume_db(out) > _mean_volume_db(voice) - 2.0
+
+
+def test_mix_fades_music_tail_when_total_dur_given(tmp_path):
+    """`total_dur` fades the mix out over the final 0.5s so music doesn't cut off
+    abruptly. Guard: the last 0.2s is markedly quieter than the middle; without
+    total_dur there is no such drop."""
+    voice_mp3 = _tone_mp3(tmp_path / "v.mp3", 2.0)
+    voice = tmp_path / "v.wav"
+    mp3_to_wav_sync(voice_mp3, voice)
+    music_mp3 = _tone_mp3(tmp_path / "m.mp3", 5.0)
+    music = tmp_path / "m.wav"
+    mp3_to_wav_sync(music_mp3, music)
+
+    faded = tmp_path / "faded.m4a"
+    mix_with_music_sync(voice, music, faded, total_dur=2.0)
+    mid = _mean_volume_db(faded, ss=0.8, t=0.2)
+    tail = _mean_volume_db(faded, ss=1.8, t=0.2)
+    assert tail < mid - 5.0
+
+    plain = tmp_path / "plain.m4a"
+    mix_with_music_sync(voice, music, plain)
+    p_mid = _mean_volume_db(plain, ss=0.8, t=0.2)
+    p_tail = _mean_volume_db(plain, ss=1.8, t=0.2)
+    assert p_tail >= p_mid - 5.0        # no deliberate fade without total_dur
 
 
 def test_async_wrappers_run(tmp_path):

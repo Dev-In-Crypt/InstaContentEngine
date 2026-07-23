@@ -13,12 +13,15 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from services.video.base import VideoError
 
 REEL_W, REEL_H = 1080, 1920
 FPS = 30
+# The pad renderer works on a taller canvas so a full-width slide can drift
+# vertically inside the 9:16 window without ever exposing an edge.
+PAD_CANVAS_H = 2112
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont:
@@ -81,6 +84,38 @@ def _render_slide_frames(slide_bytes: bytes, overlay: Optional[str], n_frames: i
         yield crop
 
 
+def _build_pad_canvas(slide_bytes: bytes) -> Image.Image:
+    """A 1080x2112 canvas: the full-width slide centred over a blurred, zoomed
+    copy of itself. Because the slide keeps its full width, the moving window
+    below never has to crop it horizontally — the slide's own text stays intact."""
+    base = Image.open(io.BytesIO(slide_bytes)).convert("RGB")
+    bg = _fit_cover(base, (REEL_W, PAD_CANVAS_H), 1.0)
+    bw, bh = bg.size
+    left, top = (bw - REEL_W) // 2, (bh - PAD_CANVAS_H) // 2
+    bg = bg.crop((left, top, left + REEL_W, top + PAD_CANVAS_H))
+    bg = bg.filter(ImageFilter.GaussianBlur(30))
+    bg = Image.blend(bg, Image.new("RGB", bg.size, (0, 0, 0)), 0.35)  # darken
+    iw, ih = base.size
+    fg_h = max(1, int(ih * REEL_W / iw))               # fit to full width
+    fg = base.resize((REEL_W, fg_h), Image.LANCZOS)
+    canvas = bg.copy()
+    canvas.paste(fg, (0, (PAD_CANVAS_H - fg_h) // 2))
+    return canvas
+
+
+def _render_slide_frames_pad(slide_bytes: bytes, n_frames: int, direction: int):
+    """Yield n_frames 1080x1920 frames that drift vertically over the pad canvas.
+    `direction` alternates the pan so consecutive slides don't all scroll the
+    same way (mirrors the 4-direction motion in video/normalize.py)."""
+    canvas = _build_pad_canvas(slide_bytes)
+    max_y = PAD_CANVAS_H - REEL_H                       # 192px of travel
+    for f in range(n_frames):
+        t = f / max(1, n_frames - 1)
+        frac = (1.0 - t) if direction % 2 else t       # up vs down
+        top = int(max_y * frac)
+        yield canvas.crop((0, top, REEL_W, top + REEL_H))
+
+
 class KenBurnsVideoProvider:
     async def make_reel(
         self,
@@ -88,15 +123,16 @@ class KenBurnsVideoProvider:
         overlays: Optional[list[str]] = None,
         duration_per: float | list[float] = 3.0,
         audio_path: Optional[str] = None,
+        fit: str = "cover",
     ) -> bytes:
         if not slides:
             raise VideoError("No slides to build a reel from")
         return await asyncio.to_thread(
-            self._render_sync, slides, overlays or [], duration_per, audio_path
+            self._render_sync, slides, overlays or [], duration_per, audio_path, fit
         )
 
     @staticmethod
-    def _render_sync(slides, overlays, duration_per, audio_path) -> bytes:
+    def _render_sync(slides, overlays, duration_per, audio_path, fit="cover") -> bytes:
         import imageio.v2 as imageio
         import numpy as np
 
@@ -118,7 +154,11 @@ class KenBurnsVideoProvider:
             for i, sb in enumerate(slides):
                 ov = overlays[i] if i < len(overlays) else None
                 n_per = max(1, int(float(durations[i]) * FPS))
-                for frame in _render_slide_frames(sb, ov, n_per):
+                if fit == "pad":
+                    frames = _render_slide_frames_pad(sb, n_per, i)
+                else:
+                    frames = _render_slide_frames(sb, ov, n_per)
+                for frame in frames:
                     writer.append_data(np.asarray(frame))
         finally:
             writer.close()

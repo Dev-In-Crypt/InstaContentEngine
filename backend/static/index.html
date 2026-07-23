@@ -3736,7 +3736,12 @@ async function makeReel() {
     document.getElementById('reel-video').src = url;
     document.getElementById('reel-download').href = url;
     document.getElementById('reel-preview').classList.remove('hidden');
-    toast('✅ Reel rendered', 'success');
+    if (data.broll_fallbacks > 0) {
+      const total = (data.broll_clips || 0) + data.broll_fallbacks;
+      toast(`⚠ Reel ready — ${data.broll_fallbacks}/${total} scenes used slides (stock clips unavailable)`, 'warn');
+    } else {
+      toast('✅ Reel rendered', 'success');
+    }
   } catch(e) { toast('❌ ' + e.message, 'error'); }
   finally { btn.disabled = false; btn.textContent = 'Make Reel'; }
 }

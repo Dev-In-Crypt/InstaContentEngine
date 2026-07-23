@@ -8,7 +8,9 @@ import json
 import httpx
 import pytest
 
-from services.broll import Candidate, PexelsVideoSearch, pick_with_judge
+from services.broll import (
+    Candidate, PexelsAuthError, PexelsVideoSearch, pick_with_judge,
+)
 
 
 def _video(vid, w, h, duration, n_pics=0, file_heights=(1080,)):
@@ -104,6 +106,41 @@ async def test_no_results_returns_empty(monkeypatch):
     search, transport = _search_with(handler)
     _patch_client(monkeypatch, transport)
     assert await search.candidates("nothing", 3.0) == []
+
+
+@pytest.mark.asyncio
+async def test_bad_key_raises_auth_error_not_empty(monkeypatch):
+    """A 401 is a bad key: it fails every attempt, so we raise PexelsAuthError
+    once (the caller turns it into a clear 400) instead of silently returning []
+    and rendering a whole slide-fallback reel. Mutation guard: treat 401 like a
+    transient error → this returns [] and the raises-check fails."""
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        return httpx.Response(401, json={"error": "invalid key"})
+    search, transport = _search_with(handler)
+    _patch_client(monkeypatch, transport)
+    with pytest.raises(PexelsAuthError):
+        await search.candidates("anything", 3.0)
+    assert len(calls) == 1        # bailed on the first 401, no retry storm
+
+
+@pytest.mark.asyncio
+async def test_transient_error_still_falls_through(monkeypatch):
+    """A 500 is transient — the progressive loop retries and moves on, never
+    raising (b-roll must degrade to slides, not crash)."""
+    import asyncio as _asyncio
+
+    async def _no_sleep(*_a, **_k):
+        return None
+    monkeypatch.setattr(_asyncio, "sleep", _no_sleep)
+
+    def handler(request):
+        return httpx.Response(500, json={"error": "server"})
+    search, transport = _search_with(handler)
+    _patch_client(monkeypatch, transport)
+    assert await search.candidates("q", 3.0) == []
 
 
 # ── judge ────────────────────────────────────────────────────────────────────

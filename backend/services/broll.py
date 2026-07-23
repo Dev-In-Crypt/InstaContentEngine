@@ -25,6 +25,12 @@ _JUDGE_MAX_CANDIDATES = 3
 _JUDGE_MIN_MEANING = 6
 
 
+class PexelsAuthError(Exception):
+    """The Pexels key was rejected (401/403). Unlike a transient error this will
+    never succeed on retry, so the search stops and the caller surfaces it as a
+    clear "fix your key" message instead of silently falling back to slides."""
+
+
 @dataclass
 class Candidate:
     """One stock video candidate for a narration segment."""
@@ -86,6 +92,18 @@ class PexelsVideoSearch:
                     continue
                 try:
                     data = await self._call(client, q, mdur, size)
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code in (401, 403):
+                        # A bad key fails every attempt identically — stop and let
+                        # the caller tell the user, don't burn 5 retries or hide it.
+                        raise PexelsAuthError(
+                            "Pexels rejected the API key") from e
+                    log.warning("Pexels video search failed (q=%r): %s", q, e)
+                    await asyncio.sleep(2)
+                    try:
+                        data = await self._call(client, q, mdur, size)
+                    except Exception:  # noqa: BLE001
+                        continue
                 except Exception as e:  # noqa: BLE001 — one retry then next attempt
                     log.warning("Pexels video search failed (q=%r): %s", q, e)
                     await asyncio.sleep(2)

@@ -108,17 +108,27 @@ def concat_wavs_sync(paths: list[Path], out_m4a: Path, *, gap_sec: float = 0.35)
 
 
 def mix_with_music_sync(voice: Path, music: Path, dst: Path, *,
-                        music_volume: float = 0.4, duck_threshold: float = 0.05,
-                        duck_ratio: float = 8.0) -> None:
+                        music_volume: float = 0.25, duck_threshold: float = 0.05,
+                        duck_ratio: float = 8.0,
+                        total_dur: float | None = None) -> None:
     """Mix the voiceover (input 0) with the tenant's music track (input 1,
     looped) using sidechain ducking — the proven shorts-pipeline recipe. The mix
-    length is pinned to the voice (`duration=first`; `-shortest` as a belt)."""
+    length is pinned to the voice (`duration=first`; `-shortest` as a belt).
+
+    `normalize=0` keeps amix from halving each input's level (the default divides
+    by the input count, which buried the voice ~6 dB). When `total_dur` is given,
+    the music fades out over the final 0.5s so it doesn't cut off abruptly."""
+    fade = ""
+    if total_dur is not None and total_dur > 0.5:
+        fade = f",afade=t=out:st={total_dur - 0.5:.3f}:d=0.5"
     filter_complex = (
         f"[1:a]aloop=loop=-1:size=2e9,volume={music_volume}[music_raw];"
         f"[music_raw][0:a]sidechaincompress="
         f"threshold={duck_threshold}:ratio={duck_ratio}:"
         f"attack=20:release=300[music_ducked];"
-        f"[0:a][music_ducked]amix=inputs=2:duration=first:dropout_transition=0[mix]"
+        f"[0:a][music_ducked]amix=inputs=2:duration=first:"
+        f"dropout_transition=0:normalize=0[mix_raw];"
+        f"[mix_raw]anull{fade}[mix]"
     )
     _run(["-i", str(voice), "-i", str(music),
           "-filter_complex", filter_complex, "-map", "[mix]",
@@ -129,11 +139,13 @@ def mix_with_music_sync(voice: Path, music: Path, dst: Path, *,
 
 
 async def mix_with_music(voice: Path, music: Path, dst: Path, *,
-                         music_volume: float = 0.4, duck_threshold: float = 0.05,
-                         duck_ratio: float = 8.0) -> None:
+                         music_volume: float = 0.25, duck_threshold: float = 0.05,
+                         duck_ratio: float = 8.0,
+                         total_dur: float | None = None) -> None:
     await asyncio.to_thread(mix_with_music_sync, voice, music, dst,
                             music_volume=music_volume,
-                            duck_threshold=duck_threshold, duck_ratio=duck_ratio)
+                            duck_threshold=duck_threshold, duck_ratio=duck_ratio,
+                            total_dur=total_dur)
 
 
 async def mp3_to_wav(mp3: bytes, wav_path: Path) -> float:

@@ -1148,6 +1148,11 @@ async def make_reel(
             # Pexels attribution rides the existing sources panel in the UI.
             post.sources = (post.sources or []) + credits
             extra["broll_clips"] = len(credits)
+        if opts.visuals == "broll":
+            # Tell the UI how many scenes fell back to a slide so it can warn the
+            # user their stock clips didn't all land (vs. silently degrading).
+            extra["broll_clips"] = len(credits)
+            extra["broll_fallbacks"] = len(images) - len(credits)
 
     path = _reel_path(post.id)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1235,8 +1240,11 @@ async def _make_voiceover_reel(*, settings, user, text_provider, post, provider,
                 overlays=overlays, tmpdir=tmpdir, out_path=video_tmp)
         else:
             try:
-                silent = await provider.make_reel(images, overlays=overlays,
-                                                  duration_per=slide_durs)
+                # No overlays: the burned subtitles are the only text now (the
+                # slide already carries its headline). fit="pad" keeps the whole
+                # 4:5 slide visible in 9:16 instead of cropping its sides.
+                silent = await provider.make_reel(images, overlays=None,
+                                                  duration_per=slide_durs, fit="pad")
             except VideoError as e:
                 raise HTTPException(status_code=502,
                                     detail=f"Reel render failed: {e}") from e
@@ -1258,15 +1266,19 @@ async def _make_voiceover_reel(*, settings, user, text_provider, post, provider,
         if music_path is not None:
             try:
                 mixed = tmpdir / "mixed.m4a"
-                await mix_with_music(track, music_path, mixed)
+                await mix_with_music(track, music_path, mixed, total_dur=total)
                 audio_in = mixed
             except TTSError as e:
                 raise HTTPException(status_code=502,
                                     detail=f"Music mix failed: {e}") from e
 
         ass_path = tmpdir / "subs.ass"
+        # Time subtitles to the clean speech durations, but advance the segment
+        # clock by slide_durs (speech + gap) so subs hug the voice and don't
+        # linger through the silent gap between segments.
         ass_path.write_text(
-            write_ass(chunk_segments([s.text for s in segments], slide_durs)),
+            write_ass(chunk_segments([s.text for s in segments], durations,
+                                     advance_durs=slide_durs)),
             encoding="utf-8")
         out_tmp = tmpdir / "reel.mp4"
         try:
@@ -1288,7 +1300,7 @@ async def _build_broll_video(*, settings, text_provider, provider, segments,
     clip except the last renders `XFADE_SEC` longer, the fade consumes exactly
     that surplus, so the timeline still matches the voice/subtitles. Returns
     Pexels credits for the clips actually used."""
-    from services.broll import PexelsVideoSearch, pick_with_judge
+    from services.broll import PexelsAuthError, PexelsVideoSearch, pick_with_judge
     from services.video import VideoError
     from services.video.normalize import (
         XFADE_SEC, align_to_duration, concat_clips_xfade, normalize_clip,
@@ -1318,14 +1330,22 @@ async def _build_broll_video(*, settings, text_provider, provider, segments,
                 credits.append({"title": f"Pexels video #{cand.video_id}",
                                 "url": cand.page_url})
                 used_broll = True
+        except PexelsAuthError as e:
+            # A bad key would fail every segment — surface it once, don't render
+            # a whole silent-fallback reel the user thinks is "b-roll".
+            raise HTTPException(
+                status_code=400,
+                detail="Pexels rejected the API key — check it in Account → "
+                       "API keys.") from e
         except Exception as e:  # noqa: BLE001 — b-roll degrades, never crashes
             log.warning("B-roll segment %d failed (%s); falling back to slide", i, e)
         if not used_broll:
-            # graceful fallback: this segment shows its slide, Ken Burns style
+            # graceful fallback: this segment shows its slide (no overlay — the
+            # burned subtitles carry the text), padded to match the timeline.
             idx = min(i, len(images) - 1)
             silent = await provider.make_reel(
-                [images[idx]], overlays=[overlays[idx] if idx < len(overlays) else ""],
-                duration_per=[render_dur])
+                [images[idx]], overlays=None,
+                duration_per=[render_dur], fit="pad")
             clip.write_bytes(silent)
         clip_paths.append(clip)
     try:
