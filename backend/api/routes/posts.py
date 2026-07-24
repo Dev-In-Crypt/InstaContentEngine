@@ -323,6 +323,7 @@ async def generate_post(
                     brand_voice=brand_voice,
                     brand_name=profile["brand_name"],
                     x_mode=body.x_mode,
+                    x_style=body.x_style,
                     thread_min=body.thread_min,
                     thread_max=body.thread_max,
                     progress=progress,

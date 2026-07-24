@@ -504,12 +504,23 @@
     </div>
 
     <!-- X post types. Shown only on the X tab (see setNetwork). -->
-    <div id="xmode-group" class="hidden">
-      <label class="block text-sm text-gray-400 mb-2">X post type</label>
-      <div class="flex flex-wrap gap-2" id="xmode-btns">
-        <button data-val="short"  class="xmode-btn">💬 Short post</button>
-        <button data-val="thread" class="xmode-btn">🧵 Thread</button>
-        <button data-val="long"   class="xmode-btn" id="xmode-long">📜 Long post</button>
+    <div id="xmode-group" class="hidden space-y-4">
+      <div>
+        <label class="block text-sm text-gray-400 mb-2">X post type</label>
+        <div class="flex flex-wrap gap-2" id="xmode-btns">
+          <button data-val="short"  class="xmode-btn">💬 Short post</button>
+          <button data-val="thread" class="xmode-btn">🧵 Thread</button>
+          <button data-val="long"   class="xmode-btn" id="xmode-long">📜 Long post</button>
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm text-gray-400 mb-2">Style</label>
+        <div class="flex flex-wrap gap-2" id="xstyle-btns">
+          <button data-val="standard"       class="xstyle-btn">📌 Standard</button>
+          <button data-val="educational"    class="xstyle-btn">🎓 Educational</button>
+          <button data-val="hot_take"       class="xstyle-btn">🔥 Hot take</button>
+          <button data-val="news_breakdown" class="xstyle-btn">📰 News</button>
+        </div>
       </div>
       <p id="xmode-long-note" class="hidden text-xs text-yellow-300/80 mt-2">
         Long posts need X Premium — turn it on in Account once your X account has it.
@@ -2653,6 +2664,7 @@ async function generatePost() {
   }
   if (S.platform === 'x') {
     body.x_mode = S.xMode || 'short';
+    body.x_style = S.xStyle || 'standard';
     if (body.x_mode === 'thread') {
       // Clamp here as well as server-side: a browser that ignores min/max on a
       // number input would otherwise turn a typo into a 422 after the user has
@@ -4800,6 +4812,7 @@ async function restoreBackup(ev) {
 applyTheme();
 initToggleGroup('.fmt-btn', 'format', 'single', renderOwnPhotos);
 initToggleGroup('.xmode-btn', 'xMode', 'short', onXModeChange);
+initToggleGroup('.xstyle-btn', 'xStyle', 'standard');
 initToggleGroup('.src-btn', 'source', 'stock', onSourceChange);
 initToggleGroup('.plt-btn', 'platform', 'instagram');
 initToggleGroup('.tpl-btn', 'templateStyle', 'branded_card', onTemplateChange);

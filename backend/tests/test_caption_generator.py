@@ -57,16 +57,17 @@ def test_json_spec_reaches_model_with_single_braces():
     are never unescaped. Doubling them shipped a literal '{{' to the model, which
     cheap models copied verbatim and emitted invalid JSON — measured ~50% failed
     generations on X with deepseek before this was fixed."""
-    from models.schemas import LengthTier
+    from models.schemas import LengthTier, XStyle
     from services.caption_generator import (
         INSTAGRAM_SYSTEM_PROMPT, LINKEDIN_SYSTEM_PROMPT, X_SYSTEM_PROMPT,
-        LENGTH_TIER_INSTRUCTIONS, _JSON_FORMAT, _frame_brand_voice,
+        LENGTH_TIER_INSTRUCTIONS, X_STYLE_INSTRUCTIONS, _JSON_FORMAT, _frame_brand_voice,
     )
     for template in (INSTAGRAM_SYSTEM_PROMPT, LINKEDIN_SYSTEM_PROMPT, X_SYSTEM_PROMPT):
         rendered = template.format(
             brand_voice=_frame_brand_voice(None), tone="professional",
             length_instruction=LENGTH_TIER_INSTRUCTIONS[LengthTier.SWEET_SPOT],
             json_format=_JSON_FORMAT,
+            x_style=X_STYLE_INSTRUCTIONS[XStyle.STANDARD],
         )
         assert "{{" not in rendered and "}}" not in rendered
         # and the example the model is told to copy must be parseable JSON shape
@@ -216,6 +217,51 @@ def test_parse_missing_overlays_falls_back_to_hook():
     result = gen._parse(json.dumps(payload))
     # When the model omits overlays we keep slide 1 working with the hook.
     assert result.slide_overlays == [payload["hook"]]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("x_mode", ["short", "thread", "long"])
+async def test_x_prompt_carries_formatting_and_style_angle(httpx_mock: HTTPXMock, x_mode):
+    """Every X mode must ask for readable formatting AND inject the chosen style
+    angle. Mutation guard: drop the {x_style} field / formatting lines → the
+    ANGLE / emoji wording vanishes and this fails."""
+    from models.schemas import XPostMode, XStyle
+    payload = dict(GOOD_JSON)
+    if x_mode == "thread":
+        payload["thread"] = ["Hook tweet.", "Second tweet.", "Last tweet."]
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(payload)}}]},
+    )
+    client = OpenRouterClient(api_key="test-key")
+    gen = CaptionGenerator(client)
+    await gen.generate(topic="Smart contract security", format="single",
+                       platform=Platform.X, x_mode=XPostMode(x_mode),
+                       x_style=XStyle.HOT_TAKE, web_grounded=False)
+    system, _user = _sys_user(httpx_mock)
+    assert "ANGLE" in system
+    assert "bold, specific stance" in system            # HOT_TAKE angle injected
+    assert "emoji" in system.lower()                     # formatting/emoji guidance
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_x_style_default_is_standard(httpx_mock: HTTPXMock):
+    """Omitting x_style injects the neutral Standard angle, not a hot take."""
+    from services.caption_generator import X_STYLE_INSTRUCTIONS
+    from models.schemas import XStyle
+    httpx_mock.add_response(
+        url=f"{BASE}/chat/completions",
+        json={"choices": [{"message": {"content": json.dumps(GOOD_JSON)}}]},
+    )
+    client = OpenRouterClient(api_key="test-key")
+    gen = CaptionGenerator(client)
+    await gen.generate(topic="AI", format="single", platform=Platform.X,
+                       web_grounded=False)
+    system, _user = _sys_user(httpx_mock)
+    assert X_STYLE_INSTRUCTIONS[XStyle.STANDARD] in system
+    assert "bold, specific stance" not in system         # not the hot take
+    await client.close()
 
 
 @pytest.mark.asyncio

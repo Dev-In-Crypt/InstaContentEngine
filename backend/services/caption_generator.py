@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
-from models.schemas import LengthTier, Platform, TWEET_CHAR_LIMIT, XPostMode
+from models.schemas import LengthTier, Platform, TWEET_CHAR_LIMIT, XPostMode, XStyle
 from services.brand_voice import resolve_brand_voice
 from services.text_polish import polish
 from services.x_text import clamp_count, enforce_parts
@@ -204,7 +204,11 @@ Write for X. HARD RULES:
 - The "caption" field is the tweet text WITHOUT hashtags — they are appended from the
   "hashtags" field when the post goes out, so repeating them here publishes them twice.
 - Caption plus hashtags must fit 250 characters, so keep the caption near 200.
-- One sharp hook, one idea, natural English, no em-dash.
+- One sharp hook on the first line, one idea, natural English, no em-dash.
+- Give the post air: use one or two short line breaks between thoughts — never a
+  single grey block of text.
+- 0-2 tasteful emoji that carry meaning, never decorative spam.
+- {x_style}
 - Plain text only. X renders no markdown: no [text](url), no **bold**, no headings.
   Cite a source by naming it and putting the bare URL in parentheses.
 - Do not invent statistics, percentages, or study results. Use a specific number
@@ -240,9 +244,12 @@ Write ONE thread. HARD RULES:
   the one before it, no restating and no standalone summaries in the middle.
 - Tweet 1 is the hook. The last tweet lands the conclusion and the call to action.
 - No "1/7" style numbering — X already shows the chain.
+- Within a tweet, use a short line break where it helps readability — don't cram
+  every tweet into one dense paragraph.
 - NO hashtags anywhere in the tweets. They go in the "hashtags" field and are
   appended to the last tweet at publish time; writing them here posts them twice.
-- Max 1-2 emojis in the whole thread.
+- 0-2 tasteful emoji per tweet that carry meaning, never decorative spam.
+- {x_style}
 - Natural English, no em-dash, ready to copy-paste.
 - Plain text only. X renders no markdown: no [text](url), no **bold**, no headings.
   Cite a source by naming it and putting the bare URL in parentheses.
@@ -274,10 +281,11 @@ does not apply). HARD RULES:
 - Open with a hook line that works on its own, then develop the idea in short
   paragraphs separated by blank lines. Mobile readers skim — keep paragraphs tight.
 - One coherent argument from start to finish, no bullet-point dump.
+- {x_style}
 - End with a conclusion and a single call to action.
 - NO hashtags in the post text. Put 1-2 in the "hashtags" field; they are appended
   at publish time, so writing them here posts them twice.
-- Few emojis. No em-dash.
+- 0-3 tasteful emoji across the whole post. No em-dash.
 - Plain text only. X renders no markdown: no [text](url), no **bold**, no headings.
   Cite a source by naming it and putting the bare URL in parentheses.
 - Do not invent statistics, percentages, or study results. Use a specific number
@@ -315,6 +323,18 @@ LENGTH_TIER_INSTRUCTIONS: dict[LengthTier, str] = {
         "LENGTH: The first ~125 characters must work as a standalone hook. Then go deep with "
         "multiple short paragraphs, 300-900+ characters total when useful."
     ),
+}
+
+# The framing ANGLE of an X post (ported from the user's thread bot). Composes with
+# the brand voice — voice is WHO speaks, this is how the post is framed.
+X_STYLE_INSTRUCTIONS: dict[XStyle, str] = {
+    XStyle.STANDARD: "ANGLE: Inform clearly and specifically — lead with the single most useful point.",
+    XStyle.EDUCATIONAL: ("ANGLE: Explain like an expert breaking a concept down simply — use one "
+                         "concrete example or analogy so a newcomer gets it."),
+    XStyle.HOT_TAKE: ("ANGLE: Take a bold, specific stance. Be provocative but back it with logic; "
+                      "challenge the mainstream view rather than restate it."),
+    XStyle.NEWS_BREAKDOWN: ("ANGLE: Break down the news — what happened, why it matters, and what "
+                            "comes next. Concrete and current."),
 }
 
 
@@ -360,6 +380,7 @@ class CaptionGenerator:
         length_tier: LengthTier = LengthTier.SWEET_SPOT,
         web_grounded: bool = True,
         x_mode: XPostMode = XPostMode.SHORT,
+        x_style: XStyle = XStyle.STANDARD,
         thread_min: int = 3,
         thread_max: int = 7,
     ) -> GeneratedCaption:
@@ -378,6 +399,9 @@ class CaptionGenerator:
             tone=tone,
             length_instruction=LENGTH_TIER_INSTRUCTIONS[length_tier],
             json_format=_JSON_FORMAT,
+            # X-only placeholder; harmless to include for other platforms since
+            # their templates don't reference {x_style}.
+            x_style=X_STYLE_INSTRUCTIONS[x_style],
         )
         if template is X_THREAD_SYSTEM_PROMPT:
             fields.update(thread_min=thread_min, thread_max=thread_max,

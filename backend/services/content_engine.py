@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 from collections.abc import Awaitable, Callable
 
-from models.schemas import XPostMode, ImageSource, PostFormat, Platform, LengthTier, TemplateStyle
+from models.schemas import XPostMode, XStyle, ImageSource, PostFormat, Platform, LengthTier, TemplateStyle
 from services.caption_generator import CaptionGenerator, GeneratedCaption
 from services.image_router import ImageRouter, SlideImageConfig, ImageFetchError
 from services.openrouter import OpenRouterError
@@ -98,6 +98,7 @@ class ContentEngine:
         brand_voice: Optional[str] = None,
         brand_name: Optional[str] = None,
         x_mode: XPostMode = XPostMode.SHORT,
+        x_style: XStyle = XStyle.STANDARD,
         thread_min: int = 3,
         thread_max: int = 7,
         progress: Optional[ProgressFn] = None,
@@ -123,6 +124,7 @@ class ContentEngine:
             platform=platform,
             length_tier=length_tier,
             x_mode=x_mode,
+            x_style=x_style,
             thread_min=thread_min,
             thread_max=thread_max,
         )

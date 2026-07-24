@@ -166,6 +166,19 @@ async def test_caption_gen_called_with_correct_params():
 
 
 @pytest.mark.asyncio
+async def test_x_style_forwarded_to_caption_gen():
+    """The composer's X style must reach the caption generator. Mutation guard:
+    drop the x_style pass-through → the kwarg is missing and this fails."""
+    from models.schemas import XStyle
+    engine, cap_gen, _ = make_engine()
+    await engine.generate_post(
+        topic="AI", format=PostFormat.SINGLE, platform=Platform.X,
+        text_only=True, x_style=XStyle.HOT_TAKE,
+    )
+    assert cap_gen.generate.call_args.kwargs["x_style"] == XStyle.HOT_TAKE
+
+
+@pytest.mark.asyncio
 async def test_seo_keywords_and_platform_propagate():
     engine, _, _ = make_engine()
     post = await engine.generate_post(

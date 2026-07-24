@@ -37,6 +37,16 @@ class XPostMode(str, Enum):
     LONG = "long"
 
 
+class XStyle(str, Enum):
+    """The ANGLE of an X post (orthogonal to brand voice — voice is WHO speaks,
+    style is how THIS post is framed). STANDARD keeps the neutral informative
+    take; the rest steer the framing, ported from the user's shorts/thread bot."""
+    STANDARD = "standard"
+    EDUCATIONAL = "educational"
+    HOT_TAKE = "hot_take"
+    NEWS_BREAKDOWN = "news_breakdown"
+
+
 #: Hard cap on tweets per thread. A thread of N tweets spends N of the account's
 #: monthly X quota (1,500 on the free tier), so this is deliberately bounded.
 MAX_THREAD_TWEETS = 15
@@ -132,6 +142,9 @@ class GenerateRequest(BaseModel):
     # picks a number inside the range that fits the topic, rather than padding or
     # squeezing the argument to hit an exact count.
     x_mode: XPostMode = XPostMode.SHORT
+    # X only: the framing angle of the post (standard / educational / hot take /
+    # news breakdown). Composes with the brand voice.
+    x_style: XStyle = XStyle.STANDARD
     thread_min: int = Field(3, ge=2, le=MAX_THREAD_TWEETS)
     thread_max: int = Field(7, ge=2, le=MAX_THREAD_TWEETS)
 
