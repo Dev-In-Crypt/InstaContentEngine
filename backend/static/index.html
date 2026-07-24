@@ -394,7 +394,7 @@
     <button data-section="biz-analytics" onclick="setSection('biz-analytics')" class="business-only sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">📊 Analytics</button>
     <button data-section="biz-journal" onclick="setSection('biz-journal')" class="business-only sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">📋 Journal</button>
     <button data-section="biz-rules" onclick="setSection('biz-rules')" class="business-only sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">🛡 Rules</button>
-    <button data-section="keys" onclick="setSection('keys')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">🔑 <span id="net-keys-label">Instagram</span> keys</button>
+    <button data-section="keys" onclick="setSection('keys')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap">🔑 Connections</button>
     <button data-section="account" onclick="setSection('account')" class="sec-btn px-3 py-1.5 rounded-lg text-sm whitespace-nowrap ml-auto">⚙ Account</button>
   </div>
 
@@ -417,13 +417,23 @@
     <h2 class="text-lg font-semibold text-purple-300">✏️ What should the post be about?</h2>
 
     <div>
+      <label class="block text-sm text-gray-400 mb-1">Post to</label>
+      <div class="flex gap-2" id="net-toggle">
+        <button type="button" onclick="setNetwork('instagram')" id="net-toggle-ig"
+          class="flex-1 rounded-xl py-2 text-sm font-medium border border-gray-700 bg-gray-800 text-gray-300 transition">📸 Instagram</button>
+        <button type="button" onclick="setNetwork('x')" id="net-toggle-x"
+          class="flex-1 rounded-xl py-2 text-sm font-medium border border-gray-700 bg-gray-800 text-gray-300 transition">𝕏 X</button>
+      </div>
+    </div>
+
+    <div>
       <label class="block text-sm text-gray-400 mb-1">Topic</label>
       <input id="topic" type="text" placeholder="e.g. 5 AI tools every marketer needs in 2026"
         class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500" />
     </div>
 
     <div class="grid grid-cols-2 gap-4">
-      <div>
+      <div id="niche-label-field">
         <label class="block text-sm text-gray-400 mb-1">Niche (optional)</label>
         <input id="niche" type="text" placeholder="Marketing, Health, Tech…" maxlength="24"
           class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500" />
@@ -462,7 +472,7 @@
           <button data-val="linkedin"  class="plt-btn">💼 LinkedIn</button>
         </div>
       </div>
-      <div>
+      <div id="length-field">
         <label class="block text-sm text-gray-400 mb-1">Caption length</label>
         <select id="length-tier" class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
           <option value="hook_zone">Hook Zone (~125)</option>
@@ -472,38 +482,8 @@
       </div>
     </div>
 
-    <button onclick="goStep(2)" class="w-full bg-purple-600 hover:bg-purple-500 transition rounded-xl py-3 font-semibold text-white">
-      Next →
-    </button>
-  </section>
-
-  <!-- ===== STEP 2: FORMAT + SOURCE ===== -->
-  <section id="step-2" class="step-section hidden bg-gray-900 rounded-2xl p-6 space-y-5">
-    <h2 class="text-lg font-semibold text-purple-300">⚙️ Format & images</h2>
-
-    <!-- Presets: apply a saved bundle of the settings below (cloud accounts only) -->
-    <div id="preset-row" class="hidden flex flex-wrap items-center gap-2 bg-gray-800/60 rounded-xl px-3 py-2">
-      <span class="text-xs text-gray-400">Preset</span>
-      <select id="preset-select" class="ce-input px-2 py-1 text-sm min-w-[10rem]"></select>
-      <button onclick="applySelectedPreset()" class="ce-btn-ghost px-3 py-1 text-xs">Apply</button>
-      <button onclick="saveCurrentPreset()" class="ce-btn-ghost px-3 py-1 text-xs">💾 Save current</button>
-      <button onclick="deleteSelectedPreset()" class="ce-btn-ghost px-3 py-1 text-xs">Delete</button>
-      <span class="text-[10px] text-gray-500 w-full">A preset stores these settings, not your topic or photos.</span>
-    </div>
-
-    <!-- Instagram formats. Hidden on X, which has no carousels. -->
-    <div id="format-group">
-      <label class="block text-sm text-gray-400 mb-2">Post format</label>
-      <div class="grid grid-cols-2 sm:grid-cols-3 gap-2" id="format-btns">
-        <button data-val="single"       class="fmt-btn">🖼 Single image</button>
-        <button data-val="carousel_3"   class="fmt-btn">🎠 Carousel 3</button>
-        <button data-val="carousel_5"   class="fmt-btn">🎠 Carousel 5</button>
-        <button data-val="carousel_10"  class="fmt-btn">🎠 Carousel 10</button>
-        <button data-val="infographic"  class="fmt-btn">📊 Infographic</button>
-      </div>
-    </div>
-
-    <!-- X post types. Shown only on the X tab (see setNetwork). -->
+    <!-- X post types. Shown only on the X tab (see setNetwork). Lives on the Topic
+         step so the thread/style choice is visible without hunting through Settings. -->
     <div id="xmode-group" class="hidden space-y-4">
       <div>
         <label class="block text-sm text-gray-400 mb-2">X post type</label>
@@ -541,6 +521,37 @@
           7-tweet thread costs 7 posts. Every tweet stays under 250 characters and
           continues the one before it.
         </p>
+      </div>
+    </div>
+
+    <button onclick="goStep(2)" class="w-full bg-purple-600 hover:bg-purple-500 transition rounded-xl py-3 font-semibold text-white">
+      Next →
+    </button>
+  </section>
+
+  <!-- ===== STEP 2: FORMAT + SOURCE ===== -->
+  <section id="step-2" class="step-section hidden bg-gray-900 rounded-2xl p-6 space-y-5">
+    <h2 class="text-lg font-semibold text-purple-300">⚙️ Format & images</h2>
+
+    <!-- Presets: apply a saved bundle of the settings below (cloud accounts only) -->
+    <div id="preset-row" class="hidden flex flex-wrap items-center gap-2 bg-gray-800/60 rounded-xl px-3 py-2">
+      <span class="text-xs text-gray-400">Preset</span>
+      <select id="preset-select" class="ce-input px-2 py-1 text-sm min-w-[10rem]"></select>
+      <button onclick="applySelectedPreset()" class="ce-btn-ghost px-3 py-1 text-xs">Apply</button>
+      <button onclick="saveCurrentPreset()" class="ce-btn-ghost px-3 py-1 text-xs">💾 Save current</button>
+      <button onclick="deleteSelectedPreset()" class="ce-btn-ghost px-3 py-1 text-xs">Delete</button>
+      <span class="text-[10px] text-gray-500 w-full">A preset stores these settings, not your topic or photos.</span>
+    </div>
+
+    <!-- Instagram formats. Hidden on X, which has no carousels. -->
+    <div id="format-group">
+      <label class="block text-sm text-gray-400 mb-2">Post format</label>
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-2" id="format-btns">
+        <button data-val="single"       class="fmt-btn">🖼 Single image</button>
+        <button data-val="carousel_3"   class="fmt-btn">🎠 Carousel 3</button>
+        <button data-val="carousel_5"   class="fmt-btn">🎠 Carousel 5</button>
+        <button data-val="carousel_10"  class="fmt-btn">🎠 Carousel 10</button>
+        <button data-val="infographic"  class="fmt-btn">📊 Infographic</button>
       </div>
     </div>
 
@@ -3976,8 +3987,20 @@ function setNetwork(net) {
   document.getElementById('net-x').classList.toggle('net-active', net === 'x');
   document.getElementById('net-x').classList.toggle('text-gray-400', net !== 'x');
   const isIG = net === 'instagram';
-  const lbl = document.getElementById('net-keys-label'); if (lbl) lbl.textContent = isIG ? 'Instagram' : 'X';
   document.querySelectorAll('.analytics-net').forEach(e => e.textContent = isIG ? 'Instagram' : 'X');
+  // Prominent composer network toggle (the left rail is hidden in the Business shell,
+  // so this is the discoverable — and in Business the only — way to choose the target).
+  const igT = document.getElementById('net-toggle-ig');
+  const xT = document.getElementById('net-toggle-x');
+  if (igT) { igT.classList.toggle('bg-purple-600', isIG); igT.classList.toggle('text-white', isIG);
+             igT.classList.toggle('bg-gray-800', !isIG); igT.classList.toggle('text-gray-300', !isIG); }
+  if (xT)  { xT.classList.toggle('bg-purple-600', !isIG); xT.classList.toggle('text-white', !isIG);
+             xT.classList.toggle('bg-gray-800', isIG); xT.classList.toggle('text-gray-300', isIG); }
+  // X is a text network — hide the Instagram-only "image label" + caption-length fields.
+  const nicheF = document.getElementById('niche-label-field');
+  const lenF = document.getElementById('length-field');
+  if (nicheF) nicheF.classList.toggle('hidden', !isIG);
+  if (lenF) lenF.classList.toggle('hidden', !isIG);
   // sync the (now hidden) wizard platform toggle so generation uses this network
   document.querySelectorAll('.plt-btn').forEach(b => b.classList.toggle('active', b.dataset.val === net));
   // X has no carousels: swap the Instagram format picker for the X post types.
