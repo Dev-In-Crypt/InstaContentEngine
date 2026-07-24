@@ -4117,13 +4117,13 @@ const CRED_FIELDS = [
   { key: 'unsplash_access_key',     label: 'Unsplash access key',     scope: 'account',   group: 'Stock photos (optional)' },
   { key: 'pexels_api_key',          label: 'Pexels API key',          scope: 'account',   group: 'Stock photos (optional)' },
   { key: 'elevenlabs_api_key',      label: 'ElevenLabs API key',      scope: 'account',   group: 'Voiceover Reels (optional)' },
-  { key: 'instagram_access_token',  label: 'Instagram access token',  scope: 'instagram', group: 'Instagram publishing' },
-  { key: 'instagram_user_id',       label: 'Instagram user id',       scope: 'instagram', group: 'Instagram publishing' },
-  { key: 'imgbb_api_key',           label: 'imgbb API key',           scope: 'instagram', group: 'imgbb — public image hosting for IG' },
-  { key: 'x_api_key',               label: 'X API key',               scope: 'x',         group: 'X / Twitter (OAuth 1.0a)' },
-  { key: 'x_api_secret',            label: 'X API secret',            scope: 'x',         group: 'X / Twitter (OAuth 1.0a)' },
-  { key: 'x_access_token',          label: 'X access token',          scope: 'x',         group: 'X / Twitter (OAuth 1.0a)' },
-  { key: 'x_access_token_secret',   label: 'X access token secret',   scope: 'x',         group: 'X / Twitter (OAuth 1.0a)' },
+  { key: 'instagram_access_token',  label: 'Instagram access token',  scope: 'instagram', group: 'Instagram publishing', hint: 'Instagram-Login token with content-publish permission' },
+  { key: 'instagram_user_id',       label: 'Instagram user id',       scope: 'instagram', group: 'Instagram publishing', hint: 'the numeric IG user id' },
+  { key: 'imgbb_api_key',           label: 'imgbb API key',           scope: 'instagram', group: 'imgbb — public image hosting for IG', hint: 'free from api.imgbb.com — hosts slide images so IG can fetch them' },
+  { key: 'x_api_key',               label: 'X API key',               scope: 'x',         group: 'X / Twitter (OAuth 1.0a)', hint: 'X console: Consumer Key' },
+  { key: 'x_api_secret',            label: 'X API secret',            scope: 'x',         group: 'X / Twitter (OAuth 1.0a)', hint: 'X console: Consumer Secret' },
+  { key: 'x_access_token',          label: 'X access token',          scope: 'x',         group: 'X / Twitter (OAuth 1.0a)', hint: 'X console: Access Token (must be Read and write)' },
+  { key: 'x_access_token_secret',   label: 'X access token secret',   scope: 'x',         group: 'X / Twitter (OAuth 1.0a)', hint: 'X console: Access Token Secret' },
 ];
 
 async function loadCredentials(scope) {
@@ -4147,6 +4147,7 @@ async function loadCredentials(scope) {
     const info = data[f.key] || {};
     const ph = info.set ? `set: ${esc(info.masked || '••••')}` : 'not set';
     html += `<input data-cred="${f.key}" type="password" autocomplete="off" aria-label="${esc(f.label)}" placeholder="${esc(f.label)} — ${ph}" class="ce-input w-full px-3 py-2 text-sm" />`;
+    if (f.hint) html += `<div class="text-xs text-gray-500 -mt-2 pl-1">${esc(f.hint)}</div>`;
   }
   form.innerHTML = html;
 }
