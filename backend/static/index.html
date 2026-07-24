@@ -925,6 +925,8 @@
       <div class="flex items-center gap-3 flex-wrap">
         <button id="save-keys-btn" onclick="saveCredentials()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">💾 Save keys</button>
         <button id="test-conn-btn" onclick="testPublishConnection()" class="hidden bg-gray-700 hover:bg-gray-600 transition rounded-lg px-4 py-2 text-sm font-semibold">🔌 Test connection</button>
+        <button id="test-x-btn" onclick="testPublishConnection('x')" class="hidden bg-gray-700 hover:bg-gray-600 transition rounded-lg px-4 py-2 text-sm font-semibold">🔌 Test 𝕏</button>
+        <button id="test-ig-btn" onclick="testPublishConnection('instagram')" class="hidden bg-gray-700 hover:bg-gray-600 transition rounded-lg px-4 py-2 text-sm font-semibold">🔌 Test Instagram</button>
         <span id="test-conn-result" class="text-sm"></span>
       </div>
     </section>
@@ -4274,8 +4276,12 @@ async function loadAdmin() {
   // Section-driven layout: "keys" = this network's publishing keys only;
   // "account" = global OpenRouter/stock keys + usage + backup.
   const account = S.section !== 'keys';
+  // Business has no network rail, so its Connections page can't be network-scoped —
+  // it shows every credential group (media + Instagram + X) at once.
+  const business = !!(S.user && S.user.account_type === 'business');
   const keysH = document.getElementById('keys-title');
-  if (keysH) keysH.textContent = account ? '🔑 Account keys' : ('🔑 ' + (S.network === 'x' ? 'X' : 'Instagram') + ' keys');
+  if (keysH) keysH.textContent = account ? '🔑 Account keys'
+    : (business ? '🔑 Connections' : ('🔑 ' + (S.network === 'x' ? 'X' : 'Instagram') + ' keys'));
   document.getElementById('usage-section').classList.toggle('hidden', !account);
   document.getElementById('backup-section').classList.toggle('hidden', !(account && S.user && (S.user.is_admin || S.user.is_local)));
   if (account) {
@@ -4285,12 +4291,18 @@ async function loadAdmin() {
       `💰 LLM spend — today <b>$${(d.today?.cost||0).toFixed(4)}</b>, this month <b>$${(d.month?.cost||0).toFixed(4)}</b> (${d.month?.calls||0} calls)`;
   }
   const keysSec = document.getElementById('keys-section');
-  if (S.user && !S.user.is_local) { keysSec.classList.remove('hidden'); await loadCredentials(account ? 'account' : S.network); }
+  if (S.user && !S.user.is_local) { keysSec.classList.remove('hidden'); await loadCredentials(account ? 'account' : (business ? 'all' : S.network)); }
   else keysSec.classList.add('hidden');
-  // "Test connection" only makes sense on a publishing-network keys page.
+  // "Test connection" only makes sense on a publishing keys page. Creator's page is
+  // network-scoped → one button for the active network; Business shows all creds →
+  // one button per network.
+  const canTest = !account && S.user && !S.user.is_local;
   const testBtn = document.getElementById('test-conn-btn');
-  const showTest = !account && S.user && !S.user.is_local && (S.network === 'x' || S.network === 'instagram');
-  if (testBtn) testBtn.classList.toggle('hidden', !showTest);
+  if (testBtn) testBtn.classList.toggle('hidden', !(canTest && !business && (S.network === 'x' || S.network === 'instagram')));
+  const txBtn = document.getElementById('test-x-btn');
+  if (txBtn) txBtn.classList.toggle('hidden', !(canTest && business));
+  const tigBtn = document.getElementById('test-ig-btn');
+  if (tigBtn) tigBtn.classList.toggle('hidden', !(canTest && business));
   const testRes = document.getElementById('test-conn-result');
   if (testRes) testRes.textContent = '';
   // Brand voice lives on the Account page for cloud users.
@@ -4335,13 +4347,15 @@ async function loadCredentials(scope) {
     if (res.ok) data = await res.json();
   } catch { /* 401 handled by apiFetch */ }
   S.creds = data;   // keep the onboarding guard cache in sync with what we render
-  const fields = CRED_FIELDS.filter(f => f.scope === (scope || 'account'));
+  const scopes = scope === 'all' ? ['account', 'instagram', 'x'] : [scope || 'account'];
+  const fields = CRED_FIELDS.filter(f => scopes.includes(f.scope));
   const noneSet = fields.every(f => !(data[f.key] && data[f.key].set));
   const form = document.getElementById('keys-form');
   let html = '', lastGroup = null;
   if (noneSet) {
+    const purpose = scope === 'account' ? 'content generation' : scope === 'all' ? 'posting and content' : 'publishing';
     html += `<div class="text-xs text-gray-400 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
-      👋 Add your keys here to unlock ${scope === 'account' ? 'content generation' : 'publishing'}.
+      👋 Add your keys here to unlock ${purpose}.
       Your keys are encrypted and only used for your own posts.</div>`;
   }
   for (const f of fields) {
@@ -4354,8 +4368,8 @@ async function loadCredentials(scope) {
   form.innerHTML = html;
 }
 
-async function testPublishConnection() {
-  const network = S.network;                     // 'x' | 'instagram'
+async function testPublishConnection(network) {
+  network = network || S.network;                // 'x' | 'instagram'
   const btn = document.getElementById('test-conn-btn');
   const out = document.getElementById('test-conn-result');
   const prev = btn ? btn.textContent : '';
