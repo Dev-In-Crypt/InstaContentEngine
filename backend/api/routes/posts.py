@@ -482,8 +482,13 @@ async def publish_post(
 ) -> PublishResult:
     """Publish immediately: slides → imgbb (public URLs) → Instagram."""
     from services.publisher_flow import publish_now, PublishError
+    from services.publishing.factory import PUBLISHABLE_PLATFORMS
     from services.scheduler import cancel_publish
     post = await owned_post(db, post_id, user)   # ownership gate before touching the job/publish
+    if (post.platform or "instagram") not in PUBLISHABLE_PLATFORMS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Publishing to {post.platform} isn't available yet — export or copy the post.")
     # Business posts require a human sign-off: only an approved workspace post may publish
     # (no auto-publish without a person — doc §8/§13).
     if post.workspace_id and post.status != "approved":
@@ -525,9 +530,14 @@ async def schedule_post_endpoint(
     user: Annotated[UserModel, Depends(get_current_user)],
 ) -> PostPreview:
     """Schedule a post for future publishing (10 min – 75 days ahead)."""
+    from services.publishing.factory import PUBLISHABLE_PLATFORMS
     from services.scheduler import schedule_publish
 
     post = await owned_post(db, post_id, user, options=_preview_opts())
+    if (post.platform or "instagram") not in PUBLISHABLE_PLATFORMS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Publishing to {post.platform} isn't available yet — export or copy the post.")
 
     when = body.publish_at
     if when.tzinfo is None:

@@ -193,6 +193,37 @@ def test_pillars_mix(client, seeded):
 
 # ── reel render ─────────────────────────────────────────────────────────────
 
+def _seed_platform_post(db_url, platform):
+    """Insert a minimal post on a given platform into the shared test DB."""
+    pid = str(uuid.uuid4())
+
+    async def _s():
+        eng = create_async_engine(db_url)
+        SM = async_sessionmaker(eng, expire_on_commit=False)
+        async with SM() as s:
+            s.add(PostModel(id=pid, topic="t", format="single", status="preview",
+                            caption="c", platform=platform))
+            await s.commit()
+        await eng.dispose()
+    asyncio.run(_s())
+    return pid
+
+
+def test_publish_rejected_for_platform_without_publisher(client, db_url):
+    """LinkedIn can generate but has no publisher — publish/schedule must 400 up
+    front, not route into the flow and mark the post failed. Mutation guard: drop
+    the PUBLISHABLE_PLATFORMS gate → publish reaches the flow (502/failed)."""
+    pid = _seed_platform_post(db_url, "linkedin")
+    res = client.post(f"/api/posts/{pid}/publish")
+    assert res.status_code == 400
+    assert "isn't available" in res.json()["detail"].lower()
+
+    from datetime import datetime, timedelta, timezone
+    soon = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    sres = client.post(f"/api/posts/{pid}/schedule", json={"publish_at": soon})
+    assert sres.status_code == 400
+
+
 def test_text_only_rejected_on_instagram(client):
     """Text-only is X-only — Instagram needs media. The route refuses up front
     (before spending a generation). Mutation guard: drop the platform check → 200."""

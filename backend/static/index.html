@@ -677,8 +677,8 @@
       </div>
     </div>
 
-    <!-- SEO keywords (separate from hashtags) -->
-    <div>
+    <!-- SEO keywords (separate from hashtags). Instagram-only — hidden on X. -->
+    <div id="seo-group">
       <div class="flex items-center justify-between mb-2">
         <label class="block text-sm text-gray-400">🔍 SEO keywords <span class="text-gray-600">(Instagram search)</span></label>
         <button onclick="showVariations('seo_keywords')" class="text-xs text-purple-400 hover:text-purple-300">↻ Variations</button>
@@ -1054,7 +1054,7 @@
   <div id="view-analytics" class="hidden space-y-4">
     <div class="ce-card p-5">
       <h2 class="text-lg font-semibold" style="color:var(--accent)">📊 Analytics</h2>
-      <p class="text-xs text-gray-400 mt-1">Published posts on <span class="analytics-net">Instagram</span> and their latest metrics.</p>
+      <p class="text-xs text-gray-400 mt-1">Your published <span class="analytics-net">Instagram</span> posts — open each to view it on the network. (In-app metrics are Instagram-only.)</p>
       <div id="analytics-list" class="mt-4 space-y-2 text-sm text-gray-400">Loading…</div>
     </div>
   </div>
@@ -2731,6 +2731,12 @@ async function streamGenerate(body, onProgress) {
 }
 
 // ===== PREVIEW =====
+/** Which network a post targets — for gating Instagram-only preview surfaces
+ *  (insights, reels, SEO keywords). Falls back to the active tab, then Instagram. */
+function postIsInstagram(p) {
+  return (((p && p.platform) || S.network || 'instagram') === 'instagram');
+}
+
 function renderPreview(post) {
   // Reset undo stack for this post (load any persisted one)
   try { S.undoStack = JSON.parse(localStorage.getItem('undo_' + post.id) || '[]'); } catch(e){ S.undoStack = []; }
@@ -2810,12 +2816,16 @@ function renderPreview(post) {
   S.seoKeywords = [...(post.seo_keywords || [])];
   renderSeoKeywords();
 
+  // SEO keywords are an Instagram-search concept — no meaning on X.
+  const seoGroup = document.getElementById('seo-group');
+  if (seoGroup) seoGroup.classList.toggle('hidden', !postIsInstagram(post));
+
   // Reset reel preview for this post
   const reelPrev = document.getElementById('reel-preview');
   if (reelPrev) reelPrev.classList.add('hidden');
-  // A text-only post has no slides — a reel (built from slides) is meaningless.
+  // Reels publish to Instagram only, and need slides — hide on X / text-only.
   const reelCard = document.getElementById('reel-card');
-  if (reelCard) reelCard.classList.toggle('hidden', !post.slides.length);
+  if (reelCard) reelCard.classList.toggle('hidden', !post.slides.length || !postIsInstagram(post));
 
   // Emoji picker (lazily built once)
   buildEmojiPicker();
@@ -2824,7 +2834,8 @@ function renderPreview(post) {
   S.currentPost = post;
   applyScheduleState(post);
   const perf = document.getElementById('performance-panel');
-  if (post.instagram_media_id || post.status === 'published') {
+  // In-app insights exist for Instagram only (X has no metrics endpoint yet).
+  if ((post.instagram_media_id || post.status === 'published') && postIsInstagram(post)) {
     perf.classList.remove('hidden');
     document.getElementById('insights-numbers').innerHTML =
       '<div class="col-span-full text-gray-500">Click Refresh to load metrics.</div>';
@@ -3971,6 +3982,21 @@ function setNetwork(net) {
   if (!isIG) applyXPremiumGate();
   renderOwnPhotos();          // X takes one image, Instagram may take up to 10
   updatePostEditorChrome();   // "Post" vs "Caption", X char counter + split button
+  // "Feed grid" is an Instagram profile-grid concept — hide the nav on X, and
+  // bounce off it if it's the active section.
+  const feedBtn = document.querySelector('#section-nav [data-section="feed"]');
+  if (feedBtn) feedBtn.classList.toggle('hidden', !isIG);
+  if (!isIG && S.section === 'feed') S.section = 'create';
+  // Plan-a-week: X has no carousels (one image per tweet), so offer Single only.
+  const planFmt = document.getElementById('plan-format');
+  if (planFmt) {
+    planFmt.querySelectorAll('option').forEach(o => {
+      const carousel = o.value.startsWith('carousel');
+      o.hidden = carousel && !isIG;
+      o.disabled = carousel && !isIG;
+    });
+    if (!isIG && planFmt.value.startsWith('carousel')) planFmt.value = 'single';
+  }
   setSection(S.section || 'create');
 }
 

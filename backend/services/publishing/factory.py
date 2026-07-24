@@ -5,6 +5,11 @@ from services.publishing.base import Publisher, PublisherError
 from services.publishing.instagram_adapter import InstagramPlatformPublisher
 from services.publishing.x import XPublisher
 
+#: Platforms that actually have a wired publisher. LinkedIn (and any future enum
+#: value) can generate but not publish — callers gate on this so a post is never
+#: routed to a non-existent publisher and left marked failed.
+PUBLISHABLE_PLATFORMS = frozenset({"instagram", "x"})
+
 
 def make_publisher_for(platform: str, settings, name_prefix: str = "slide") -> Publisher:
     if platform == "instagram":
