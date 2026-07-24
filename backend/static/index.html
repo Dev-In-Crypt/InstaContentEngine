@@ -540,6 +540,8 @@
         <button data-val="ai_gen" class="src-btn">🎨 AI generated</button>
         <button data-val="upload" class="src-btn">📁 My photos</button>
         <button data-val="canva"  class="src-btn">🎯 Canva template</button>
+        <!-- Text-only is a pure-text post (no image). X only — shown/hidden in setNetwork. -->
+        <button data-val="text_only" id="src-text-only" class="src-btn hidden">📝 Text only</button>
       </div>
 
       <!-- Own photos: shown only while "My photos" is the source (see onSourceChange). -->
@@ -561,25 +563,28 @@
       </div>
     </div>
 
-    <div>
+    <div id="template-group">
       <label class="block text-sm text-gray-400 mb-2">Template style</label>
       <div class="flex flex-wrap gap-2" id="template-btns">
         <button data-val="branded_card" class="tpl-btn">🪪 Branded card (portrait)</button>
         <button data-val="square"       class="tpl-btn">⬜ Square (legacy)</button>
+        <!-- Plain photo = no branding: the clean photo, caption goes to the caption field. -->
+        <button data-val="plain"        class="tpl-btn">🖼 Plain photo (no text)</button>
       </div>
     </div>
 
-    <div>
+    <div id="niche-group">
       <label class="block text-sm text-gray-400 mb-2">Niche box color</label>
       <div class="flex flex-wrap gap-2" id="niche-color-swatches"></div>
     </div>
 
-    <div class="flex items-center gap-3">
+    <!-- Hidden: driven by the Template style choice (Plain photo → off). -->
+    <div id="apply-brand-row" class="hidden items-center gap-3">
       <input type="checkbox" id="apply-brand" checked class="w-4 h-4 accent-purple-500" />
       <label for="apply-brand" class="text-sm text-gray-300">Apply branding (boxes + text overlay)</label>
     </div>
 
-    <div class="flex items-center gap-3">
+    <div id="show-logo-row" class="flex items-center gap-3">
       <input type="checkbox" id="show-logo" checked class="w-4 h-4 accent-purple-500" />
       <label for="show-logo" class="text-sm text-gray-300">Show logo on slides</label>
     </div>
@@ -737,8 +742,8 @@
       </div>
     </div>
 
-    <!-- Reel (video) -->
-    <div class="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-2">
+    <!-- Reel (video) — built from slides, so hidden for a text-only post -->
+    <div id="reel-card" class="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-2">
       <div class="flex items-center justify-between">
         <label class="text-sm font-semibold text-purple-300">🎬 Reel (video from slides)</label>
         <button onclick="makeReel()" id="make-reel-btn" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-1.5 text-sm font-semibold">Make Reel</button>
@@ -2466,10 +2471,35 @@ function slidesNeeded() {
   return { carousel_3: 3, carousel_5: 5, carousel_10: 10 }[S.format] || 1;
 }
 
+/** Single source of truth for which image controls show, given the source
+ *  (text-only hides all image controls) and the template style (plain photo hides
+ *  the branding-only controls). The standalone "Apply branding" checkbox stays
+ *  hidden — it's driven by the template-style choice. */
+function updateComposerControls() {
+  const textOnly = S.source === 'text_only';
+  const plain = !!S.plainPhoto;
+  const set = (id, hidden) => { const e = document.getElementById(id); if (e) e.classList.toggle('hidden', hidden); };
+  set('template-group', textOnly);
+  set('niche-group', textOnly || plain);
+  set('show-logo-row', textOnly || plain);
+  set('apply-brand-row', true);                       // always: derived from template style
+  set('own-photos', textOnly || S.source !== 'upload');
+}
+
 function onSourceChange(source) {
-  const box = document.getElementById('own-photos');
-  if (box) box.classList.toggle('hidden', source !== 'upload');
+  updateComposerControls();
   renderOwnPhotos();
+}
+
+/** Template style also decides branding: "Plain photo" = raw image, no card/overlay. */
+function onTemplateChange(val) {
+  S.plainPhoto = val === 'plain';
+  const applyBrand = document.getElementById('apply-brand');
+  if (applyBrand) applyBrand.checked = !S.plainPhoto;
+  // 'plain' is not a server TemplateStyle enum; keep a valid value (ignored when
+  // apply_branding is false) so the request validates.
+  S.templateStyle = S.plainPhoto ? 'branded_card' : val;
+  updateComposerControls();
 }
 
 function addOwnPhotos(ev) {
@@ -2595,7 +2625,9 @@ async function generatePost() {
     target_audience: document.getElementById('audience').value || null,
     additional_instructions: document.getElementById('instructions').value || null,
     apply_branding: document.getElementById('apply-brand').checked,
-    default_image_source: S.source,
+    // text_only carries no image; send a valid ImageSource enum (ignored server-side).
+    text_only: S.source === 'text_only',
+    default_image_source: S.source === 'text_only' ? 'stock' : S.source,
     platform: S.platform,
     length_tier: document.getElementById('length-tier').value,
     template_style: S.templateStyle,
@@ -2765,6 +2797,9 @@ function renderPreview(post) {
   // Reset reel preview for this post
   const reelPrev = document.getElementById('reel-preview');
   if (reelPrev) reelPrev.classList.add('hidden');
+  // A text-only post has no slides — a reel (built from slides) is meaningless.
+  const reelCard = document.getElementById('reel-card');
+  if (reelCard) reelCard.classList.toggle('hidden', !post.slides.length);
 
   // Emoji picker (lazily built once)
   buildEmojiPicker();
@@ -3830,6 +3865,14 @@ function setNetwork(net) {
   const xGroup = document.getElementById('xmode-group');
   if (fmtGroup) fmtGroup.classList.toggle('hidden', !isIG);
   if (xGroup) xGroup.classList.toggle('hidden', isIG);
+  // Text-only is X-only (Instagram needs media). Show the button on X; if the user
+  // switches to Instagram while it's picked, fall back to Stock photos.
+  const textBtn = document.getElementById('src-text-only');
+  if (textBtn) textBtn.classList.toggle('hidden', isIG);
+  if (isIG && S.source === 'text_only') {
+    const stockBtn = document.querySelector('#source-btns [data-val="stock"]');
+    if (stockBtn) stockBtn.click();
+  }
   if (!isIG) applyXPremiumGate();
   renderOwnPhotos();          // X takes one image, Instagram may take up to 10
   setSection(S.section || 'create');
@@ -4675,7 +4718,7 @@ initToggleGroup('.fmt-btn', 'format', 'single', renderOwnPhotos);
 initToggleGroup('.xmode-btn', 'xMode', 'short', onXModeChange);
 initToggleGroup('.src-btn', 'source', 'stock', onSourceChange);
 initToggleGroup('.plt-btn', 'platform', 'instagram');
-initToggleGroup('.tpl-btn', 'templateStyle', 'branded_card');
+initToggleGroup('.tpl-btn', 'templateStyle', 'branded_card', onTemplateChange);
 initNicheSwatches();
 showStep(1);
 switchAuthTab('login');

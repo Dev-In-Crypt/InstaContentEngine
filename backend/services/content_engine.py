@@ -82,6 +82,7 @@ class ContentEngine:
         text_model: str = "",
         image_model: Optional[str] = None,
         default_image_source: ImageSource = ImageSource.STOCK,
+        text_only: bool = False,
         upload_ids: Optional[list[str]] = None,
         slide_configs: Optional[list[SlideImageConfig]] = None,
         tone: str = "professional",
@@ -101,7 +102,9 @@ class ContentEngine:
         thread_max: int = 7,
         progress: Optional[ProgressFn] = None,
     ) -> GeneratedPost:
-        num = _num_slides(format)
+        # Text-only (X): a pure-text post with no image. Still write the caption,
+        # but build zero slides (num=0 → steps 2-3 produce nothing).
+        num = 0 if text_only else _num_slides(format)
 
         # 1. Generate caption + prompts
         if progress:

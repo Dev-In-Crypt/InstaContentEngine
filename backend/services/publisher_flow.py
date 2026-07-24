@@ -72,7 +72,9 @@ async def publish_now(sessionmaker, post_id: str) -> str:
                 await _mark_failed(db, post, f"Image missing for slide {s.slide_number}")
                 raise PublishError(f"Image missing for slide {s.slide_number}")
             images.append(p.read_bytes())
-        if not images:
+        # X can post pure text (a tweet needs no media); every other platform
+        # requires an image, so a zero-slide post there is an error.
+        if not images and platform != "x":
             await _mark_failed(db, post, "No slides to publish")
             raise PublishError("No slides to publish")
 

@@ -85,6 +85,21 @@ async def test_generate_carousel_5_slides():
 
 
 @pytest.mark.asyncio
+async def test_text_only_produces_no_slides_but_keeps_caption():
+    """A text-only post (X) has a caption but zero slides — no image is fetched.
+    Mutation guard: don't force num=0 → slides get built and image_router is called."""
+    engine, cap_gen, img_router = make_engine()
+    post = await engine.generate_post(
+        topic="A hot take", format=PostFormat.SINGLE,
+        platform=Platform.X, text_only=True,
+    )
+    assert post.slides == []
+    assert img_router.fetch_image.await_count == 0     # nothing fetched/branded
+    assert post.caption == FAKE_CAPTION.caption          # caption still written
+    cap_gen.generate.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_generate_no_branding_keeps_raw_image():
     engine, _, img_router = make_engine()
     img_router.fetch_image.return_value = b"raw-bytes"

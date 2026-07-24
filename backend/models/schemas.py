@@ -106,6 +106,9 @@ class GenerateRequest(BaseModel):
     text_model: Optional[str] = None        # None → use DEFAULT_TEXT_MODEL from .env
     image_model: Optional[str] = None       # None → use DEFAULT_IMAGE_MODEL from .env
     default_image_source: ImageSource = ImageSource.STOCK
+    # X only: a pure-text post with no image/slides at all. Instagram's API requires
+    # media, so the route rejects text_only for any non-X platform.
+    text_only: bool = False
     # Own photos, in slide order — required when default_image_source is "upload".
     upload_ids: list[str] = Field(default_factory=list)
     # Batch planning: the calendar date this draft belongs to. Sets scheduled_at

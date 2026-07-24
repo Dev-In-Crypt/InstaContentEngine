@@ -234,9 +234,17 @@ async def generate_post(
             for s in body.slides
         ]
 
+    # Text-only is a pure-text post (no image). Instagram's API requires media, so
+    # it only makes sense on X — refuse before spending a generation on it.
+    if body.text_only and body.platform != Platform.X:
+        raise HTTPException(
+            status_code=422,
+            detail="Text-only posts are supported on X only.",
+        )
+
     # Own photos: one per slide, in the order they were picked. Refuse up front
-    # rather than generating a post with holes in it.
-    if body.default_image_source == ImageSource.UPLOAD:
+    # rather than generating a post with holes in it. (Text-only has no slides.)
+    if body.default_image_source == ImageSource.UPLOAD and not body.text_only:
         needed = _num_slides(body.format)
         if len(body.upload_ids) < needed:
             raise HTTPException(
@@ -299,6 +307,7 @@ async def generate_post(
                     text_model=text_model,
                     image_model=image_model,
                     default_image_source=body.default_image_source,
+                    text_only=body.text_only,
                     upload_ids=body.upload_ids,
                     slide_configs=slide_configs,
                     tone=body.tone,

@@ -353,6 +353,32 @@ async def _seed_user(sm, uid, x_premium):
         await s.commit()
 
 
+async def test_text_only_x_post_publishes_with_no_images(sessionmaker, monkeypatch):
+    """A zero-slide X post is a text-only tweet — it must publish with images==[].
+    Mutation guard: drop the platform=='x' exemption → it fails 'No slides'."""
+    pid = str(uuid.uuid4())
+    await _seed(sessionmaker, id=pid, topic="t", format="single", status="preview",
+                platform="x", caption="Just a thought.")   # NO slides seeded
+    fake = _FakeThreadPublisher()
+    monkeypatch.setattr(pf, "settings_for_post_owner", AsyncMock(return_value=_fake_settings()))
+    monkeypatch.setattr(pf, "make_publisher_for", lambda *a, **k: fake)
+
+    await pf.publish_now(sessionmaker, pid)
+    assert fake.called_with[0] == []                       # images empty
+    assert fake.called_with[1] == "Just a thought."
+
+
+async def test_text_only_rejected_on_instagram(sessionmaker, monkeypatch):
+    """Instagram needs media — a zero-slide IG post must still fail fast."""
+    pid = str(uuid.uuid4())
+    await _seed(sessionmaker, id=pid, topic="t", format="single", status="preview",
+                platform="instagram", caption="No image here.")
+    monkeypatch.setattr(pf, "settings_for_post_owner", AsyncMock(return_value=_fake_settings()))
+    monkeypatch.setattr(pf, "make_publisher_for", lambda *a, **k: _FakePublisher())
+    with pytest.raises(pf.PublishError, match="No slides"):
+        await pf.publish_now(sessionmaker, pid)
+
+
 async def test_insights_use_owner_instagram_token(sessionmaker):
     """refresh_insights (and publishing) must use the OWNER's own IG token, not the
     platform .env — build_settings_for_user overlays the tenant's encrypted key.

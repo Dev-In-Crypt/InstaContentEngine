@@ -193,6 +193,17 @@ def test_pillars_mix(client, seeded):
 
 # ── reel render ─────────────────────────────────────────────────────────────
 
+def test_text_only_rejected_on_instagram(client):
+    """Text-only is X-only — Instagram needs media. The route refuses up front
+    (before spending a generation). Mutation guard: drop the platform check → 200."""
+    res = client.post("/api/posts/generate", json={
+        "topic": "A hot take on AI", "format": "single",
+        "platform": "instagram", "text_only": True,
+    })
+    assert res.status_code == 422
+    assert "x only" in res.json()["detail"].lower()
+
+
 def test_make_reel_and_fetch_video(client, seeded):
     res = client.post(f"/api/posts/{seeded}/reel")
     assert res.status_code == 200, res.text
