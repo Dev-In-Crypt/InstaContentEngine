@@ -636,11 +636,15 @@
       <div id="thread-parts" class="space-y-2"></div>
     </div>
 
-    <!-- Caption editor -->
+    <!-- Post/Caption editor (label + counter + split are set per-network in JS) -->
     <div id="caption-editor">
-      <div class="flex items-center justify-between mb-1">
-        <label class="block text-sm text-gray-400">Caption</label>
-        <button onclick="showVariations('caption')" class="text-xs text-purple-400 hover:text-purple-300">↻ Variations</button>
+      <div class="flex items-center justify-between mb-1 gap-2 flex-wrap">
+        <label id="caption-label" class="block text-sm text-gray-400">Caption</label>
+        <div class="flex items-center gap-3">
+          <span id="caption-count" class="hidden text-xs font-mono text-gray-500"></span>
+          <button id="split-thread-btn" onclick="splitIntoThread()" class="hidden text-xs text-purple-400 hover:text-purple-300">✂ Split into thread</button>
+          <button onclick="showVariations('caption')" class="text-xs text-purple-400 hover:text-purple-300">↻ Variations</button>
+        </div>
       </div>
       <textarea id="caption-edit" rows="5"
         class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none text-sm"></textarea>
@@ -3241,7 +3245,7 @@ function renderThread(parts) {
   const isThread = S.threadParts.length > 0;
   if (wrap) wrap.classList.toggle('hidden', !isThread);
   if (capBox) capBox.classList.toggle('hidden', isThread);
-  if (!isThread) return;
+  if (!isThread) { updatePostEditorChrome(); return; }
 
   const list = document.getElementById('thread-parts');
   list.innerHTML = '';
@@ -3269,6 +3273,85 @@ function renderThread(parts) {
     list.appendChild(card);
   });
   document.getElementById('thread-count').textContent = `(${S.threadParts.length} tweets)`;
+  updatePostEditorChrome();
+}
+
+// X posts trim to this at publish (fit_tweet, below X's 280 on purpose) — the
+// single-post counter and the thread splitter both target it so preview == posted.
+const X_TWEET_LIMIT = 250;
+
+/** Label + counter + split button reflect the network and whether it's a thread.
+ *  For X the single-post box is the TWEET (not an Instagram "Caption"). */
+function updatePostEditorChrome() {
+  const isX = S.network === 'x';
+  const isThread = (S.threadParts || []).length > 0;
+  const label = document.getElementById('caption-label');
+  if (label) label.textContent = isX ? '🐦 Post' : 'Caption';
+  const showXsingle = isX && !isThread;                 // counter/split only for a single tweet
+  const count = document.getElementById('caption-count');
+  const splitBtn = document.getElementById('split-thread-btn');
+  if (count) count.classList.toggle('hidden', !showXsingle);
+  if (splitBtn) splitBtn.classList.toggle('hidden', !showXsingle);
+  updateCaptionCount();
+}
+
+function updateCaptionCount() {
+  if (S.network !== 'x') return;
+  const ta = document.getElementById('caption-edit');
+  const count = document.getElementById('caption-count');
+  if (!ta || !count || count.classList.contains('hidden')) return;
+  const n = ta.value.length;
+  const over = n > X_TWEET_LIMIT;
+  count.textContent = over ? `${n}/${X_TWEET_LIMIT} — will be trimmed`
+                           : `${n}/${X_TWEET_LIMIT}`;
+  count.className = 'text-xs font-mono ' + (over ? 'text-red-400' : 'text-gray-500');
+}
+
+/** Break the single post text into <=X_TWEET_LIMIT tweet cells — no regenerate.
+ *  Packs on paragraph, then sentence, then word boundaries. */
+function splitTextIntoTweets(text, limit) {
+  const units = [];
+  for (const para of text.split(/\n\n+/)) {
+    if (para.length <= limit) { units.push(para); continue; }
+    const sentences = para.match(/[^.!?]+[.!?]*\s*/g) || [para];
+    let buf = '';
+    for (const s of sentences) {
+      if ((buf + s).length > limit && buf) { units.push(buf.trim()); buf = s; }
+      else buf += s;
+    }
+    if (buf.trim()) units.push(buf.trim());
+  }
+  const tweets = [];
+  let cur = '';
+  for (const u of units) {
+    const cand = cur ? cur + '\n\n' + u : u;
+    if (cand.length > limit && cur) { tweets.push(cur); cur = u; }
+    else cur = cand;
+  }
+  if (cur) tweets.push(cur);
+  // Last resort: a single unit still over the limit → slice on spaces.
+  const out = [];
+  for (let t of tweets) {
+    while (t.length > limit) {
+      let cut = t.lastIndexOf(' ', limit);
+      if (cut <= 0) cut = limit;
+      out.push(t.slice(0, cut).trim());
+      t = t.slice(cut).trim();
+    }
+    if (t) out.push(t);
+  }
+  return out;
+}
+
+function splitIntoThread() {
+  const ta = document.getElementById('caption-edit');
+  const text = (ta && ta.value || '').trim();
+  if (!text) return;
+  const parts = splitTextIntoTweets(text, X_TWEET_LIMIT);
+  if (parts.length < 2) { toast('Fits in one tweet — nothing to split', 'warn'); return; }
+  renderThread(parts);            // editable per-tweet cells; hides the single box
+  scheduleDraftSave();
+  toast(`✂ Split into ${parts.length} tweets`, 'success');
 }
 
 // ===== SAVE CAPTION =====
@@ -3875,6 +3958,7 @@ function setNetwork(net) {
   }
   if (!isIG) applyXPremiumGate();
   renderOwnPhotos();          // X takes one image, Instagram may take up to 10
+  updatePostEditorChrome();   // "Post" vs "Caption", X char counter + split button
   setSection(S.section || 'create');
 }
 
@@ -4724,7 +4808,7 @@ showStep(1);
 switchAuthTab('login');
 
 // Autosave draft as the user types the caption
-document.getElementById('caption-edit').addEventListener('input', scheduleDraftSave);
+document.getElementById('caption-edit').addEventListener('input', () => { updateCaptionCount(); scheduleDraftSave(); });
 document.getElementById('auth-password').addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
 
 // Boot gate: local mode resolves silently and starts the app; cloud shows login.
