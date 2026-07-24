@@ -206,3 +206,48 @@ def test_ai_test_surfaces_provider_error(cloud_client):
         body = cloud_client.post("/api/settings/ai/test", headers=h,
                                  json={"kind": "text"}).json()
     assert body["ok"] is False and "404" in body["message"]
+
+
+# ── publish connection preflight (X / Instagram) ─────────────────────────────
+
+def test_publish_test_unknown_platform(cloud_client):
+    h = _auth(cloud_client, "pt0@example.com")
+    body = cloud_client.post("/api/settings/publish/test", headers=h,
+                             json={"platform": "tiktok"}).json()
+    assert body["ok"] is False and "Unknown platform" in body["message"]
+
+
+def test_publish_test_x_missing_keys(cloud_client):
+    h = _auth(cloud_client, "pt1@example.com")
+    body = cloud_client.post("/api/settings/publish/test", headers=h,
+                             json={"platform": "x"}).json()
+    assert body["ok"] is False and "four X API keys" in body["message"]
+
+
+def test_publish_test_x_succeeds_with_handle(cloud_client):
+    h = _auth(cloud_client, "pt2@example.com")
+    cloud_client.put("/api/settings/credentials", headers=h, json={
+        "x_api_key": "ck", "x_api_secret": "cs",
+        "x_access_token": "at", "x_access_token_secret": "ats"})
+    fake = AsyncMock()
+    fake.verify_credentials = AsyncMock(return_value={"username": "acme", "name": "Acme"})
+    fake.close = AsyncMock()
+    with patch("services.publishing.x.XPublisher", return_value=fake):
+        body = cloud_client.post("/api/settings/publish/test", headers=h,
+                                 json={"platform": "x"}).json()
+    assert body["ok"] is True and body["handle"] == "acme" and "@acme" in body["message"]
+
+
+def test_publish_test_instagram_reports_bad_token(cloud_client):
+    from services.instagram import InstagramError
+    h = _auth(cloud_client, "pt3@example.com")
+    cloud_client.put("/api/settings/credentials", headers=h, json={
+        "instagram_access_token": "tok", "instagram_user_id": "123",
+        "imgbb_api_key": "ik"})
+    fake = AsyncMock()
+    fake.verify_credentials = AsyncMock(side_effect=InstagramError("401 Invalid OAuth"))
+    fake.close = AsyncMock()
+    with patch("services.instagram.InstagramPublisher", return_value=fake):
+        body = cloud_client.post("/api/settings/publish/test", headers=h,
+                                 json={"platform": "instagram"}).json()
+    assert body["ok"] is False and "401" in body["message"]

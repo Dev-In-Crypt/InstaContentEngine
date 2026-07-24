@@ -140,6 +140,54 @@ async def test_get_insights_flattens_metrics(httpx_mock: HTTPXMock):
     await pub.close()
 
 
+@pytest.mark.asyncio
+async def test_get_insights_video_requests_plays(httpx_mock: HTTPXMock):
+    """Video insights must ask for `plays` (the snapshot column was always None).
+    Mutation guard: drop plays from the video metric set → this fails."""
+    import re
+    captured = {}
+
+    def _resp(request):
+        captured["url"] = str(request.url)
+        import httpx
+        return httpx.Response(200, json={"data": [
+            {"name": "plays", "values": [{"value": 500}]},
+            {"name": "views", "values": [{"value": 640}]},
+        ]})
+    httpx_mock.add_callback(_resp, method="GET",
+                            url=re.compile(rf"{BASE}/media-9/insights.*"))
+    pub = make_publisher()
+    metrics = await pub.get_insights("media-9", is_video=True)
+    await pub.close()
+    assert "plays" in captured["url"]
+    assert metrics["plays"] == 500
+
+
+@pytest.mark.asyncio
+async def test_verify_credentials_returns_username(httpx_mock: HTTPXMock):
+    import re
+    httpx_mock.add_response(
+        method="GET", url=re.compile(rf"{BASE}/{IG_USER}\?.*"),
+        json={"username": "brandco", "account_type": "BUSINESS"})
+    pub = make_publisher()
+    info = await pub.verify_credentials()
+    await pub.close()
+    assert info["username"] == "brandco"
+    assert info["account_type"] == "BUSINESS"
+
+
+@pytest.mark.asyncio
+async def test_verify_credentials_bad_token_raises(httpx_mock: HTTPXMock):
+    import re
+    httpx_mock.add_response(
+        method="GET", url=re.compile(rf"{BASE}/{IG_USER}\?.*"),
+        status_code=401, text="Invalid OAuth access token")
+    pub = make_publisher()
+    with pytest.raises(InstagramError, match="401"):
+        await pub.verify_credentials()
+    await pub.close()
+
+
 # --- Container polling ---
 
 @pytest.mark.asyncio

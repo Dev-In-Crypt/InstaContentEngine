@@ -888,7 +888,11 @@
       <h2 id="keys-title" class="text-lg font-semibold text-purple-300">🔑 Your API keys</h2>
       <p class="text-xs text-gray-500">Stored encrypted and used only for your posts. Leave a field blank to keep the current value; the placeholder shows what's set.</p>
       <div id="keys-form" class="space-y-4"></div>
-      <button id="save-keys-btn" onclick="saveCredentials()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">💾 Save keys</button>
+      <div class="flex items-center gap-3 flex-wrap">
+        <button id="save-keys-btn" onclick="saveCredentials()" class="bg-purple-600 hover:bg-purple-500 transition rounded-lg px-4 py-2 text-sm font-semibold">💾 Save keys</button>
+        <button id="test-conn-btn" onclick="testPublishConnection()" class="hidden bg-gray-700 hover:bg-gray-600 transition rounded-lg px-4 py-2 text-sm font-semibold">🔌 Test connection</button>
+        <span id="test-conn-result" class="text-sm"></span>
+      </div>
     </section>
 
     <!-- AI models (cloud accounts only) -->
@@ -4081,6 +4085,12 @@ async function loadAdmin() {
   const keysSec = document.getElementById('keys-section');
   if (S.user && !S.user.is_local) { keysSec.classList.remove('hidden'); await loadCredentials(account ? 'account' : S.network); }
   else keysSec.classList.add('hidden');
+  // "Test connection" only makes sense on a publishing-network keys page.
+  const testBtn = document.getElementById('test-conn-btn');
+  const showTest = !account && S.user && !S.user.is_local && (S.network === 'x' || S.network === 'instagram');
+  if (testBtn) testBtn.classList.toggle('hidden', !showTest);
+  const testRes = document.getElementById('test-conn-result');
+  if (testRes) testRes.textContent = '';
   // Brand voice lives on the Account page for cloud users.
   const voiceSec = document.getElementById('brand-voice-section');
   const showVoice = account && S.user && !S.user.is_local;
@@ -4139,6 +4149,30 @@ async function loadCredentials(scope) {
     html += `<input data-cred="${f.key}" type="password" autocomplete="off" aria-label="${esc(f.label)}" placeholder="${esc(f.label)} — ${ph}" class="ce-input w-full px-3 py-2 text-sm" />`;
   }
   form.innerHTML = html;
+}
+
+async function testPublishConnection() {
+  const network = S.network;                     // 'x' | 'instagram'
+  const btn = document.getElementById('test-conn-btn');
+  const out = document.getElementById('test-conn-result');
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Testing…'; }
+  if (out) { out.textContent = ''; out.className = 'text-sm'; }
+  try {
+    const res = await apiFetch(`${API}/api/settings/publish/test`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ platform: network }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (out) {
+      out.textContent = (data.ok ? '✅ ' : '❌ ') + (data.message || (data.ok ? 'Connected.' : 'Failed.'));
+      out.className = 'text-sm ' + (data.ok ? 'text-green-400' : 'text-red-400');
+    }
+  } catch (e) {
+    if (out) { out.textContent = '❌ ' + e.message; out.className = 'text-sm text-red-400'; }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = prev; }
+  }
 }
 
 async function saveCredentials() {

@@ -17,6 +17,7 @@ tests against mocked endpoints, same as the Instagram client was.
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 import httpx
@@ -25,10 +26,14 @@ from models.schemas import TWEET_CHAR_LIMIT
 from services.publishing.base import PublishOutcome, PublisherError
 from services.x_text import fit_tweet
 
+log = logging.getLogger(__name__)
+
 MAX_CHARS = TWEET_CHAR_LIMIT   # 250; below X's 280 on purpose
 MAX_IMAGES = 4
 _UPLOAD_URL = "https://upload.twitter.com/1.1/media/upload.json"
+_METADATA_URL = "https://upload.twitter.com/1.1/media/metadata/create.json"
 _TWEET_URL = "https://api.twitter.com/2/tweets"
+_ME_URL = "https://api.twitter.com/2/users/me"
 
 
 class XPublisher:
@@ -44,12 +49,30 @@ class XPublisher:
         _, headers, _ = self._signer.sign(method, url, {}, None)
         return headers["Authorization"]
 
+    async def verify_credentials(self) -> dict:
+        """Read-only preflight: confirm the 4 OAuth keys work WITHOUT tweeting.
+        Returns {'username','name'} on success; raises PublisherError on failure.
+        Uses only the Read scope."""
+        try:
+            r = await self._client.get(
+                _ME_URL, headers={"Authorization": self._auth("GET", _ME_URL)})
+            r.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise PublisherError(
+                f"{e.response.status_code} {e.response.text[:200]}") from e
+        except httpx.RequestError as e:
+            raise PublisherError(f"X network error: {e}") from e
+        data = r.json().get("data") or {}
+        return {"username": data.get("username"), "name": data.get("name")}
+
     async def publish(self, images: list[bytes], caption: str,
                       alt_text: Optional[str] = None,
                       long_form: bool = False) -> PublishOutcome:
         """One tweet. `long_form` skips the length cap for X Premium accounts,
         where the 280-char limit does not apply."""
         media_ids = [await self._upload_media(img) for img in images[:MAX_IMAGES]]
+        for mid in media_ids:
+            await self._set_alt_text(mid, alt_text)
         text = (caption or "") if long_form else fit_tweet(caption or "", MAX_CHARS)
         tweet_id = await self._post_tweet(text, media_ids=media_ids)
         return PublishOutcome(
@@ -71,6 +94,8 @@ class XPublisher:
             raise PublisherError("Thread is empty — nothing to publish.")
 
         media_ids = [await self._upload_media(img) for img in images[:1]]
+        for mid in media_ids:
+            await self._set_alt_text(mid, alt_text)
         first_id: Optional[str] = None
         prev_id: Optional[str] = None
         posted = 0
@@ -143,6 +168,24 @@ class XPublisher:
         if not mid:
             raise PublisherError(f"X media response missing id: {r.text[:200]}")
         return mid
+
+    async def _set_alt_text(self, media_id: str, alt_text: Optional[str]) -> None:
+        """Attach accessibility text to an uploaded image (v1.1 metadata/create).
+        BEST-EFFORT: the media is already uploaded, so a metadata failure must not
+        stop the tweet — we log and move on rather than lose the whole post."""
+        text = (alt_text or "").strip()
+        if not text:
+            return
+        try:
+            r = await self._client.post(
+                _METADATA_URL,
+                json={"media_id": media_id, "alt_text": {"text": text[:1000]}},
+                headers={"Authorization": self._auth("POST", _METADATA_URL)},
+            )
+            r.raise_for_status()
+        except (httpx.HTTPStatusError, httpx.RequestError) as e:
+            log.warning("X alt-text set failed for media %s (continuing): %s",
+                        media_id, e)
 
     async def close(self) -> None:
         await self._client.aclose()

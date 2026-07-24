@@ -13,7 +13,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from models.database import Post as PostModel
+from models.database import Post as PostModel, User as UserModel
 from models.schemas import TWEET_CHAR_LIMIT
 from services.instagram import InstagramPublisher
 from services.publishing.factory import make_publisher_for
@@ -80,9 +80,14 @@ async def publish_now(sessionmaker, post_id: str) -> str:
         body = (post.caption or "").strip()
         thread_parts = list(post.thread_parts or [])
 
-        # A caption already over the tweet limit, with no thread, is an X Premium
-        # long post — the cap doesn't apply to it and it must not be trimmed.
-        long_form = platform == "x" and not thread_parts and len(body) > TWEET_CHAR_LIMIT
+        # A long (uncut) tweet is only valid on an X Premium account. Decide it by
+        # the OWNER's x_premium flag, not length alone — otherwise a non-Premium
+        # caption that happens to exceed the limit would be sent uncut and rejected
+        # by X. Non-Premium (and unowned/local without the flag) → fit to the cap.
+        owner = await db.get(UserModel, post.user_id) if post.user_id else None
+        owner_premium = bool(owner and getattr(owner, "x_premium", False))
+        long_form = (platform == "x" and not thread_parts
+                     and len(body) > TWEET_CHAR_LIMIT and owner_premium)
         if platform == "x":
             # X is the only platform with a budget tight enough for the hashtags to
             # matter, so it gets append_tags; the rest keep the plain join.

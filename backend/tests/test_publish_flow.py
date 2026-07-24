@@ -346,6 +346,61 @@ async def test_x_post_without_thread_parts_still_uses_publish(
     assert fake.called_with[1] == "Just one.\n\n#run"
 
 
+async def _seed_user(sm, uid, x_premium):
+    from models.database import User as UserModel
+    async with sm() as s:
+        s.add(UserModel(id=uid, email=f"{uid}@e.com", x_premium=x_premium))
+        await s.commit()
+
+
+async def test_insights_use_owner_instagram_token(sessionmaker):
+    """refresh_insights (and publishing) must use the OWNER's own IG token, not the
+    platform .env — build_settings_for_user overlays the tenant's encrypted key.
+    Mutation guard: read the global settings instead → the env token wins, fails."""
+    from models.database import User as UserModel, UserCredentials as CredsModel
+    from services.secrets import encrypt
+    from services.user_settings import build_settings_for_user
+
+    uid = str(uuid.uuid4())
+    async with sessionmaker() as s:
+        s.add(UserModel(id=uid, email="ig@e.com", is_local=False))
+        s.add(CredsModel(user_id=uid,
+                         instagram_access_token_enc=encrypt("tenant-tok"),
+                         instagram_user_id_enc=encrypt("tenant-uid")))
+        await s.commit()
+        user = await s.get(UserModel, uid)
+        settings = await build_settings_for_user(s, user)
+    assert settings.instagram_access_token == "tenant-tok"
+    assert settings.instagram_user_id == "tenant-uid"
+
+
+async def test_long_form_only_for_premium_owner(sessionmaker, monkeypatch, tmp_path):
+    """A >250-char single caption is sent uncut ONLY when the owner is X Premium.
+    Non-Premium must be fit to the cap (else X rejects >280). Mutation guard: drop
+    the x_premium check → long_form is True for the non-Premium owner too."""
+    long_cap = "word " * 100                              # ~500 chars, no thread
+    # Premium owner → long_form True (uncut)
+    puid, ppid = str(uuid.uuid4()), str(uuid.uuid4())
+    await _seed_user(sessionmaker, puid, True)
+    await _seed_post_with_slide(sessionmaker, tmp_path, ppid, platform="x",
+                                caption=long_cap, user_id=puid)
+    fake_p = _FakeThreadPublisher()
+    monkeypatch.setattr(pf, "settings_for_post_owner", AsyncMock(return_value=_fake_settings()))
+    monkeypatch.setattr(pf, "make_publisher_for", lambda *a, **k: fake_p)
+    await pf.publish_now(sessionmaker, ppid)
+    assert fake_p.long_form is True
+
+    # Non-Premium owner → long_form False (fit to the cap)
+    nuid, npid = str(uuid.uuid4()), str(uuid.uuid4())
+    await _seed_user(sessionmaker, nuid, False)
+    await _seed_post_with_slide(sessionmaker, tmp_path, npid, platform="x",
+                                caption=long_cap, user_id=nuid)
+    fake_n = _FakeThreadPublisher()
+    monkeypatch.setattr(pf, "make_publisher_for", lambda *a, **k: fake_n)
+    await pf.publish_now(sessionmaker, npid)
+    assert fake_n.long_form is False
+
+
 async def test_instagram_ignores_thread_parts(sessionmaker, monkeypatch, tmp_path):
     """thread_parts on a non-X post must never reroute Instagram — X-only feature."""
     pid = str(uuid.uuid4())
@@ -386,12 +441,14 @@ async def test_thread_hashtags_are_appended_once_and_never_clipped(
 
 async def test_long_x_post_is_not_squeezed_to_the_tweet_limit(
         sessionmaker, monkeypatch, tmp_path):
-    """An X Premium long post has no cap — appending tags must not trigger a trim."""
+    """An X Premium long post has no cap — appending tags must not trigger a trim.
+    Long-form is keyed off the OWNER's x_premium flag, so seed a Premium owner."""
     from models.schemas import TWEET_CHAR_LIMIT
-    pid = str(uuid.uuid4())
+    pid, uid = str(uuid.uuid4()), str(uuid.uuid4())
+    await _seed_user(sessionmaker, uid, True)
     body = "sentence. " * 90                          # ~900 chars, no thread
     await _seed_post_with_slide(sessionmaker, tmp_path, pid, platform="x",
-                                caption=body, hashtags=["#Walking"])
+                                caption=body, hashtags=["#Walking"], user_id=uid)
 
     fake = _FakeThreadPublisher()
     monkeypatch.setattr(pf, "settings_for_post_owner", AsyncMock(return_value=_fake_settings()))

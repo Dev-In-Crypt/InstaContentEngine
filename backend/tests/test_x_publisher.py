@@ -8,7 +8,9 @@ from services.publishing.base import PublisherError
 from services.publishing.x import MAX_CHARS, MAX_IMAGES, XPublisher
 
 UPLOAD = re.compile(r"https://upload\.twitter\.com/1\.1/media/upload\.json")
+METADATA = re.compile(r"https://upload\.twitter\.com/1\.1/media/metadata/create\.json")
 TWEET = "https://api.twitter.com/2/tweets"
+ME = "https://api.twitter.com/2/users/me"
 
 
 def _pub() -> XPublisher:
@@ -147,3 +149,56 @@ async def test_long_form_publish_skips_the_cap(httpx_mock: HTTPXMock):
     await pub.close()
     body = _json.loads(httpx_mock.get_requests()[0].content)
     assert len(body["text"]) > MAX_CHARS
+
+
+# ── connection preflight + accessibility ────────────────────────────────────
+
+async def test_verify_credentials_returns_handle(httpx_mock: HTTPXMock):
+    httpx_mock.add_response(url=ME, json={"data": {"username": "acme", "name": "Acme"}})
+    pub = _pub()
+    info = await pub.verify_credentials()
+    await pub.close()
+    assert info["username"] == "acme"
+    req = httpx_mock.get_requests()[0]
+    assert req.method == "GET"                          # read-only, never posts
+    assert req.headers.get("Authorization", "").startswith("OAuth ")
+
+
+async def test_verify_credentials_bad_key_raises(httpx_mock: HTTPXMock):
+    httpx_mock.add_response(url=ME, status_code=401, text="Unauthorized")
+    pub = _pub()
+    with pytest.raises(PublisherError, match="401"):
+        await pub.verify_credentials()
+    await pub.close()
+
+
+async def test_alt_text_is_sent_to_media_metadata(httpx_mock: HTTPXMock):
+    """alt_text must reach X (v1.1 metadata/create) — it was silently dropped.
+    Mutation guard: remove the _set_alt_text call → no metadata request, fails."""
+    import json as _json
+    httpx_mock.add_response(url=UPLOAD, json={"media_id_string": "m1"})
+    httpx_mock.add_response(url=METADATA, json={})
+    httpx_mock.add_response(url=TWEET, json={"data": {"id": "t1"}})
+
+    pub = _pub()
+    await pub.publish([b"img"], "cap", alt_text="A runner at dawn.")
+    await pub.close()
+
+    meta = [r for r in httpx_mock.get_requests() if METADATA.match(str(r.url))]
+    assert len(meta) == 1
+    body = _json.loads(meta[0].content)
+    assert body["media_id"] == "m1"
+    assert body["alt_text"]["text"] == "A runner at dawn."
+
+
+async def test_alt_text_failure_does_not_block_the_tweet(httpx_mock: HTTPXMock):
+    """The image is already up — a metadata failure must not lose the post.
+    Mutation guard: let _set_alt_text raise → publish blows up, fails."""
+    httpx_mock.add_response(url=UPLOAD, json={"media_id_string": "m1"})
+    httpx_mock.add_response(url=METADATA, status_code=500, text="boom")
+    httpx_mock.add_response(url=TWEET, json={"data": {"id": "t1"}})
+
+    pub = _pub()
+    out = await pub.publish([b"img"], "cap", alt_text="desc")
+    await pub.close()
+    assert out.media_id == "t1"                         # tweet still went out

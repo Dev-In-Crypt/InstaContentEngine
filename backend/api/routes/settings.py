@@ -15,8 +15,8 @@ from models.database import User as UserModel, UserCredentials as UserCredential
 from models.schemas import (
     NICHE_BOX_PALETTE, AISettingsResponse, AISettingsUpdate, AITestRequest, AITestResponse,
     BrandVoiceResponse, BrandVoiceUpdate, LogoSettingsResponse, MusicSettingsResponse,
-    PresetsResponse, PresetsUpdate, ProfileResponse, ProfileUpdate, SlideStyleResponse,
-    SlideStyleUpdate, XSettingsResponse, XSettingsUpdate,
+    PresetsResponse, PresetsUpdate, ProfileResponse, ProfileUpdate, PublishTestRequest,
+    PublishTestResponse, SlideStyleResponse, SlideStyleUpdate, XSettingsResponse, XSettingsUpdate,
 )
 from services import logo_store, music_store
 from services.ai.catalog import IMAGE, PROVIDERS, TEXT, is_valid_provider
@@ -410,6 +410,63 @@ async def test_ai_settings(
         return AITestResponse(ok=False, message=str(exc)[:400])
     except Exception as exc:                      # never leak a stack trace to the UI
         return AITestResponse(ok=False, message=f"Test failed: {type(exc).__name__}")
+    finally:
+        if client is not None:
+            try:
+                await client.close()
+            except Exception:
+                pass
+
+
+@router.post("/publish/test", response_model=PublishTestResponse)
+async def test_publish_connection(
+    body: PublishTestRequest,
+    user: Annotated[UserModel, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> PublishTestResponse:
+    """Read-only preflight: prove this network's saved keys actually work, WITHOUT
+    publishing anything. Confirms the account before the user risks a real post —
+    the same idea as POST /ai/test for models."""
+    from services.instagram import InstagramError, InstagramPublisher
+    from services.publishing.base import PublisherError
+    from services.publishing.x import XPublisher
+    from services.user_settings import build_settings_for_user
+
+    platform = (body.platform or "").strip().lower()
+    if platform not in ("x", "instagram"):
+        return PublishTestResponse(ok=False, message="Unknown platform.")
+
+    settings = await build_settings_for_user(db, user)
+    client = None
+    try:
+        if platform == "x":
+            if not all((settings.x_api_key, settings.x_api_secret,
+                        settings.x_access_token, settings.x_access_token_secret)):
+                return PublishTestResponse(
+                    ok=False, message="Add all four X API keys first.")
+            client = XPublisher(settings.x_api_key, settings.x_api_secret,
+                                settings.x_access_token, settings.x_access_token_secret)
+            info = await client.verify_credentials()
+            handle = info.get("username")
+            return PublishTestResponse(
+                ok=True, handle=handle,
+                message=f"Connected as @{handle}." if handle else "Connected.")
+        # instagram
+        if not (settings.instagram_access_token and settings.instagram_user_id):
+            return PublishTestResponse(
+                ok=False, message="Add your Instagram access token and user id first.")
+        client = InstagramPublisher(settings.instagram_access_token,
+                                    settings.instagram_user_id)
+        info = await client.verify_credentials()
+        handle = info.get("username")
+        tail = "" if settings.imgbb_api_key else " (add an imgbb key to publish images)"
+        return PublishTestResponse(
+            ok=True, handle=handle,
+            message=(f"Connected as @{handle}." if handle else "Connected.") + tail)
+    except (PublisherError, InstagramError) as exc:
+        return PublishTestResponse(ok=False, message=str(exc)[:400])
+    except Exception as exc:                      # never leak a stack trace to the UI
+        return PublishTestResponse(ok=False, message=f"Test failed: {type(exc).__name__}")
     finally:
         if client is not None:
             try:

@@ -26,7 +26,8 @@ from services.brand_engine import PillowBrandEngine
 from services.brand_voice import resolve_brand_voice
 from services.managed_account import resolve_active_account
 from services.user_settings import (
-    apply_user_slide_style, resolve_ai_choice, resolve_user_brand_voice, resolve_user_profile,
+    apply_user_slide_style, build_settings_for_user, resolve_ai_choice,
+    resolve_user_brand_voice, resolve_user_profile,
 )
 from config import Settings
 from models.database import (
@@ -907,7 +908,6 @@ async def open_folder(path: str = Body(..., embed=True)) -> dict:
 @router.post("/{post_id}/insights/refresh", response_model=PostInsightSchema)
 async def refresh_insights(
     post_id: str,
-    settings: Annotated[Settings, Depends(get_settings)],
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[UserModel, Depends(get_current_user)],
 ) -> PostInsightSchema:
@@ -915,6 +915,9 @@ async def refresh_insights(
     post = await owned_post(db, post_id, user)
     if not post.instagram_media_id:
         raise HTTPException(status_code=409, detail="Post is not published to Instagram yet")
+    # Use the caller's OWN Instagram credentials (multi-tenant), matching how the
+    # post was published — not the platform .env global.
+    settings = await build_settings_for_user(db, user)
     if not settings.instagram_access_token or not settings.instagram_user_id:
         raise HTTPException(status_code=409, detail="Instagram credentials not configured")
 

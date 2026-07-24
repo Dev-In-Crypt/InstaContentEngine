@@ -537,6 +537,16 @@ class AITestResponse(BaseModel):
     message: str
 
 
+class PublishTestRequest(BaseModel):
+    platform: str                   # "x" | "instagram"
+
+
+class PublishTestResponse(BaseModel):
+    ok: bool
+    message: str
+    handle: Optional[str] = None    # @username / account handle on success
+
+
 # ===== Business module (Phase 2-3) =====
 
 class SourceStatus(str, Enum):

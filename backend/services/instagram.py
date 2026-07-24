@@ -93,7 +93,7 @@ class InstagramPublisher:
         {metric_name: value} plus 'raw' with the full Graph response."""
         metrics = ["reach", "likes", "comments", "saved", "shares", "total_interactions"]
         if is_video:
-            metrics += ["views"]
+            metrics += ["views", "plays"]
         url = f"{self.BASE_URL}/{self.API_VERSION}/{media_id}/insights"
         try:
             resp = await self._client.get(
@@ -127,6 +127,26 @@ class InstagramPublisher:
             flat[name] = values[0].get("value")
         flat["raw"] = payload
         return flat
+
+    async def verify_credentials(self) -> dict:
+        """Read-only preflight: confirm the token↔user-id pair is valid WITHOUT
+        publishing anything. Returns {'username', 'account_type'} on success;
+        raises InstagramError with the API's reason on failure."""
+        url = f"{self.BASE_URL}/{self.API_VERSION}/{self.ig_user_id}"
+        try:
+            resp = await self._client.get(url, params={
+                "fields": "username,account_type",
+                "access_token": self.token,
+            })
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise InstagramError(
+                f"{e.response.status_code} {e.response.text[:200]}") from e
+        except httpx.RequestError as e:
+            raise InstagramError(f"Network error: {e}") from e
+        data = resp.json()
+        return {"username": data.get("username"),
+                "account_type": data.get("account_type")}
 
     # ------------------------------------------------------------------
     # Internal helpers
