@@ -29,11 +29,13 @@ from models.database import AuditEntry as AuditEntryModel
 from models.database import BrandRules as BrandRulesModel
 from models.database import Lead as LeadModel
 from models.database import Post as PostModel
+from models.database import PostInsight as PostInsightModel
 from models.database import Source as SourceModel
 from models.database import User as UserModel
 from models.schemas import (
     BrandRulesOut, BrandRulesUpdate, DigestRequest, DraftEditRequest, LeadOut, LimitsOut,
-    LimitsUpdate, PostFormat, Platform, SourceAnalyticsOut, SourceAnalyticsResponse,
+    LimitsUpdate, PostFormat, Platform, XPostMode, XStyle,
+    SourceAnalyticsOut, SourceAnalyticsResponse,
     SourceCreate, SourceOut,
 )
 from services.claim_check import apply_brand_rules, verify_claims
@@ -145,9 +147,10 @@ async def source_analytics(
     db: Annotated[AsyncSession, Depends(get_db)],
     user: Annotated[UserModel, Depends(get_current_user)],
 ) -> SourceAnalyticsResponse:
-    """Per-source pipeline funnel — which sources yield the best posts. Business
-    posts aren't published to a network yet (PostInsight is empty), so we rank on
-    what exists: leads → worthy → drafts → approved/published, never engagement.
+    """Per-source pipeline funnel — which sources yield the best posts. Ranks on
+    leads → worthy → drafts → approved/published and, when a Business post has been
+    published + its insights refreshed, real engagement (reach + likes/comments/
+    saves/shares from the latest PostInsight snapshot; Instagram-only, so sparse).
     Attribution is Post.lead_id → Lead.source_id; digest posts (lead_id NULL) span
     many leads and are reported separately. All scoped to the caller's workspace."""
     ws = await get_or_create_workspace(db, user)
@@ -180,6 +183,31 @@ async def source_analytics(
         )
     )).scalar() or 0
 
+    # Engagement: the LATEST insight snapshot per published post, summed per source
+    # (post → lead → source). Done in Python so it's DB-agnostic; the volume is a
+    # workspace's own posts. Instagram-only + manual refresh → sparse but real.
+    insight_rows = (await db.execute(
+        select(LeadModel.source_id, PostInsightModel.post_id,
+               PostInsightModel.snapshot_at, PostInsightModel.reach,
+               PostInsightModel.likes, PostInsightModel.comments,
+               PostInsightModel.saved, PostInsightModel.shares)
+        .select_from(PostInsightModel)
+        .join(PostModel, PostInsightModel.post_id == PostModel.id)
+        .join(LeadModel, PostModel.lead_id == LeadModel.id)
+        .where(PostModel.workspace_id == ws.id)
+    )).all()
+    latest: dict[str, tuple] = {}          # post_id → (snapshot_at, source_id, row)
+    for sid, pid, snap, reach, likes, comments, saved, shares in insight_rows:
+        prev = latest.get(pid)
+        if prev is None or (snap and prev[0] and snap > prev[0]) or prev[0] is None:
+            latest[pid] = (snap, sid, (reach, likes, comments, saved, shares))
+    eng_by_source: dict[str, dict] = {}
+    for _snap, sid, (reach, likes, comments, saved, shares) in latest.values():
+        e = eng_by_source.setdefault(sid, {"reach": 0, "engagement": 0, "measured": 0})
+        e["reach"] += reach or 0
+        e["engagement"] += (likes or 0) + (comments or 0) + (saved or 0) + (shares or 0)
+        e["measured"] += 1
+
     sources = (await db.execute(
         select(SourceModel).where(SourceModel.workspace_id == ws.id)
         .order_by(SourceModel.created_at.desc())
@@ -200,7 +228,8 @@ async def source_analytics(
         _a(sid)["pstatus"][st or ""] = n
 
     out: list[SourceAnalyticsOut] = []
-    tot = {"sources": 0, "leads": 0, "worthy": 0, "drafts": 0, "approved": 0, "published": 0}
+    tot = {"sources": 0, "leads": 0, "worthy": 0, "drafts": 0, "approved": 0,
+           "published": 0, "reach": 0, "engagement": 0, "measured_posts": 0}
     for s in sources:
         a = acc.get(s.id) or {"strength": {}, "lstatus": {}, "pstatus": {}, "last": None}
         strength, ps = a["strength"], a["pstatus"]
@@ -212,12 +241,14 @@ async def source_analytics(
         total_posts = (draft + in_review + ps.get("approved", 0)
                        + published + ps.get("rejected", 0))
         approved = ps.get("approved", 0) + published   # reached the approval milestone
+        eng = eng_by_source.get(s.id) or {"reach": 0, "engagement": 0, "measured": 0}
         out.append(SourceAnalyticsOut(
             source_id=s.id, url=s.url, kind=s.kind, status=s.status,
             last_checked_at=s.last_checked_at, last_lead_at=a["last"],
             leads_total=leads_total, worthy=worthy, weak=strength.get("weak", 0),
             dismissed=a["lstatus"].get("dismissed", 0),
             drafts=total_posts, in_review=in_review, approved=approved, published=published,
+            reach=eng["reach"], engagement=eng["engagement"], measured_posts=eng["measured"],
             worthy_rate=round(worthy / leads_total, 3) if leads_total else 0.0,
             approve_rate=round(approved / total_posts, 3) if total_posts else 0.0,
         ))
@@ -227,9 +258,13 @@ async def source_analytics(
         tot["drafts"] += total_posts
         tot["approved"] += approved
         tot["published"] += published
+        tot["reach"] += eng["reach"]
+        tot["engagement"] += eng["engagement"]
+        tot["measured_posts"] += eng["measured"]
 
-    # best first: most published, then most approved, then most worthy leads
-    out.sort(key=lambda r: (r.published, r.approved, r.worthy, r.leads_total), reverse=True)
+    # best first: most engagement, then published, approved, worthy leads
+    out.sort(key=lambda r: (r.engagement, r.published, r.approved, r.worthy, r.leads_total),
+             reverse=True)
     return SourceAnalyticsResponse(sources=out, totals=tot, digests=int(digests))
 
 
@@ -314,17 +349,35 @@ def _parse_platform(value: str) -> Platform:
     return Platform.X if (value or "").strip().lower() == "x" else Platform.INSTAGRAM
 
 
+def _parse_x_shape(platform: Platform, x_mode: str, x_style: str) -> tuple:
+    """X-only post shape. On Instagram it's always a single post, so the mode/style
+    are ignored (kept at defaults)."""
+    if platform != Platform.X:
+        return XPostMode.SHORT, XStyle.STANDARD
+    try:
+        mode = XPostMode((x_mode or "short").strip().lower())
+    except ValueError:
+        mode = XPostMode.SHORT
+    try:
+        style = XStyle((x_style or "standard").strip().lower())
+    except ValueError:
+        style = XStyle.STANDARD
+    return mode, style
+
+
 async def _generate_business_post(
     engine: ContentEngine, db: AsyncSession, user: UserModel, ws, *,
     topic: str, instructions: str, source_text: str, source_kind: str,
     source_url: Optional[str], lead_id: Optional[str], text_model: str,
     platform: Platform, progress,
+    x_mode: XPostMode = XPostMode.SHORT, x_style: XStyle = XStyle.STANDARD,
 ) -> PostModel:
-    """Generate a post via the shared engine, verify its claims, persist + tag it."""
+    """Generate a post via the shared engine, verify its claims, persist + tag it.
+    On X the draft can be a thread/long-form via x_mode (x_style frames it)."""
     generated = await engine.generate_post(
         topic=topic, format=PostFormat.SINGLE, text_model=text_model,
         additional_instructions=instructions, platform=platform,
-        progress=progress,
+        x_mode=x_mode, x_style=x_style, progress=progress,
     )
     await progress("Checking claims…")
     # Verify factual claims against the source (blocking accuracy layer, Phase 4) +
@@ -354,7 +407,7 @@ async def _generate_business_post(
 
 def _draft_stream(db, user, ws, engine, text_model, *, topic, instructions,
                   source_text, source_kind, source_url, lead, platform=Platform.INSTAGRAM,
-                  digest_leads=None):
+                  x_mode=XPostMode.SHORT, x_style=XStyle.STANDARD, digest_leads=None):
     async def event_stream() -> AsyncGenerator[str, None]:
         queue: asyncio.Queue = asyncio.Queue()
 
@@ -367,7 +420,7 @@ def _draft_stream(db, user, ws, engine, text_model, *, topic, instructions,
                     engine, db, user, ws, topic=topic, instructions=instructions,
                     source_text=source_text, source_kind=source_kind, source_url=source_url,
                     lead_id=(lead.id if lead else None), text_model=text_model,
-                    platform=platform, progress=progress)
+                    platform=platform, x_mode=x_mode, x_style=x_style, progress=progress)
                 if lead is not None:
                     lead.status = "drafted"
                 for dl in (digest_leads or []):
@@ -402,6 +455,8 @@ async def draft_lead(
     settings: Annotated[Settings, Depends(get_settings)],
     engine: Annotated[ContentEngine, Depends(get_content_engine)],
     platform: str = Query("instagram"),
+    x_mode: str = Query("short"),
+    x_style: str = Query("standard"),
 ) -> StreamingResponse:
     ws = await get_or_create_workspace(db, user)
     lead = await owned_lead(db, lead_id, ws)
@@ -413,10 +468,12 @@ async def draft_lead(
     source_text = f"{lead.what_happened or ''}\n{lead.quote or ''}".strip()
     instructions = (f"This is a public update from the company's own source. {_GROUND}\n\n"
                     f"SOURCE:\n{source_text}")
+    plat = _parse_platform(platform)
+    mode, style = _parse_x_shape(plat, x_mode, x_style)
     return _draft_stream(db, user, ws, engine, text_model, topic=topic,
                          instructions=instructions, source_text=source_text,
                          source_kind="lead", source_url=lead.source_url, lead=lead,
-                         platform=_parse_platform(platform))
+                         platform=plat, x_mode=mode, x_style=style)
 
 
 @router.post("/digest")
@@ -428,6 +485,8 @@ async def draft_digest(
     settings: Annotated[Settings, Depends(get_settings)],
     engine: Annotated[ContentEngine, Depends(get_content_engine)],
     platform: str = Query("instagram"),
+    x_mode: str = Query("short"),
+    x_style: str = Query("standard"),
 ) -> StreamingResponse:
     ws = await get_or_create_workspace(db, user)
     leads = [await owned_lead(db, lid, ws) for lid in body.lead_ids]
@@ -438,10 +497,12 @@ async def draft_digest(
     bullets = "\n".join(f"- {ld.what_happened or ''}: {ld.quote or ''}" for ld in leads)
     instructions = (f"Write one 'what's new this week' post summarising these updates. {_GROUND}\n\n"
                     f"SOURCE UPDATES:\n{bullets}")
+    plat = _parse_platform(platform)
+    mode, style = _parse_x_shape(plat, x_mode, x_style)
     return _draft_stream(db, user, ws, engine, text_model, topic="What's new this week",
                          instructions=instructions, source_text=bullets,
                          source_kind="digest", source_url=None, lead=None,
-                         platform=_parse_platform(platform), digest_leads=leads)
+                         platform=plat, x_mode=mode, x_style=style, digest_leads=leads)
 
 
 @router.get("/drafts", response_model=list[dict])
@@ -460,6 +521,7 @@ async def list_drafts(
         cc = p.claim_check if isinstance(p.claim_check, dict) else {}
         out.append({
             "id": p.id, "topic": p.topic, "hook": p.hook, "caption": p.caption,
+            "thread_parts": p.thread_parts or [],
             "hashtags": p.hashtags or [], "source_kind": p.source_kind,
             "source_url": src.get("url") if isinstance(src, dict) else None,
             "platform": p.platform, "status": p.status,

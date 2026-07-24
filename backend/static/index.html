@@ -628,7 +628,10 @@
   <section id="step-4" class="step-section hidden bg-gray-900 rounded-2xl p-6 space-y-6">
     <div class="flex items-center justify-between">
       <h2 class="text-lg font-semibold text-purple-300">👀 Preview & Edit</h2>
-      <button onclick="generatePost()" class="text-sm bg-gray-700 hover:bg-gray-600 rounded-lg px-3 py-1.5 transition">🔄 Regenerate</button>
+      <div class="flex items-center gap-2">
+        <button onclick="showStep(2)" class="text-sm bg-gray-700 hover:bg-gray-600 rounded-lg px-3 py-1.5 transition">← Back</button>
+        <button onclick="generatePost()" class="text-sm bg-gray-700 hover:bg-gray-600 rounded-lg px-3 py-1.5 transition">🔄 Regenerate</button>
+      </div>
     </div>
 
     <!-- Slide carousel -->
@@ -1535,6 +1538,10 @@ function renderLeadRow(lead) {
         <option value="instagram">Instagram</option>
         <option value="x">X</option>
       </select>
+      <select class="ce-input px-2 py-1.5 text-xs hidden" data-role="xmode" title="X post shape">
+        <option value="short">💬 Short</option>
+        <option value="thread">🧵 Thread</option>
+      </select>
       <button class="ce-btn px-3 py-1.5 text-xs" data-act="post">✎ Make a post</button>
       <button class="ce-btn-ghost px-3 py-1.5 text-xs" data-act="dismiss">Skip</button>
       <button class="ce-btn-ghost px-3 py-1.5 text-xs" data-act="snooze">Don't show this kind</button>
@@ -1544,10 +1551,12 @@ function renderLeadRow(lead) {
     if (e.target.checked) S.bizDigestSel.add(lead.id); else S.bizDigestSel.delete(lead.id);
     updateDigestBtn();
   };
+  const platSel = row.querySelector('[data-role="platform"]');
+  const xmodeSel = row.querySelector('[data-role="xmode"]');
+  platSel.onchange = () => xmodeSel.classList.toggle('hidden', platSel.value !== 'x');
   row.querySelector('[data-act="post"]').onclick = () => {
     if (lead.sensitive && !confirm('This looks like sensitive/negative news. Draft a post anyway?')) return;
-    const platform = row.querySelector('[data-role="platform"]').value;
-    makePost(lead.id, row, platform);
+    makePost(lead.id, row, platSel.value, xmodeSel.value);
   };
   row.querySelector('[data-act="dismiss"]').onclick = () => leadAction(lead.id, 'dismiss', row);
   row.querySelector('[data-act="snooze"]').onclick = () => leadAction(lead.id, 'snooze-kind', row);
@@ -1628,10 +1637,12 @@ function renderDraftRow(p) {
     `<button class="ce-btn-ghost px-3 py-1.5 text-xs" data-act="reject">Reject</button>`;
   const editable = status === 'draft' || status === 'in_review';
   const netLabel = p.platform === 'x' ? '𝕏' : '📸 IG';
+  const threadN = (p.thread_parts || []).length;
   row.innerHTML = `
     <div class="flex items-center gap-2 mb-1 flex-wrap">
       <span class="text-xs font-semibold" style="color:${st.color}">● ${st.label}</span>
       <span class="text-xs px-1.5 py-0.5 rounded" style="background:var(--accent-dim)">${netLabel}</span>
+      ${threadN > 1 ? `<span class="text-xs px-1.5 py-0.5 rounded" style="background:var(--accent-dim)">🧵 ${threadN} tweets</span>` : ''}
       <span class="text-xs text-gray-500">🔗 ${origin}${p.source_url ? ` · <a href="${safeUrl(p.source_url)}" target="_blank" rel="noopener noreferrer" class="underline" style="color:var(--accent)">source</a>` : ''}</span>
     </div>
     ${p.hook ? `<div class="font-semibold text-sm">${esc(p.hook)}</div>` : ''}
@@ -1763,10 +1774,11 @@ async function loadSourceAnalytics() {
     const res = await apiFetch(`${API}/api/business/source-analytics`);
     const data = res.ok ? await res.json() : { sources: [], totals: {}, digests: 0 };
     const t = data.totals || {};
-    totBox.innerHTML = `<div class="grid grid-cols-3 sm:grid-cols-6 gap-2">
+    totBox.innerHTML = `<div class="grid grid-cols-4 sm:grid-cols-8 gap-2">
       ${_saStat('Sources', t.sources || 0)}${_saStat('Leads', t.leads || 0)}${_saStat('Worthy', t.worthy || 0)}
       ${_saStat('Drafts', t.drafts || 0)}${_saStat('Approved', t.approved || 0)}${_saStat('Published', t.published || 0)}
-    </div>${data.digests ? `<div class="text-xs text-gray-500 mt-2">+ ${esc(String(data.digests))} digest post(s) span multiple leads — not attributed to a single source.</div>` : ''}`;
+      ${_saStat('Reach', t.reach || 0)}${_saStat('Engagement', t.engagement || 0)}
+    </div>${(t.measured_posts ? '' : '<div class="text-xs text-gray-500 mt-2">Reach/engagement fill in once published Instagram posts have their insights refreshed (X has no in-app metrics).</div>')}${data.digests ? `<div class="text-xs text-gray-500 mt-2">+ ${esc(String(data.digests))} digest post(s) span multiple leads — not attributed to a single source.</div>` : ''}`;
     const list = data.sources || [];
     if (!list.length) { box.innerHTML = '<div class="text-sm text-gray-400">No sources yet — add some in Sources.</div>'; return; }
     box.innerHTML = '';
@@ -1797,6 +1809,7 @@ function renderSourceAnalyticsRow(s, i) {
     <div class="mt-2 grid grid-cols-5 gap-2 text-center">
       ${cell(s.leads_total, 'leads')}${cell(s.worthy, 'worthy')}${cell(s.drafts, 'drafts')}${cell(s.approved, 'approved')}${cell(s.published, 'published')}
     </div>
+    ${s.measured_posts ? `<div class="mt-2 text-xs text-gray-300">📊 reach <b>${esc(String(s.reach || 0))}</b> · engagement <b>${esc(String(s.engagement || 0))}</b> <span class="text-gray-500">(${esc(String(s.measured_posts))} measured)</span></div>` : ''}
     ${bar('worthy', worthyPct, 'bg-purple-600')}
     ${bar('approved', approvePct, 'bg-green-600')}
   `;
@@ -1846,10 +1859,11 @@ async function _streamBiz(url, body, onDone) {
   } catch { toast('Generation failed. Please try again.', 'error'); }
 }
 
-async function makePost(leadId, row, platform) {
+async function makePost(leadId, row, platform, xmode) {
   const net = platform === 'x' ? 'x' : 'instagram';
+  const xm = (net === 'x' && xmode === 'thread') ? 'thread' : 'short';
   toast('Drafting a post…', 'info');
-  await _streamBiz(`/api/business/leads/${encodeURIComponent(leadId)}/draft?platform=${net}`, {}, () => {
+  await _streamBiz(`/api/business/leads/${encodeURIComponent(leadId)}/draft?platform=${net}&x_mode=${xm}`, {}, () => {
     toast('Draft created — see the Drafts tab.', 'success');
     if (row) row.remove();
     S.bizDigestSel.delete(leadId); updateDigestBtn();

@@ -1,9 +1,10 @@
 """Source analytics (Phase 8): per-source pipeline funnel, workspace-scoped.
 
-Ranks sources by leads → worthy → drafts → approved/published (no engagement —
-Business posts aren't published to a network, so PostInsight is empty). The
-workspace_id filter is the mutation target: drop it and another workspace's
-leads/posts leak into this one's numbers.
+Ranks sources by engagement → published → approved → worthy → leads. Engagement is
+real when a Business post has been published + its Instagram insights refreshed: the
+LATEST PostInsight snapshot per post is summed (reach + likes/comments/saves/shares)
+back to the source via post → lead → source. The workspace_id filter is the mutation
+target: drop it and another workspace's leads/posts/insights leak into this one's.
 """
 import asyncio
 import uuid
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from api.deps import get_db, get_settings
 from config import Settings
 from main import app
-from models.database import Base, Lead, Post, Source, Workspace
+from models.database import Base, Lead, Post, PostInsight, Source, Workspace
 
 
 @pytest.fixture
@@ -89,11 +90,24 @@ def _seed_lead(SM, ws_id, source_id, strength="worthy", status="new"):
 
 
 def _seed_post(SM, uid, ws_id, lead_id, status, source_kind="lead"):
+    pid = str(uuid.uuid4())
+
     async def _s():
         async with SM() as db:
-            db.add(Post(id=str(uuid.uuid4()), user_id=uid, workspace_id=ws_id,
+            db.add(Post(id=pid, user_id=uid, workspace_id=ws_id,
                         lead_id=lead_id, source_kind=source_kind, topic="t",
                         format="single", status=status))
+            await db.commit()
+    asyncio.run(_s())
+    return pid
+
+
+def _seed_insight(SM, post_id, *, snapshot_at, reach, likes, comments, saved, shares):
+    async def _s():
+        async with SM() as db:
+            db.add(PostInsight(id=str(uuid.uuid4()), post_id=post_id, snapshot_at=snapshot_at,
+                               reach=reach, likes=likes, comments=comments,
+                               saved=saved, shares=shares))
             await db.commit()
     asyncio.run(_s())
 
@@ -127,7 +141,8 @@ def test_funnel_counts_and_ranking(ctx):
     body = c.get("/api/business/source-analytics", headers=h).json()
     assert body["digests"] == 1
     assert body["totals"] == {"sources": 2, "leads": 5, "worthy": 4,
-                              "drafts": 4, "approved": 2, "published": 1}
+                              "drafts": 4, "approved": 2, "published": 1,
+                              "reach": 0, "engagement": 0, "measured_posts": 0}
 
     rows = body["sources"]
     assert len(rows) == 2
@@ -163,6 +178,43 @@ def test_empty_workspace(ctx):
     body = c.get("/api/business/source-analytics", headers=h).json()
     assert body["sources"] == [] and body["digests"] == 0
     assert body["totals"]["sources"] == 0
+
+
+def test_engagement_sums_latest_insight_per_source(ctx):
+    """Reach/engagement come from the LATEST snapshot of each published post, summed
+    back to the source. Mutation guards: an older snapshot must not count (latest
+    wins), and reach must not double when a post has two snapshots."""
+    import datetime as dt
+    c, SM = ctx
+    h = _register(c, "eng@ex.com")
+    uid = _uid(c, h)
+    ws = _seed_workspace(SM, uid)
+    s1 = _seed_source(SM, ws, "https://github.com/o/one")
+    s2 = _seed_source(SM, ws, "https://github.com/o/two")
+    l1 = _seed_lead(SM, ws, s1, "worthy", "published")
+    l2 = _seed_lead(SM, ws, s2, "worthy", "published")
+    p1 = _seed_post(SM, uid, ws, l1, "published")
+    p2 = _seed_post(SM, uid, ws, l2, "published")
+
+    t0 = dt.datetime(2026, 7, 1, tzinfo=dt.timezone.utc)
+    t1 = dt.datetime(2026, 7, 20, tzinfo=dt.timezone.utc)
+    # p1: two snapshots — only the newest (t1) must count
+    _seed_insight(SM, p1, snapshot_at=t0, reach=50, likes=1, comments=0, saved=0, shares=0)
+    _seed_insight(SM, p1, snapshot_at=t1, reach=1000, likes=10, comments=5, saved=3, shares=2)
+    _seed_insight(SM, p2, snapshot_at=t1, reach=200, likes=4, comments=1, saved=0, shares=0)
+
+    body = c.get("/api/business/source-analytics", headers=h).json()
+    by_url = {r["url"]: r for r in body["sources"]}
+    one = by_url["https://github.com/o/one"]
+    two = by_url["https://github.com/o/two"]
+    # latest snapshot only: 1000 reach, 10+5+3+2 = 20 engagement
+    assert one["reach"] == 1000 and one["engagement"] == 20 and one["measured_posts"] == 1
+    assert two["reach"] == 200 and two["engagement"] == 5 and two["measured_posts"] == 1
+    assert body["totals"]["reach"] == 1200
+    assert body["totals"]["engagement"] == 25
+    assert body["totals"]["measured_posts"] == 2
+    # ranking: highest engagement first
+    assert body["sources"][0]["url"].endswith("/one")
 
 
 def test_creator_gets_403(ctx):

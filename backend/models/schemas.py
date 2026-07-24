@@ -657,9 +657,10 @@ class LimitsOut(BaseModel):
 
 
 class SourceAnalyticsOut(BaseModel):
-    """One source's pipeline funnel (Phase 8). No engagement yet — Business posts
-    aren't published to a network, so PostInsight is empty; we rank on what exists:
-    leads → worthy → drafts → approved/published, plus conversions."""
+    """One source's pipeline funnel (Phase 8): leads → worthy → drafts →
+    approved/published, plus engagement of the posts that were published and had
+    their metrics refreshed. Engagement is Instagram-only (X has no in-app metrics)
+    and needs a manual insights refresh, so it's sparse but real once posts go out."""
     source_id: str
     url: str
     kind: str
@@ -674,6 +675,9 @@ class SourceAnalyticsOut(BaseModel):
     in_review: int = 0
     approved: int = 0
     published: int = 0
+    reach: int = 0               # sum of the latest reach snapshot per published post
+    engagement: int = 0          # sum of latest likes+comments+saves+shares per post
+    measured_posts: int = 0      # published posts that have an insights snapshot
     worthy_rate: float = 0.0     # worthy / leads_total
     approve_rate: float = 0.0    # approved / drafts
 

@@ -18,7 +18,11 @@ from services.content_engine import GeneratedPost
 
 
 class _FakeEngine:
+    def __init__(self):
+        self.calls = []
+
     async def generate_post(self, **kw):
+        self.calls.append(kw)
         prog = kw.get("progress")
         if prog:
             await prog("generating")
@@ -52,14 +56,15 @@ def client(tmp_path, monkeypatch):
         async with SM() as s:
             yield s
 
+    fake_engine = _FakeEngine()
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_settings] = lambda: Settings(app_mode="cloud")
-    app.dependency_overrides[get_content_engine] = lambda: _FakeEngine()
+    app.dependency_overrides[get_content_engine] = lambda: fake_engine
     app.state.sessionmaker = SM
     monkeypatch.setattr(business_routes, "poll_source", _fake_poll_source)
     monkeypatch.setattr(business_routes, "resolve_ai_choice",
                         lambda user, settings, kind: ("openrouter", "model-x", "key"))
-    yield TestClient(app), SM
+    yield TestClient(app), SM, fake_engine
     for dep in (get_db, get_settings, get_content_engine):
         app.dependency_overrides.pop(dep, None)
     asyncio.run(eng.dispose())
@@ -85,7 +90,7 @@ def _lead_ids(client, h):
 
 
 def test_lead_to_draft_creates_linked_post(client):
-    c, SM = client
+    c, SM, _eng = client
     h = _register(c, "a@ex.com")
     c.post("/api/business/sources", headers=h, json={"url": "https://github.com/o/r"})
     lead_id = _lead_ids(c, h)[0]
@@ -109,7 +114,7 @@ def test_lead_to_draft_creates_linked_post(client):
 
 
 def test_draft_platform_x(client):
-    c, SM = client
+    c, SM, _eng = client
     h = _register(c, "px@ex.com")
     c.post("/api/business/sources", headers=h, json={"url": "https://github.com/o/r"})
     lead_id = _lead_ids(c, h)[0]
@@ -123,10 +128,35 @@ def test_draft_platform_x(client):
 
     drafts = c.get("/api/business/drafts", headers=h).json()
     assert len(drafts) == 1 and drafts[0]["source_kind"] == "lead"
+    assert "thread_parts" in drafts[0]           # X shape surfaced to the drafts list
+
+
+def test_draft_x_thread_shape_reaches_engine(client):
+    """X thread + a style must be plumbed all the way to generate_post; on Instagram
+    the same params collapse to the defaults (single / standard)."""
+    c, _SM, eng = client
+    h = _register(c, "shape@ex.com")
+    c.post("/api/business/sources", headers=h, json={"url": "https://github.com/o/r"})
+    lead_id = _lead_ids(c, h)[0]
+
+    r = c.post(f"/api/business/leads/{lead_id}/draft?platform=x&x_mode=thread&x_style=hot_take",
+               headers=h)
+    assert r.status_code == 200
+    kw = eng.calls[-1]
+    assert kw["platform"] == Platform.X
+    assert kw["x_mode"].value == "thread"
+    assert kw["x_style"].value == "hot_take"
+
+    # Instagram ignores the X shape → defaults, even if the query params are passed.
+    c.post(f"/api/business/leads/{lead_id}/draft?platform=instagram&x_mode=thread&x_style=hot_take",
+           headers=h)
+    kw = eng.calls[-1]
+    assert kw["platform"] == Platform.INSTAGRAM
+    assert kw["x_mode"].value == "short" and kw["x_style"].value == "standard"
 
 
 def test_draft_isolation(client):
-    c, _ = client
+    c, _, _eng = client
     ha = _register(c, "a2@ex.com")
     hb = _register(c, "b2@ex.com")
     c.post("/api/business/sources", headers=ha, json={"url": "https://github.com/o/r"})
@@ -137,7 +167,7 @@ def test_draft_isolation(client):
 
 
 def test_digest_marks_all_leads(client):
-    c, SM = client
+    c, SM, _eng = client
     h = _register(c, "c@ex.com")
     src = c.post("/api/business/sources", headers=h,
                  json={"url": "https://github.com/o/r"}).json()["source"]
